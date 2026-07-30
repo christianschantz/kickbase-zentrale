@@ -10,6 +10,7 @@ Aufbau pro Liga:
    in der Saisonvorbereitung), Gegnerstärke mit Vorsaison-Fallback
 """
 
+import sys
 import time
 from config import LEAGUES, WEIGHTS, FOOTBALL_DATA_API_KEY, ODDS_API_KEY
 from kickbase_api import KickbaseAPI
@@ -223,8 +224,9 @@ def main():
     kb = KickbaseAPI()
     print("Verbinde mit Kickbase...")
     if not kb.login():
-        print("❌ Login fehlgeschlagen.")
-        return
+        print("❌ Login fehlgeschlagen - EMAIL/PASSWORD prüfen (lokal in config.py, "
+              "in CI in den GitHub Secrets KICKBASE_EMAIL/KICKBASE_PASSWORD).")
+        sys.exit(1)
     reports = []
     for cfg in LEAGUES:
         if "DEIN-" in cfg["name"]:
