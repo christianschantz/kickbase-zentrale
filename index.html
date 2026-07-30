@@ -1,0 +1,930 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Kickbase">
+<meta name="theme-color" content="#1f6fd6">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚽</text></svg>">
+<title>Kickbase-Zentrale</title>
+<style>
+:root {
+  --bg: #f4f5f7; --card-bg: #ffffff; --text: #1a1c20; --text-dim: #5b6270;
+  --border: #e2e4e9; --accent: #1f6fd6;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #14161a; --card-bg: #1e2126; --text: #eef0f3; --text-dim: #9aa1ad; --border: #2c3038; }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 0 0 3rem; background: var(--bg); color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 15px; line-height: 1.45;
+}
+header.top {
+  padding: 1.2rem 1rem 0.8rem; text-align: center;
+}
+header.top h1 { margin: 0 0 0.2rem; font-size: 1.3rem; }
+header.top .ts { color: var(--text-dim); font-size: 0.8rem; }
+main { max-width: 900px; margin: 0 auto; padding: 0 0.75rem; }
+section.league { margin-top: 1.5rem; }
+section.league h2 { font-size: 1.15rem; margin: 0 0 0.2rem; }
+section.league h3 { font-size: 0.95rem; margin: 1.1rem 0 0.5rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.03em; }
+.league-meta { color: var(--text-dim); font-size: 0.85rem; margin-bottom: 0.4rem; }
+.note { font-size: 0.85rem; margin: 0.3rem 0; }
+.note.warn { color: #c17a00; }
+.grid { display: grid; grid-template-columns: 1fr; gap: 0.6rem; }
+@media (min-width: 640px) { .grid { grid-template-columns: 1fr 1fr; } }
+.card {
+  background: var(--card-bg); border: 1px solid var(--border); border-left: 4px solid var(--border);
+  border-radius: 10px; padding: 0.7rem 0.85rem;
+}
+.card.banger { border-left-color: #caa23a; box-shadow: 0 0 0 1px #caa23a33; }
+.card-head { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 0.3rem; }
+.card-head .name { font-weight: 600; }
+.card-head .pos { font-weight: 400; color: var(--text-dim); }
+.badge { color: #fff; font-size: 0.72rem; padding: 0.1rem 0.45rem; border-radius: 6px; margin-right: 0.4rem; white-space: nowrap; }
+.star { font-size: 0.78rem; color: #caa23a; font-weight: 600; }
+.stats { font-size: 0.82rem; color: var(--text-dim); margin-top: 0.15rem; }
+.components { font-size: 0.78rem; color: var(--text-dim); margin-top: 0.3rem; }
+.reasons, .angles { margin: 0.35rem 0 0; padding-left: 1.1rem; font-size: 0.85rem; }
+.reasons li, .angles li { margin-bottom: 0.15rem; }
+.meta { font-size: 0.8rem; color: var(--text-dim); margin-top: 0.25rem; }
+.meta.warn { color: #c94b4b; }
+.verdict { font-size: 0.85rem; font-weight: 600; margin-top: 0.5rem; }
+.bid { font-size: 0.82rem; margin-top: 0.3rem; }
+.empty { color: var(--text-dim); font-size: 0.85rem; }
+#gate { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1rem; }
+.gate-box { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; width: 100%; max-width: 320px; text-align: center; }
+.gate-box input { width: 100%; padding: 0.6rem; margin: 0.8rem 0; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 1rem; }
+.gate-box button { width: 100%; padding: 0.6rem; border-radius: 8px; border: none; background: var(--accent); color: #fff; font-size: 1rem; }
+.gate-box .err { color: #c94b4b; font-size: 0.85rem; }
+footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-top: 2rem; }
+</style>
+</head>
+<body>
+<div id="gate">
+  <div class="gate-box">
+    <div style="font-size:2rem">🔒</div>
+    <div>Kickbase-Zentrale</div>
+    <input type="password" id="pw" placeholder="Passwort" autofocus>
+    <button id="go">Öffnen</button>
+    <p id="err" class="err" style="display:none">Falsch, nochmal.</p>
+  </div>
+</div>
+<div id="content" style="display:none">
+<header class="top">
+  <h1>⚽ Kickbase-Zentrale</h1>
+  <div class="ts">Stand: 30.07.2026 14:38 UTC</div>
+</header>
+<main>
+  <section class="league">
+  <h2>🏆 1899</h2>
+  <div class="league-meta">Budget -20,237,303 € · Kader 19/20</div>
+  
+  <h3>👥 Kader-Status</h3>
+  <div class="grid"><div class="card" style="border-left-color:#2e9e50">
+  <div class="card-head">
+    <span class="badge" style="background:#2e9e50">⭐ STAMM</span>
+    <span class="name">Hoffmann <span class="pos">(TW)</span></span>
+  </div>
+  <div class="stats">Score 81.8 · MW 8,275,311 € (+134,861 €/Tag)</div>
+  <ul class="reasons"><li>sportlicher Kern 75% - fitter Startelf-Kandidat</li><li>MW-Trend zusätzlich positiv (+134,861/Tag)</li></ul>
+  <div class='meta'>Nächste Gegner: 1. FC Magdeburg (24% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#2e9e50">
+  <div class="card-head">
+    <span class="badge" style="background:#2e9e50">⭐ STAMM</span>
+    <span class="name">Taz <span class="pos">(MF)</span></span>
+  </div>
+  <div class="stats">Score 74.5 · MW 9,374,640 € (+203,576 €/Tag)</div>
+  <ul class="reasons"><li>sportlicher Kern 66% - fitter Startelf-Kandidat</li><li>keine Kickbase-Punktehistorie - Einstufung über MW/Status</li><li>MW-Trend zusätzlich positiv (+203,576/Tag)</li></ul>
+  <div class='meta'>Nächste Gegner: Hertha Berlin (41% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#2e9e50">
+  <div class="card-head">
+    <span class="badge" style="background:#2e9e50">⭐ STAMM</span>
+    <span class="name">Manu <span class="pos">(ABW)</span></span>
+  </div>
+  <div class="stats">Score 71.4 · MW 6,076,054 € (+133,950 €/Tag)</div>
+  <ul class="reasons"><li>sportlicher Kern 61% - fitter Startelf-Kandidat</li><li>keine Kickbase-Punktehistorie - Einstufung über MW/Status</li><li>MW-Trend zusätzlich positiv (+133,950/Tag)</li></ul>
+  <div class='meta'>Nächste Gegner: Hannover 96 (30% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#2e9e50">
+  <div class="card-head">
+    <span class="badge" style="background:#2e9e50">⭐ STAMM</span>
+    <span class="name">Pieringer <span class="pos">(ANG)</span></span>
+  </div>
+  <div class="stats">Score 76.1 · MW 12,592,317 € (+83,281 €/Tag)</div>
+  <ul class="reasons"><li>sportlicher Kern 78% - fitter Startelf-Kandidat</li><li>keine Kickbase-Punktehistorie - Einstufung über MW/Status</li><li>MW-Trend zusätzlich positiv (+83,281/Tag)</li></ul>
+  <div class='meta'>Nächste Gegner: VfL Osnabrück (60% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#2e9e50">
+  <div class="card-head">
+    <span class="badge" style="background:#2e9e50">⭐ STAMM</span>
+    <span class="name">Wahl <span class="pos">(ABW)</span></span>
+  </div>
+  <div class="stats">Score 76.2 · MW 12,787,899 € (+82,785 €/Tag)</div>
+  <ul class="reasons"><li>sportlicher Kern 78% - fitter Startelf-Kandidat</li><li>keine Kickbase-Punktehistorie - Einstufung über MW/Status</li><li>MW-Trend zusätzlich positiv (+82,785/Tag)</li></ul>
+  <div class='meta'>Nächste Gegner: 1. FC Kaiserslautern (61% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#2e9e50">
+  <div class="card-head">
+    <span class="badge" style="background:#2e9e50">⭐ STAMM</span>
+    <span class="name">Will <span class="pos">(MF)</span></span>
+  </div>
+  <div class="stats">Score 76.3 · MW 5,858,631 € (+141,666 €/Tag)</div>
+  <ul class="reasons"><li>sportlicher Kern 68% - fitter Startelf-Kandidat</li><li>MW-Trend zusätzlich positiv (+141,666/Tag)</li></ul>
+  <div class='meta'>Nächste Gegner: FC St. Pauli (23% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#2e9e50">
+  <div class="card-head">
+    <span class="badge" style="background:#2e9e50">⭐ STAMM</span>
+    <span class="name">Rapp <span class="pos">(MF)</span></span>
+  </div>
+  <div class="stats">Score 73.4 · MW 5,939,386 € (+104,607 €/Tag)</div>
+  <ul class="reasons"><li>sportlicher Kern 64% - fitter Startelf-Kandidat</li><li>MW-Trend zusätzlich positiv (+104,607/Tag)</li></ul>
+  <div class='meta'>Nächste Gegner: 1. FC Nürnberg (26% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#2e9e50">
+  <div class="card-head">
+    <span class="badge" style="background:#2e9e50">⭐ STAMM</span>
+    <span class="name">Mathisen <span class="pos">(ABW)</span></span>
+  </div>
+  <div class="stats">Score 67.8 · MW 14,208,063 € (+40,109 €/Tag)</div>
+  <ul class="reasons"><li>sportlicher Kern 71% - fitter Startelf-Kandidat</li><li>MW-Trend zusätzlich positiv (+40,109/Tag)</li></ul>
+  <div class='meta'>Nächste Gegner: Greuther Fürth (53% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#2e9e50">
+  <div class="card-head">
+    <span class="badge" style="background:#2e9e50">⭐ STAMM</span>
+    <span class="name">Thórdarson <span class="pos">(MF)</span></span>
+  </div>
+  <div class="stats">Score 75.2 · MW 9,503,832 € (+137,768 €/Tag)</div>
+  <ul class="reasons"><li>sportlicher Kern 67% - fitter Startelf-Kandidat</li><li>MW-Trend zusätzlich positiv (+137,768/Tag)</li></ul>
+  <div class='meta'>Nächste Gegner: FC Energie Cottbus (44% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#2e9e50">
+  <div class="card-head">
+    <span class="badge" style="background:#2e9e50">⭐ STAMM</span>
+    <span class="name">Zec <span class="pos">(ABW)</span></span>
+  </div>
+  <div class="stats">Score 69.6 · MW 11,090,517 € (+73,865 €/Tag)</div>
+  <ul class="reasons"><li>sportlicher Kern 69% - fitter Startelf-Kandidat</li><li>MW-Trend zusätzlich positiv (+73,865/Tag)</li></ul>
+  <div class='meta'>Nächste Gegner: SV Darmstadt 98 (30% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#1f6fd6">
+  <div class="card-head">
+    <span class="badge" style="background:#1f6fd6">📈 HALTEN (Trading)</span>
+    <span class="name">Frees <span class="pos">(ABW)</span></span>
+  </div>
+  <div class="stats">Score 57.9 · MW 5,203,648 € (+125,641 €/Tag)</div>
+  <ul class="reasons"><li>MW steigt +125,641 €/Tag (+2.4%)</li><li>sportlich (noch) kein Stamm-Argument - reines Wert-Investment</li></ul>
+  <div class='meta'>Nächste Gegner: VfL Wolfsburg (18% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#1f6fd6">
+  <div class="card-head">
+    <span class="badge" style="background:#1f6fd6">📈 HALTEN (Trading)</span>
+    <span class="name">Rasmussen <span class="pos">(MF)</span></span>
+  </div>
+  <div class="stats">Score 64.2 · MW 7,809,695 € (+82,582 €/Tag)</div>
+  <ul class="reasons"><li>MW steigt +82,582 €/Tag (+1.1%)</li><li>sportlich (noch) kein Stamm-Argument - reines Wert-Investment</li></ul>
+  <div class='meta'>Nächste Gegner: Greuther Fürth (53% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#1f6fd6">
+  <div class="card-head">
+    <span class="badge" style="background:#1f6fd6">📈 HALTEN (Trading)</span>
+    <span class="name">Ofli <span class="pos">(ABW)</span></span>
+  </div>
+  <div class="stats">Score 68.5 · MW 6,646,377 € (+182,478 €/Tag)</div>
+  <ul class="reasons"><li>MW steigt +182,478 €/Tag (+2.7%)</li></ul>
+  <div class='meta'>Nächste Gegner: Arminia Bielefeld (37% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#1f6fd6">
+  <div class="card-head">
+    <span class="badge" style="background:#1f6fd6">📈 HALTEN (Trading)</span>
+    <span class="name">Lee <span class="pos">(MF)</span></span>
+  </div>
+  <div class="stats">Score 50.2 · MW 4,010,923 € (+153,215 €/Tag)</div>
+  <ul class="reasons"><li>MW steigt +153,215 €/Tag (+3.8%)</li><li>sportlich (noch) kein Stamm-Argument - reines Wert-Investment</li></ul>
+  <div class='meta'>Nächste Gegner: Eintracht Braunschweig (51% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#1f6fd6">
+  <div class="card-head">
+    <span class="badge" style="background:#1f6fd6">📈 HALTEN (Trading)</span>
+    <span class="name">El Kadiri <span class="pos">(ANG)</span></span>
+  </div>
+  <div class="stats">Score 69.7 · MW 6,815,715 € (+234,201 €/Tag)</div>
+  <ul class="reasons"><li>MW steigt +234,201 €/Tag (+3.4%)</li></ul>
+  <div class='meta'>Nächste Gegner: Holstein Kiel (43% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#1f6fd6">
+  <div class="card-head">
+    <span class="badge" style="background:#1f6fd6">📈 HALTEN (Trading)</span>
+    <span class="name">Klein <span class="pos">(MF)</span></span>
+  </div>
+  <div class="stats">Score 47.0 · MW 2,271,660 € (+171,509 €/Tag)</div>
+  <ul class="reasons"><li>MW steigt +171,509 €/Tag (+7.5%)</li><li>sportlich (noch) kein Stamm-Argument - reines Wert-Investment</li></ul>
+  <div class='meta'>Nächste Gegner: Greuther Fürth (53% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#1f6fd6">
+  <div class="card-head">
+    <span class="badge" style="background:#1f6fd6">📈 HALTEN (Trading)</span>
+    <span class="name">Janeš <span class="pos">(MF)</span></span>
+  </div>
+  <div class="stats">Score 49.8 · MW 3,208,155 € (+145,146 €/Tag)</div>
+  <ul class="reasons"><li>MW steigt +145,146 €/Tag (+4.5%)</li><li>sportlich (noch) kein Stamm-Argument - reines Wert-Investment</li></ul>
+  <div class='meta'>Nächste Gegner: VfL Osnabrück (60% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#1f6fd6">
+  <div class="card-head">
+    <span class="badge" style="background:#1f6fd6">📈 HALTEN (Trading)</span>
+    <span class="name">Crimaldi <span class="pos">(MF)</span></span>
+  </div>
+  <div class="stats">Score 53.8 · MW 1,515,556 € (+430,769 €/Tag)</div>
+  <ul class="reasons"><li>MW steigt +430,769 €/Tag (+28.4%)</li><li>sportlich (noch) kein Stamm-Argument - reines Wert-Investment</li></ul>
+  <div class='meta'>Nächste Gegner: Hertha Berlin (41% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#1f6fd6">
+  <div class="card-head">
+    <span class="badge" style="background:#1f6fd6">📈 HALTEN (Trading)</span>
+    <span class="name">Väänänen <span class="pos">(MF)</span></span>
+  </div>
+  <div class="stats">Score 52.4 · MW 3,607,260 € (+252,586 €/Tag)</div>
+  <ul class="reasons"><li>MW steigt +252,586 €/Tag (+7.0%)</li><li>sportlich (noch) kein Stamm-Argument - reines Wert-Investment</li></ul>
+  <div class='meta'>Nächste Gegner: Arminia Bielefeld (37% Sieg-WK)</div>
+</div></div>
+  <h3>💎 Banger-Ziele</h3><div class='grid'><div class="card market-card banger">
+  <div class="card-head">
+    <span class="name">Fynn Otto <span class="pos">(ABW, Nürnberg)</span></span>
+    <span class='star'>💎 Star 79%</span>
+  </div>
+  <div class="stats">Score 74.9 · MW 6,269,839 € (+100,278 €/Tag) · Ø 0 P · ⏳ 24h</div>
+  <div class="components">Preis-Leistung: 50% | MW-Momentum: 100% | Einsatz-WK: 75% | Spielplan: 47% | Form/Schnitt: 59%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
+  <div class='meta'>Nächste Gegner: Dynamo Dresden (47% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>📈 TRADING: MW-Momentum +1.6%/Tag &gt; schwächster Trading-Hold Rasmussen (+1.1%/Tag)</li><li>⚽ stärker als Frees (ABW), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 6,631,928 € (22h-MW ~6,370,117, Puffer 4.1%, WK ~59%) ✅ Kaufkraft 18,226,948 (33% von Netto-Teamwert 116,558,336 = max. Schulden 38,464,251, Budget -20,237,303)</div>
+</div></div>
+  <h3>🛒 Transfermarkt</h3>
+  <p class='note'>🟢 1 freie Kaderplätze</p>
+  <div class="grid"><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Fynn Otto <span class="pos">(ABW, Nürnberg)</span></span>
+    <span class='star'>💎 Star 79%</span>
+  </div>
+  <div class="stats">Score 74.9 · MW 6,269,839 € (+100,278 €/Tag) · Ø 0 P · ⏳ 24h</div>
+  <div class="components">Preis-Leistung: 50% | MW-Momentum: 100% | Einsatz-WK: 75% | Spielplan: 47% | Form/Schnitt: 59%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
+  <div class='meta'>Nächste Gegner: Dynamo Dresden (47% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>📈 TRADING: MW-Momentum +1.6%/Tag &gt; schwächster Trading-Hold Rasmussen (+1.1%/Tag)</li><li>⚽ stärker als Frees (ABW), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 6,631,928 € (22h-MW ~6,370,117, Puffer 4.1%, WK ~59%) ✅ Kaufkraft 18,226,948 (33% von Netto-Teamwert 116,558,336 = max. Schulden 38,464,251, Budget -20,237,303)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Joel Chima Fujita <span class="pos">(MF, St. Pauli)</span></span>
+    
+  </div>
+  <div class="stats">Score 72.8 · MW 10,936,431 € (+63,190 €/Tag) · Ø 0 P · ⏳ 8h</div>
+  <div class="components">Preis-Leistung: 50% | MW-Momentum: 69% | Einsatz-WK: 50% | Spielplan: 53% | Form/Schnitt: 100%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
+  <div class='meta'>Nächste Gegner: Greuther Fürth (53% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>⚽ stärker als Klein (MF), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 11,445,105 € (22h-MW ~10,999,621, Puffer 4.0%, WK ~58%) ✅ Kaufkraft 18,226,948 (33% von Netto-Teamwert 116,558,336 = max. Schulden 38,464,251, Budget -20,237,303)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Paul Seguin <span class="pos">(MF, Hertha BSC)</span></span>
+    
+  </div>
+  <div class="stats">Score 70.3 · MW 9,894,934 € (+57,653 €/Tag) · Ø 73 P · ⏳ 17h</div>
+  <div class="components">Preis-Leistung: 36% | MW-Momentum: 69% | Einsatz-WK: 100% | Spielplan: 33% | Form/Schnitt: 88%</div>
+  <div class='meta'>Nächste Gegner: VfL Bochum (33% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>⚽ stärker als Klein (MF), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li><li>📊 Rohpunkte-Typ: Ø 45 P. bei Sieg, Ø 55 P. bei Niederlage (2 Spiele, kleine Stichprobe) -&gt; auch bei schwachem Spielplan (Spielplan-Score nur 33%) ein Kandidat, Punkte hängen nicht am Sieg</li></ul>
+  <div class='bid'>💶 Gebot 10,346,709 € (22h-MW ~9,952,587, Puffer 4.0%, WK ~58%) ✅ Kaufkraft 18,226,948 (33% von Netto-Teamwert 116,558,336 = max. Schulden 38,464,251, Budget -20,237,303)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Friedrich Müller <span class="pos">(ABW, Dresden)</span></span>
+    
+  </div>
+  <div class="stats">Score 65.6 · MW 2,880,848 € (+2,361 €/Tag) · Ø 74 P · ⏳ 6h</div>
+  <div class="components">Preis-Leistung: 100% | MW-Momentum: 53% | Einsatz-WK: 50% | Spielplan: 26% | Form/Schnitt: 90%</div>
+  <div class='meta'>Nächste Gegner: 1. FC Nürnberg (26% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>⚽ stärker als Frees (ABW), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 2,993,059 € (22h-MW ~2,883,209, Puffer 3.8%, WK ~56%) ✅ Kaufkraft 18,226,948 (33% von Netto-Teamwert 116,558,336 = max. Schulden 38,464,251, Budget -20,237,303)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Patrick Kammerbauer <span class="pos">(ABW, Osnabrück)</span></span>
+    
+  </div>
+  <div class="stats">Score 63.1 · MW 5,183,180 € (+225,274 €/Tag) · Ø 0 P · ⏳ 16h</div>
+  <div class="components">Preis-Leistung: 50% | MW-Momentum: 100% | Einsatz-WK: 75% | Spielplan: 19% | Form/Schnitt: 46%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
+  <div class='meta'>Nächste Gegner: 1. FC Heidenheim (19% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>📈 TRADING: MW-Momentum +4.3%/Tag &gt; schwächster Trading-Hold Rasmussen (+1.1%/Tag)</li></ul>
+  <div class='bid'>💶 Gebot 5,609,648 € (22h-MW ~5,408,454, Puffer 3.7%, WK ~56%) ✅ Kaufkraft 18,226,948 (33% von Netto-Teamwert 116,558,336 = max. Schulden 38,464,251, Budget -20,237,303)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Paul Hennrich <span class="pos">(MF, Heidenheim)</span></span>
+    
+  </div>
+  <div class="stats">Score 61.9 · MW 2,486,609 € (+220,182 €/Tag) · Ø 0 P · ⏳ 30h</div>
+  <div class="components">Preis-Leistung: 50% | MW-Momentum: 100% | Einsatz-WK: 50% | Spielplan: 60% | Form/Schnitt: 17%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
+  <div class='meta'>Nächste Gegner: VfL Osnabrück (60% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>📈 TRADING: MW-Momentum +8.9%/Tag &gt; schwächster Trading-Hold Rasmussen (+1.1%/Tag)</li><li>⚽ stärker als Klein (MF), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 2,806,671 € (22h-MW ~2,706,791, Puffer 3.7%, WK ~56%) ✅ Kaufkraft 18,226,948 (33% von Netto-Teamwert 116,558,336 = max. Schulden 38,464,251, Budget -20,237,303)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Samuele Di Benedetto <span class="pos">(MF, Braunschweig)</span></span>
+    
+  </div>
+  <div class="stats">Score 57.4 · MW 4,553,147 € (+182,791 €/Tag) · Ø 0 P · ⏳ 22h</div>
+  <div class="components">Preis-Leistung: 50% | MW-Momentum: 100% | Einsatz-WK: 50% | Spielplan: 24% | Form/Schnitt: 39%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
+  <div class='meta'>Nächste Gegner: 1. FC Magdeburg (24% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>📈 TRADING: MW-Momentum +4.0%/Tag &gt; schwächster Trading-Hold Rasmussen (+1.1%/Tag)</li><li>⚽ stärker als Klein (MF), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 4,903,590 € (22h-MW ~4,735,938, Puffer 3.5%, WK ~54%) ✅ Kaufkraft 18,226,948 (33% von Netto-Teamwert 116,558,336 = max. Schulden 38,464,251, Budget -20,237,303)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Jón Thorsteinsson <span class="pos">(ANG, Hertha BSC)</span></span>
+    
+  </div>
+  <div class="stats">Score 54.6 · MW 2,445,907 € (+338,130 €/Tag) · Ø 29 P · ⏳ 14h</div>
+  <div class="components">Preis-Leistung: 74% | MW-Momentum: 100% | Einsatz-WK: 25% | Spielplan: 33% | Form/Schnitt: 15%</div>
+  <div class='meta'>Nächste Gegner: VfL Bochum (33% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>📈 TRADING: MW-Momentum +13.8%/Tag &gt; schwächster Trading-Hold Rasmussen (+1.1%/Tag)</li><li>⚽ stärker als El Kadiri (ANG), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 2,880,086 € (22h-MW ~2,784,037, Puffer 3.4%, WK ~54%) ✅ Kaufkraft 18,226,948 (33% von Netto-Teamwert 116,558,336 = max. Schulden 38,464,251, Budget -20,237,303)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">David Kopacz <span class="pos">(MF, Osnabrück)</span></span>
+    
+  </div>
+  <div class="stats">Score 54.2 · MW 3,270,947 € (+162,965 €/Tag) · Ø 0 P · ⏳ 11h</div>
+  <div class="components">Preis-Leistung: 50% | MW-Momentum: 100% | Einsatz-WK: 50% | Spielplan: 19% | Form/Schnitt: 25%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
+  <div class='meta'>Nächste Gegner: 1. FC Heidenheim (19% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>📈 TRADING: MW-Momentum +5.0%/Tag &gt; schwächster Trading-Hold Rasmussen (+1.1%/Tag)</li><li>⚽ stärker als Klein (MF), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 3,552,381 € (22h-MW ~3,433,912, Puffer 3.4%, WK ~54%) ✅ Kaufkraft 18,226,948 (33% von Netto-Teamwert 116,558,336 = max. Schulden 38,464,251, Budget -20,237,303)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Danyal Hakan Zor <span class="pos">(MF, Karlsruhe)</span></span>
+    
+  </div>
+  <div class="stats">Score 52.2 · MW 648,771 € (+321,313 €/Tag) · Ø 0 P · ⏳ 15h</div>
+  <div class="components">Preis-Leistung: 50% | MW-Momentum: 100% | Einsatz-WK: 50% | Spielplan: 37% | Form/Schnitt: 0%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
+  <div class='meta'>Nächste Gegner: Arminia Bielefeld (37% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>📈 TRADING: MW-Momentum +49.5%/Tag &gt; schwächster Trading-Hold Rasmussen (+1.1%/Tag)</li></ul>
+  <div class='bid'>💶 Gebot 1,002,678 € (22h-MW ~970,084, Puffer 3.4%, WK ~53%) ✅ Kaufkraft 18,226,948 (33% von Netto-Teamwert 116,558,336 = max. Schulden 38,464,251, Budget -20,237,303)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Eldin Dzogovic <span class="pos">(ABW, Magdeburg)</span></span>
+    
+  </div>
+  <div class="stats">Score 49.1 · MW 1,826,195 € (+257,785 €/Tag) · Ø 21 P · ⏳ 6h</div>
+  <div class="components">Preis-Leistung: 71% | MW-Momentum: 100% | Einsatz-WK: 0% | Spielplan: 51% | Form/Schnitt: 2%</div>
+  <div class='meta'>Nächste Gegner: Eintracht Braunschweig (51% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>📈 TRADING: MW-Momentum +14.1%/Tag &gt; schwächster Trading-Hold Rasmussen (+1.1%/Tag)</li><li>⚽ stärker als Frees (ABW), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 2,152,126 € (22h-MW ~2,083,980, Puffer 3.3%, WK ~52%) ✅ Kaufkraft 18,226,948 (33% von Netto-Teamwert 116,558,336 = max. Schulden 38,464,251, Budget -20,237,303)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Ferdinand Gebert <span class="pos">(TW, Karlsruhe)</span></span>
+    
+  </div>
+  <div class="stats">Score 44.2 · MW 1,978,011 € (+312,870 €/Tag) · Ø 0 P · ⏳ 46h</div>
+  <div class="components">Preis-Leistung: 50% | MW-Momentum: 100% | Einsatz-WK: 0% | Spielplan: 37% | Form/Schnitt: 11%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
+  <div class='meta'>Nächste Gegner: Arminia Bielefeld (37% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>📈 TRADING: MW-Momentum +15.8%/Tag &gt; schwächster Trading-Hold Rasmussen (+1.1%/Tag)</li></ul>
+  <div class='bid'>💶 Gebot 2,362,356 € (22h-MW ~2,290,881, Puffer 3.1%, WK ~51%) ✅ Kaufkraft 18,226,948 (33% von Netto-Teamwert 116,558,336 = max. Schulden 38,464,251, Budget -20,237,303)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Benedikt Pichler <span class="pos">(ANG, Hannover)</span></span>
+    
+  </div>
+  <div class="stats">Score 43.8 · MW 3,045,009 € (-121,969 €/Tag) · Ø 50 P · ⏳ 18h</div>
+  <div class="components">Preis-Leistung: 100% | MW-Momentum: 0% | Einsatz-WK: 25% | Spielplan: 44% | Form/Schnitt: 50%</div>
+  <div class='meta'>Nächste Gegner: FC Energie Cottbus (44% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>⚽ stärker als El Kadiri (ANG), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 3,139,099 € (22h-MW ~3,045,009, Puffer 3.1%, WK ~51%) ✅ Kaufkraft 18,226,948 (33% von Netto-Teamwert 116,558,336 = max. Schulden 38,464,251, Budget -20,237,303)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Bence Dárdai <span class="pos">(MF, Wolfsburg)</span></span>
+    
+  </div>
+  <div class="stats">Score 32.4 · MW 4,089,447 € (-139,953 €/Tag) · Ø 0 P · ⏳ 18h</div>
+  <div class="components">Preis-Leistung: 50% | MW-Momentum: 0% | Einsatz-WK: 0% | Spielplan: 61% | Form/Schnitt: 34%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
+  <div class='meta'>Nächste Gegner: 1. FC Kaiserslautern (61% Sieg-WK)</div>
+  <div class='meta warn'>⚠️ After severe knee injury - individual training</div>
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"></ul>
+  <div class='bid'>💶 Gebot 4,201,088 € (22h-MW ~4,089,447, Puffer 2.7%, WK ~48%) ✅ Kaufkraft 18,226,948 (33% von Netto-Teamwert 116,558,336 = max. Schulden 38,464,251, Budget -20,237,303)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Jonathan Wensing <span class="pos">(MF, Osnabrück)</span></span>
+    
+  </div>
+  <div class="stats">Score 26.7 · MW 250,000 € (+0 €/Tag) · Ø 0 P · ⏳ 13h</div>
+  <div class="components">Preis-Leistung: 50% | MW-Momentum: 50% | Einsatz-WK: 0% | Spielplan: 19% | Form/Schnitt: 0%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
+  <div class='meta'>Nächste Gegner: 1. FC Heidenheim (19% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"></ul>
+  <div class='bid'>💶 Gebot 256,299 € (22h-MW ~250,000, Puffer 2.5%, WK ~46%) ✅ Kaufkraft 18,226,948 (33% von Netto-Teamwert 116,558,336 = max. Schulden 38,464,251, Budget -20,237,303)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Adam Dźwigała <span class="pos">(ABW, St. Pauli)</span></span>
+    
+  </div>
+  <div class="stats">Score 26.3 · MW 2,044,060 € (-52,842 €/Tag) · Ø 0 P · ⏳ 23h</div>
+  <div class="components">Preis-Leistung: 50% | MW-Momentum: 0% | Einsatz-WK: 25% | Spielplan: 53% | Form/Schnitt: 12%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
+  <div class='meta'>Nächste Gegner: Greuther Fürth (53% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"></ul>
+  <div class='bid'>💶 Gebot 2,095,570 € (22h-MW ~2,044,060, Puffer 2.5%, WK ~46%) ✅ Kaufkraft 18,226,948 (33% von Netto-Teamwert 116,558,336 = max. Schulden 38,464,251, Budget -20,237,303)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Ryan Patrick Malone <span class="pos">(ABW, Cottbus)</span></span>
+    
+  </div>
+  <div class="stats">Score 16.4 · MW 1,580,891 € (-63,034 €/Tag) · Ø 0 P · ⏳ 25h</div>
+  <div class="components">Preis-Leistung: 50% | MW-Momentum: 0% | Einsatz-WK: 0% | Spielplan: 30% | Form/Schnitt: 6%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
+  <div class='meta'>Nächste Gegner: Hannover 96 (30% Sieg-WK)</div>
+  <div class='meta warn'>⚠️ Muscle injury in thigh - out for several weeks</div>
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"></ul>
+  <div class='bid'>💶 Gebot 1,615,512 € (22h-MW ~1,580,891, Puffer 2.2%, WK ~44%) ✅ Kaufkraft 18,226,948 (33% von Netto-Teamwert 116,558,336 = max. Schulden 38,464,251, Budget -20,237,303)</div>
+</div></div>
+</section><section class="league">
+  <h2>🏆 WirSchaffenStudium!!!</h2>
+  <div class="league-meta">Budget +18,198,352 € · Kader 19/20</div>
+  
+  <h3>👥 Kader-Status</h3>
+  <div class="grid"><div class="card" style="border-left-color:#2e9e50">
+  <div class="card-head">
+    <span class="badge" style="background:#2e9e50">⭐ STAMM</span>
+    <span class="name">Sivera <span class="pos">(TW)</span></span>
+  </div>
+  <div class="stats">Score 83.4 · MW 8,134,459 € (+173,962 €/Tag)</div>
+  <ul class="reasons"><li>sportlicher Kern 78% - fitter Startelf-Kandidat</li><li>MW-Trend zusätzlich positiv (+173,962/Tag)</li></ul>
+  <div class='meta'>Nächste Gegner: Getafe (39% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#2e9e50">
+  <div class="card-head">
+    <span class="badge" style="background:#2e9e50">⭐ STAMM</span>
+    <span class="name">Guido Rodríguez <span class="pos">(MF)</span></span>
+  </div>
+  <div class="stats">Score 75.0 · MW 10,302,620 € (+86,424 €/Tag)</div>
+  <ul class="reasons"><li>sportlicher Kern 74% - fitter Startelf-Kandidat</li><li>MW-Trend zusätzlich positiv (+86,424/Tag)</li></ul>
+  <div class='meta'>Nächste Gegner: Real Betis (35% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#2e9e50">
+  <div class="card-head">
+    <span class="badge" style="background:#2e9e50">⭐ STAMM</span>
+    <span class="name">Barrios <span class="pos">(MF)</span></span>
+  </div>
+  <div class="stats">Score 80.6 · MW 10,420,276 € (+148,850 €/Tag)</div>
+  <ul class="reasons"><li>sportlicher Kern 75% - fitter Startelf-Kandidat</li><li>MW-Trend zusätzlich positiv (+148,850/Tag)</li></ul>
+  <div class='meta'>Nächste Gegner: Málaga (73% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#2e9e50">
+  <div class="card-head">
+    <span class="badge" style="background:#2e9e50">⭐ STAMM</span>
+    <span class="name">Agoumé <span class="pos">(MF)</span></span>
+  </div>
+  <div class="stats">Score 72.1 · MW 7,703,432 € (+191,685 €/Tag)</div>
+  <ul class="reasons"><li>sportlicher Kern 62% - fitter Startelf-Kandidat</li><li>MW-Trend zusätzlich positiv (+191,685/Tag)</li></ul>
+  <div class='meta'>Nächste Gegner: Rayo Vallecano (43% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#2e9e50">
+  <div class="card-head">
+    <span class="badge" style="background:#2e9e50">⭐ STAMM</span>
+    <span class="name">Yuri Berchiche <span class="pos">(ABW)</span></span>
+  </div>
+  <div class="stats">Score 60.0 · MW 13,200,827 € (+67,133 €/Tag)</div>
+  <ul class="reasons"><li>sportlicher Kern 57% - fitter Startelf-Kandidat</li><li>MW-Trend zusätzlich positiv (+67,133/Tag)</li></ul>
+  <div class='meta'>Nächste Gegner: Barcelona (14% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#2e9e50">
+  <div class="card-head">
+    <span class="badge" style="background:#2e9e50">⭐ STAMM</span>
+    <span class="name">Martín <span class="pos">(ABW)</span></span>
+  </div>
+  <div class="stats">Score 66.0 · MW 11,615,361 € (+58,680 €/Tag)</div>
+  <ul class="reasons"><li>sportlicher Kern 66% - fitter Startelf-Kandidat</li><li>MW-Trend zusätzlich positiv (+58,680/Tag)</li></ul>
+  <div class='meta'>Nächste Gegner: Real Madrid (14% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#2e9e50">
+  <div class="card-head">
+    <span class="badge" style="background:#2e9e50">⭐ STAMM</span>
+    <span class="name">Rubén García <span class="pos">(MF)</span></span>
+  </div>
+  <div class="stats">Score 72.0 · MW 5,422,056 € (+237,303 €/Tag)</div>
+  <ul class="reasons"><li>sportlicher Kern 62% - fitter Startelf-Kandidat</li><li>MW-Trend zusätzlich positiv (+237,303/Tag)</li></ul>
+  <div class='meta'>Nächste Gegner: Celta Vigo (25% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#2e9e50">
+  <div class="card-head">
+    <span class="badge" style="background:#2e9e50">⭐ STAMM</span>
+    <span class="name">Martínez <span class="pos">(ANG)</span></span>
+  </div>
+  <div class="stats">Score 71.4 · MW 12,168,772 € (+99,387 €/Tag)</div>
+  <ul class="reasons"><li>sportlicher Kern 69% - fitter Startelf-Kandidat</li><li>MW-Trend zusätzlich positiv (+99,387/Tag)</li></ul>
+  <div class='meta'>Nächste Gegner: Getafe (39% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#2e9e50">
+  <div class="card-head">
+    <span class="badge" style="background:#2e9e50">⭐ STAMM</span>
+    <span class="name">Javi Guerra <span class="pos">(MF)</span></span>
+  </div>
+  <div class="stats">Score 70.7 · MW 10,122,476 € (+216,551 €/Tag)</div>
+  <ul class="reasons"><li>sportlicher Kern 60% - fitter Startelf-Kandidat</li><li>MW-Trend zusätzlich positiv (+216,551/Tag)</li></ul>
+  <div class='meta'>Nächste Gegner: Real Betis (35% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#2e9e50">
+  <div class="card-head">
+    <span class="badge" style="background:#2e9e50">⭐ STAMM</span>
+    <span class="name">Aramburu <span class="pos">(ABW)</span></span>
+  </div>
+  <div class="stats">Score 70.2 · MW 6,509,720 € (+216,405 €/Tag)</div>
+  <ul class="reasons"><li>sportlicher Kern 60% - fitter Startelf-Kandidat</li><li>MW-Trend zusätzlich positiv (+216,405/Tag)</li></ul>
+  <div class='meta'>Nächste Gegner: Real Madrid (14% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#1f6fd6">
+  <div class="card-head">
+    <span class="badge" style="background:#1f6fd6">📈 HALTEN (Trading)</span>
+    <span class="name">Berrocal <span class="pos">(ABW)</span></span>
+  </div>
+  <div class="stats">Score 55.7 · MW 3,469,637 € (+267,063 €/Tag)</div>
+  <ul class="reasons"><li>MW steigt +267,063 €/Tag (+7.7%)</li><li>sportlich (noch) kein Stamm-Argument - reines Wert-Investment</li></ul>
+  <div class='meta'>Nächste Gegner: Alavés (27% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#1f6fd6">
+  <div class="card-head">
+    <span class="badge" style="background:#1f6fd6">📈 HALTEN (Trading)</span>
+    <span class="name">Álex Baena <span class="pos">(MF)</span></span>
+  </div>
+  <div class="stats">Score 63.7 · MW 15,588,836 € (+154,597 €/Tag)</div>
+  <ul class="reasons"><li>MW steigt +154,597 €/Tag (+1.0%)</li><li>sportlich (noch) kein Stamm-Argument - reines Wert-Investment</li></ul>
+  <div class='meta'>Nächste Gegner: Málaga (73% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#1f6fd6">
+  <div class="card-head">
+    <span class="badge" style="background:#1f6fd6">📈 HALTEN (Trading)</span>
+    <span class="name">Diaby <span class="pos">(ABW)</span></span>
+  </div>
+  <div class="stats">Score 30.0 · MW 5,663,396 € (+248,317 €/Tag)</div>
+  <ul class="reasons"><li>MW steigt +248,317 €/Tag (+4.4%)</li><li>sportlich (noch) kein Stamm-Argument - reines Wert-Investment</li></ul>
+  <div class='meta'>Nächste Gegner: Deportivo La Coruña (29% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#1f6fd6">
+  <div class="card-head">
+    <span class="badge" style="background:#1f6fd6">📈 HALTEN (Trading)</span>
+    <span class="name">Moscardo <span class="pos">(MF)</span></span>
+  </div>
+  <div class="stats">Score 64.7 · MW 6,562,208 € (+216,250 €/Tag)</div>
+  <ul class="reasons"><li>MW steigt +216,250 €/Tag (+3.3%)</li><li>sportlich (noch) kein Stamm-Argument - reines Wert-Investment</li></ul>
+  <div class='meta'>Nächste Gegner: Levante (47% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#1f6fd6">
+  <div class="card-head">
+    <span class="badge" style="background:#1f6fd6">📈 HALTEN (Trading)</span>
+    <span class="name">Larrubia <span class="pos">(MF)</span></span>
+  </div>
+  <div class="stats">Score 66.9 · MW 5,280,346 € (+249,166 €/Tag)</div>
+  <ul class="reasons"><li>MW steigt +249,166 €/Tag (+4.7%)</li></ul>
+  <div class='meta'>Nächste Gegner: Atlético Madrid (9% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#1f6fd6">
+  <div class="card-head">
+    <span class="badge" style="background:#1f6fd6">📈 HALTEN (Trading)</span>
+    <span class="name">Johnny Cardoso <span class="pos">(MF)</span></span>
+  </div>
+  <div class="stats">Score 71.5 · MW 1,678,259 € (+195,719 €/Tag)</div>
+  <ul class="reasons"><li>MW steigt +195,719 €/Tag (+11.7%)</li><li>sportlich (noch) kein Stamm-Argument - reines Wert-Investment</li></ul>
+  <div class='meta'>Nächste Gegner: Málaga (73% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#1f6fd6">
+  <div class="card-head">
+    <span class="badge" style="background:#1f6fd6">📈 HALTEN (Trading)</span>
+    <span class="name">Mantilla <span class="pos">(ABW)</span></span>
+  </div>
+  <div class="stats">Score 59.1 · MW 2,577,297 € (+314,625 €/Tag)</div>
+  <ul class="reasons"><li>MW steigt +314,625 €/Tag (+12.2%)</li></ul>
+  <div class='meta'>Nächste Gegner: Villarreal (28% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#1f6fd6">
+  <div class="card-head">
+    <span class="badge" style="background:#1f6fd6">📈 HALTEN (Trading)</span>
+    <span class="name">Villalibre <span class="pos">(ANG)</span></span>
+  </div>
+  <div class="stats">Score 64.4 · MW 5,218,920 € (+250,174 €/Tag)</div>
+  <ul class="reasons"><li>MW steigt +250,174 €/Tag (+4.8%)</li></ul>
+  <div class='meta'>Nächste Gegner: Villarreal (28% Sieg-WK)</div>
+</div><div class="card" style="border-left-color:#1f6fd6">
+  <div class="card-head">
+    <span class="badge" style="background:#1f6fd6">📈 HALTEN (Trading)</span>
+    <span class="name">Neto <span class="pos">(MF)</span></span>
+  </div>
+  <div class="stats">Score 66.9 · MW 3,301,869 € (+215,384 €/Tag)</div>
+  <ul class="reasons"><li>MW steigt +215,384 €/Tag (+6.5%)</li><li>sportlich (noch) kein Stamm-Argument - reines Wert-Investment</li></ul>
+  <div class='meta'>Nächste Gegner: Deportivo La Coruña (29% Sieg-WK)</div>
+</div></div>
+  <h3>💎 Banger-Ziele</h3><div class='grid'><div class="card market-card banger">
+  <div class="card-head">
+    <span class="name">Pedro Pedri <span class="pos">(MF, FC Barcelona)</span></span>
+    <span class='star'>💎 Star 96%</span>
+  </div>
+  <div class="stats">Score 70.0 · MW 51,049,301 € (+22,307 €/Tag) · Ø 158 P · ⏳ 17h</div>
+  <div class="components">Preis-Leistung: 1% | MW-Momentum: 51% | Einsatz-WK: 100% | Spielplan: 67% | Form/Schnitt: 100%</div>
+  <div class='meta'>Nächste Gegner: Athletic Bilbao (67% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>⚽ stärker als Moscardo (MF), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li><li>📊 Rohpunkte-Typ: Ø 113 P. bei Sieg, Ø 104 P. bei Niederlage (3 Spiele, kleine Stichprobe)</li></ul>
+  <div class='bid'>💶 Gebot 53,094,043 € (22h-MW ~51,071,608, Puffer 4.0%, WK ~58%) ✅ Kaufkraft 72,034,261 (33% von Netto-Teamwert 163,139,119 = max. Schulden 53,835,909, Budget +18,198,352)</div>
+</div><div class="card market-card banger">
+  <div class="card-head">
+    <span class="name">Jude Bellingham <span class="pos">(MF, Real Madrid)</span></span>
+    <span class='star'>💎 Star 93%</span>
+  </div>
+  <div class="stats">Score 71.7 · MW 38,009,867 € (+88,540 €/Tag) · Ø 128 P · ⏳ 37h</div>
+  <div class="components">Preis-Leistung: 3% | MW-Momentum: 58% | Einsatz-WK: 100% | Spielplan: 67% | Form/Schnitt: 100%</div>
+  <div class='meta'>Nächste Gegner: Real Sociedad (67% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>⚽ stärker als Moscardo (MF), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 39,629,962 € (22h-MW ~38,098,407, Puffer 4.0%, WK ~58%) ✅ Kaufkraft 72,034,261 (33% von Netto-Teamwert 163,139,119 = max. Schulden 53,835,909, Budget +18,198,352)</div>
+</div><div class="card market-card banger">
+  <div class="card-head">
+    <span class="name">Marcos Marcos Alonso <span class="pos">(ABW, RC Celta)</span></span>
+    <span class='star'>💎 Star 87%</span>
+  </div>
+  <div class="stats">Score 74.5 · MW 20,409,846 € (+63,748 €/Tag) · Ø 106 P · ⏳ 11h</div>
+  <div class="components">Preis-Leistung: 18% | MW-Momentum: 60% | Einsatz-WK: 100% | Spielplan: 67% | Form/Schnitt: 100%</div>
+  <div class='meta'>Nächste Gegner: Athletic Bilbao (67% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>⚽ stärker als Diaby (ABW), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 21,315,058 € (22h-MW ~20,473,594, Puffer 4.1%, WK ~59%) ✅ Kaufkraft 72,034,261 (33% von Netto-Teamwert 163,139,119 = max. Schulden 53,835,909, Budget +18,198,352)</div>
+</div></div>
+  <h3>🛒 Transfermarkt</h3>
+  <p class='note'>🟢 1 freie Kaderplätze</p>
+  <div class="grid"><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Hugo Hugo Sotelo <span class="pos">(MF, Levante UD)</span></span>
+    
+  </div>
+  <div class="stats">Score 78.3 · MW 712,374 € (+54,022 €/Tag) · Ø 76 P · ⏳ 1h</div>
+  <div class="components">Preis-Leistung: 100% | MW-Momentum: 100% | Einsatz-WK: 50% | Spielplan: 25% | Form/Schnitt: 93%</div>
+  <div class='meta'>Nächste Gegner: Espanyol (25% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>📈 TRADING: MW-Momentum +7.6%/Tag &gt; schwächster Trading-Hold Álex Baena (+1.0%/Tag)</li><li>⚽ stärker als Moscardo (MF), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 798,814 € (22h-MW ~766,396, Puffer 4.2%, WK ~60%) ✅ Kaufkraft 72,034,261 (33% von Netto-Teamwert 163,139,119 = max. Schulden 53,835,909, Budget +18,198,352)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Nahuel Tenaglia <span class="pos">(ABW, Deportivo Alavés)</span></span>
+    
+  </div>
+  <div class="stats">Score 74.5 · MW 10,059,978 € (+74,095 €/Tag) · Ø 79 P · ⏳ 10h</div>
+  <div class="components">Preis-Leistung: 40% | MW-Momentum: 75% | Einsatz-WK: 100% | Spielplan: 39% | Form/Schnitt: 98%</div>
+  <div class='meta'>Nächste Gegner: Getafe (39% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>⚽ stärker als Diaby (ABW), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li><li>📊 Rohpunkte-Typ: Ø 113 P. bei Sieg, Ø 118 P. bei Niederlage (3 Spiele, kleine Stichprobe) -&gt; auch bei schwachem Spielplan (Spielplan-Score nur 39%) ein Kandidat, Punkte hängen nicht am Sieg</li></ul>
+  <div class='bid'>💶 Gebot 10,550,583 € (22h-MW ~10,134,073, Puffer 4.1%, WK ~59%) ✅ Kaufkraft 72,034,261 (33% von Netto-Teamwert 163,139,119 = max. Schulden 53,835,909, Budget +18,198,352)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Marcos Marcos Alonso <span class="pos">(ABW, RC Celta)</span></span>
+    <span class='star'>💎 Star 87%</span>
+  </div>
+  <div class="stats">Score 74.5 · MW 20,409,846 € (+63,748 €/Tag) · Ø 106 P · ⏳ 11h</div>
+  <div class="components">Preis-Leistung: 18% | MW-Momentum: 60% | Einsatz-WK: 100% | Spielplan: 67% | Form/Schnitt: 100%</div>
+  <div class='meta'>Nächste Gegner: Athletic Bilbao (67% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>⚽ stärker als Diaby (ABW), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 21,315,058 € (22h-MW ~20,473,594, Puffer 4.1%, WK ~59%) ✅ Kaufkraft 72,034,261 (33% von Netto-Teamwert 163,139,119 = max. Schulden 53,835,909, Budget +18,198,352)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Jon Moncayola <span class="pos">(MF, CA Osasuna)</span></span>
+    
+  </div>
+  <div class="stats">Score 74.1 · MW 6,091,602 € (+107,502 €/Tag) · Ø 60 P · ⏳ 8h</div>
+  <div class="components">Preis-Leistung: 57% | MW-Momentum: 100% | Einsatz-WK: 100% | Spielplan: 25% | Form/Schnitt: 67%</div>
+  <div class='meta'>Nächste Gegner: Celta Vigo (25% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>📈 TRADING: MW-Momentum +1.8%/Tag &gt; schwächster Trading-Hold Álex Baena (+1.0%/Tag)</li><li>⚽ stärker als Moscardo (MF), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 6,453,887 € (22h-MW ~6,199,104, Puffer 4.1%, WK ~59%) ✅ Kaufkraft 72,034,261 (33% von Netto-Teamwert 163,139,119 = max. Schulden 53,835,909, Budget +18,198,352)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Alejandro Grimaldo <span class="pos">(ABW, Atlético Madrid)</span></span>
+    
+  </div>
+  <div class="stats">Score 72.9 · MW 32,046,207 € (+69,876 €/Tag) · Ø 0 P · ⏳ 28h</div>
+  <div class="components">Preis-Leistung: 50% | MW-Momentum: 57% | Einsatz-WK: 50% | Spielplan: 73% | Form/Schnitt: 100%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
+  <div class='meta'>Nächste Gegner: Málaga (73% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>⚽ stärker als Diaby (ABW), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 33,416,784 € (22h-MW ~32,116,083, Puffer 4.0%, WK ~58%) ✅ Kaufkraft 72,034,261 (33% von Netto-Teamwert 163,139,119 = max. Schulden 53,835,909, Budget +18,198,352)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Jude Bellingham <span class="pos">(MF, Real Madrid)</span></span>
+    <span class='star'>💎 Star 93%</span>
+  </div>
+  <div class="stats">Score 71.7 · MW 38,009,867 € (+88,540 €/Tag) · Ø 128 P · ⏳ 37h</div>
+  <div class="components">Preis-Leistung: 3% | MW-Momentum: 58% | Einsatz-WK: 100% | Spielplan: 67% | Form/Schnitt: 100%</div>
+  <div class='meta'>Nächste Gegner: Real Sociedad (67% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>⚽ stärker als Moscardo (MF), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 39,629,962 € (22h-MW ~38,098,407, Puffer 4.0%, WK ~58%) ✅ Kaufkraft 72,034,261 (33% von Netto-Teamwert 163,139,119 = max. Schulden 53,835,909, Budget +18,198,352)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Pedro Pedri <span class="pos">(MF, FC Barcelona)</span></span>
+    <span class='star'>💎 Star 96%</span>
+  </div>
+  <div class="stats">Score 70.0 · MW 51,049,301 € (+22,307 €/Tag) · Ø 158 P · ⏳ 17h</div>
+  <div class="components">Preis-Leistung: 1% | MW-Momentum: 51% | Einsatz-WK: 100% | Spielplan: 67% | Form/Schnitt: 100%</div>
+  <div class='meta'>Nächste Gegner: Athletic Bilbao (67% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>⚽ stärker als Moscardo (MF), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li><li>📊 Rohpunkte-Typ: Ø 113 P. bei Sieg, Ø 104 P. bei Niederlage (3 Spiele, kleine Stichprobe)</li></ul>
+  <div class='bid'>💶 Gebot 53,094,043 € (22h-MW ~51,071,608, Puffer 4.0%, WK ~58%) ✅ Kaufkraft 72,034,261 (33% von Netto-Teamwert 163,139,119 = max. Schulden 53,835,909, Budget +18,198,352)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Isaac Isaac Romero <span class="pos">(ANG, Sevilla FC)</span></span>
+    
+  </div>
+  <div class="stats">Score 60.4 · MW 3,914,523 € (+255,172 €/Tag) · Ø 31 P · ⏳ 10h</div>
+  <div class="components">Preis-Leistung: 41% | MW-Momentum: 100% | Einsatz-WK: 75% | Spielplan: 43% | Form/Schnitt: 18%</div>
+  <div class='meta'>Nächste Gegner: Rayo Vallecano (43% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>📈 TRADING: MW-Momentum +6.5%/Tag &gt; schwächster Trading-Hold Álex Baena (+1.0%/Tag)</li><li>⚽ stärker als Villalibre (ANG), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 4,321,054 € (22h-MW ~4,169,695, Puffer 3.6%, WK ~55%) ✅ Kaufkraft 72,034,261 (33% von Netto-Teamwert 163,139,119 = max. Schulden 53,835,909, Budget +18,198,352)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Luis Miguel Luismi Cruz <span class="pos">(ANG, RC Deportivo)</span></span>
+    
+  </div>
+  <div class="stats">Score 58.7 · MW 3,756,311 € (+159,386 €/Tag) · Ø 0 P · ⏳ 35h</div>
+  <div class="components">Preis-Leistung: 50% | MW-Momentum: 100% | Einsatz-WK: 50% | Spielplan: 42% | Form/Schnitt: 31%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
+  <div class='meta'>Nächste Gegner: Elche CF (42% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>📈 TRADING: MW-Momentum +4.2%/Tag &gt; schwächster Trading-Hold Álex Baena (+1.0%/Tag)</li></ul>
+  <div class='bid'>💶 Gebot 4,056,662 € (22h-MW ~3,915,697, Puffer 3.6%, WK ~55%) ✅ Kaufkraft 72,034,261 (33% von Netto-Teamwert 163,139,119 = max. Schulden 53,835,909, Budget +18,198,352)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Franco Mastantuono <span class="pos">(MF, Real Madrid)</span></span>
+    
+  </div>
+  <div class="stats">Score 55.2 · MW 9,205,881 € (+53,344 €/Tag) · Ø 66 P · ⏳ 43h</div>
+  <div class="components">Preis-Leistung: 35% | MW-Momentum: 69% | Einsatz-WK: 0% | Spielplan: 67% | Form/Schnitt: 77%</div>
+  <div class='meta'>Nächste Gegner: Real Sociedad (67% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>⚽ stärker als Moscardo (MF), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 9,581,446 € (22h-MW ~9,259,225, Puffer 3.5%, WK ~54%) ✅ Kaufkraft 72,034,261 (33% von Netto-Teamwert 163,139,119 = max. Schulden 53,835,909, Budget +18,198,352)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Borja Mayoral <span class="pos">(ANG, Getafe CF)</span></span>
+    
+  </div>
+  <div class="stats">Score 48.4 · MW 500,000 € (+0 €/Tag) · Ø 48 P · ⏳ 41h</div>
+  <div class="components">Preis-Leistung: 100% | MW-Momentum: 50% | Einsatz-WK: 6% | Spielplan: 27% | Form/Schnitt: 47%</div>
+  <div class='meta'>Nächste Gegner: Alavés (27% Sieg-WK)</div>
+  <div class='meta warn'>⚠️ Unknown reason - missing from team training</div>
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>⚽ stärker als Villalibre (ANG), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 516,200 € (22h-MW ~500,000, Puffer 3.2%, WK ~52%) ✅ Kaufkraft 72,034,261 (33% von Netto-Teamwert 163,139,119 = max. Schulden 53,835,909, Budget +18,198,352)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Jozhua Vertrouwd <span class="pos">(ABW, Rayo Vallecano)</span></span>
+    
+  </div>
+  <div class="stats">Score 44.8 · MW 500,000 € (+0 €/Tag) · Ø 23 P · ⏳ 2h</div>
+  <div class="components">Preis-Leistung: 100% | MW-Momentum: 50% | Einsatz-WK: 25% | Spielplan: 28% | Form/Schnitt: 5%</div>
+  <div class='meta'>Nächste Gegner: Sevilla (28% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>⚽ stärker als Diaby (ABW), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 515,599 € (22h-MW ~500,000, Puffer 3.1%, WK ~51%) ✅ Kaufkraft 72,034,261 (33% von Netto-Teamwert 163,139,119 = max. Schulden 53,835,909, Budget +18,198,352)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">José Antonio Tete Morente <span class="pos">(MF, Elche CF)</span></span>
+    
+  </div>
+  <div class="stats">Score 43.5 · MW 4,331,684 € (-200,383 €/Tag) · Ø 70 P · ⏳ 32h</div>
+  <div class="components">Preis-Leistung: 100% | MW-Momentum: 0% | Einsatz-WK: 12% | Spielplan: 29% | Form/Schnitt: 83%</div>
+  <div class='meta'>Nächste Gegner: Deportivo La Coruña (29% Sieg-WK)</div>
+  <div class='meta warn'>⚠️ Stricken - missed friendly match</div>
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>⚽ stärker als Moscardo (MF), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li><li>📊 Scorer-Typ: Ø 27 P. bei Sieg, Ø 8 P. bei Niederlage (3 Spiele, kleine Stichprobe) -&gt; Vorsicht: schwacher Spielplan (nur 29%) UND punktet primär bei eigenen Siegen</li></ul>
+  <div class='bid'>💶 Gebot 4,465,533 € (22h-MW ~4,331,684, Puffer 3.1%, WK ~51%) ✅ Kaufkraft 72,034,261 (33% von Netto-Teamwert 163,139,119 = max. Schulden 53,835,909, Budget +18,198,352)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Carlos Benavídez <span class="pos">(ABW, Deportivo Alavés)</span></span>
+    
+  </div>
+  <div class="stats">Score 41.4 · MW 500,000 € (+0 €/Tag) · Ø 23 P · ⏳ 4h</div>
+  <div class="components">Preis-Leistung: 100% | MW-Momentum: 50% | Einsatz-WK: 0% | Spielplan: 39% | Form/Schnitt: 5%</div>
+  <div class='meta'>Nächste Gegner: Getafe (39% Sieg-WK)</div>
+  <div class='meta warn'>⚠️ Knee problems - missed friendly match</div>
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>⚽ stärker als Diaby (ABW), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 515,150 € (22h-MW ~500,000, Puffer 3.0%, WK ~50%) ✅ Kaufkraft 72,034,261 (33% von Netto-Teamwert 163,139,119 = max. Schulden 53,835,909, Budget +18,198,352)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Carlos Macià <span class="pos">(MF, Villarreal CF)</span></span>
+    
+  </div>
+  <div class="stats">Score 41.2 · MW 500,000 € (+0 €/Tag) · Ø 16 P · ⏳ 9h</div>
+  <div class="components">Preis-Leistung: 100% | MW-Momentum: 50% | Einsatz-WK: 0% | Spielplan: 44% | Form/Schnitt: 0%</div>
+  <div class='meta'>Nächste Gegner: Real Racing Club de Santander (44% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>⚽ stärker als Moscardo (MF), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 515,000 € (22h-MW ~500,000, Puffer 3.0%, WK ~50%) ✅ Kaufkraft 72,034,261 (33% von Netto-Teamwert 163,139,119 = max. Schulden 53,835,909, Budget +18,198,352)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Alexander Freeman <span class="pos">(ABW, Villarreal CF)</span></span>
+    
+  </div>
+  <div class="stats">Score 38.6 · MW 579,335 € (-107,859 €/Tag) · Ø 38 P · ⏳ 26h</div>
+  <div class="components">Preis-Leistung: 100% | MW-Momentum: 0% | Einsatz-WK: 25% | Spielplan: 44% | Form/Schnitt: 30%</div>
+  <div class='meta'>Nächste Gegner: Real Racing Club de Santander (44% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>⚽ stärker als Diaby (ABW), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li><li>📊 Rohpunkte-Typ: Ø 82 P. bei Sieg, Ø 66 P. bei Niederlage (2 Spiele, kleine Stichprobe) -&gt; auch bei schwachem Spielplan (Spielplan-Score nur 44%) ein Kandidat, Punkte hängen nicht am Sieg</li></ul>
+  <div class='bid'>💶 Gebot 596,193 € (22h-MW ~579,335, Puffer 2.9%, WK ~49%) ✅ Kaufkraft 72,034,261 (33% von Netto-Teamwert 163,139,119 = max. Schulden 53,835,909, Budget +18,198,352)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Andoni Gorosabel <span class="pos">(ABW, Athletic Club)</span></span>
+    
+  </div>
+  <div class="stats">Score 34.0 · MW 2,909,788 € (-121,857 €/Tag) · Ø 45 P · ⏳ 6h</div>
+  <div class="components">Preis-Leistung: 100% | MW-Momentum: 0% | Einsatz-WK: 12% | Spielplan: 14% | Form/Schnitt: 42%</div>
+  <div class='meta'>Nächste Gegner: Barcelona (14% Sieg-WK)</div>
+  <div class='meta warn'>⚠️ Adductor problems - misses team training</div>
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>⚽ stärker als Diaby (ABW), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 2,990,098 € (22h-MW ~2,909,788, Puffer 2.8%, WK ~48%) ✅ Kaufkraft 72,034,261 (33% von Netto-Teamwert 163,139,119 = max. Schulden 53,835,909, Budget +18,198,352)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Álex Calatrava <span class="pos">(MF, RCD Espanyol)</span></span>
+    
+  </div>
+  <div class="stats">Score 30.1 · MW 2,262,009 € (-144,219 €/Tag) · Ø 0 P · ⏳ 1h</div>
+  <div class="components">Preis-Leistung: 50% | MW-Momentum: 0% | Einsatz-WK: 50% | Spielplan: 47% | Form/Schnitt: 14%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
+  <div class='meta'>Nächste Gegner: Levante (47% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"></ul>
+  <div class='bid'>💶 Gebot 2,321,726 € (22h-MW ~2,262,009, Puffer 2.6%, WK ~47%) ✅ Kaufkraft 72,034,261 (33% von Netto-Teamwert 163,139,119 = max. Schulden 53,835,909, Budget +18,198,352)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Andrés Céspedes <span class="pos">(TW, Málaga CF)</span></span>
+    
+  </div>
+  <div class="stats">Score 25.3 · MW 500,000 € (+0 €/Tag) · Ø 0 P · ⏳ 26h</div>
+  <div class="components">Preis-Leistung: 50% | MW-Momentum: 50% | Einsatz-WK: 0% | Spielplan: 9% | Form/Schnitt: 0%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
+  <div class='meta'>Nächste Gegner: Atlético Madrid (9% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"></ul>
+  <div class='bid'>💶 Gebot 512,449 € (22h-MW ~500,000, Puffer 2.5%, WK ~46%) ✅ Kaufkraft 72,034,261 (33% von Netto-Teamwert 163,139,119 = max. Schulden 53,835,909, Budget +18,198,352)</div>
+</div><div class="card market-card">
+  <div class="card-head">
+    <span class="name">Jon Karrikaburu <span class="pos">(ANG, Real Sociedad)</span></span>
+    
+  </div>
+  <div class="stats">Score 14.9 · MW 500,000 € (+0 €/Tag) · Ø -7 P · ⏳ 14h</div>
+  <div class="components">Preis-Leistung: 0% | MW-Momentum: 50% | Einsatz-WK: 0% | Spielplan: 14% | Form/Schnitt: 0%</div>
+  <div class='meta'>Nächste Gegner: Real Madrid (14% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"></ul>
+  <div class='bid'>💶 Gebot 510,650 € (22h-MW ~500,000, Puffer 2.1%, WK ~43%) ✅ Kaufkraft 72,034,261 (33% von Netto-Teamwert 163,139,119 = max. Schulden 53,835,909, Budget +18,198,352)</div>
+</div></div>
+</section>
+  <footer>Automatisch generiert · faktenbasiert, keine Blackbox-Scores</footer>
+</main>
+</div>
+<script>
+
+const HASH = "2866fa1494846ba0b75cb322e672fb512fd1310af9bbeebf24889bcf35803114";
+async function sha256(msg) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(msg));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+function unlock() {
+  document.getElementById("gate").style.display = "none";
+  document.getElementById("content").style.display = "block";
+}
+async function tryUnlock() {
+  const pw = document.getElementById("pw").value;
+  const h = await sha256(pw);
+  if (h === HASH) {
+    localStorage.setItem("kb_auth", HASH);
+    unlock();
+  } else {
+    document.getElementById("err").style.display = "block";
+  }
+}
+document.getElementById("pw").addEventListener("keydown", e => { if (e.key === "Enter") tryUnlock(); });
+document.getElementById("go").addEventListener("click", tryUnlock);
+if (localStorage.getItem("kb_auth") === HASH) { unlock(); }
+
+</script>
+</body>
+</html>
