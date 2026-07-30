@@ -8,8 +8,16 @@ Secrets kommen dann über Umgebungsvariablen (GitHub Secrets) rein, siehe
 
 import os
 
-EMAIL = os.environ.get("KICKBASE_EMAIL", "")
-PASSWORD = os.environ.get("KICKBASE_PASSWORD", "")
+
+def _env(name):
+    # .strip(): GitHub-Secrets enthalten manchmal einen versehentlich
+    # mitkopierten Zeilenumbruch/Leerzeichen - das lässt den Kickbase-Login
+    # mit err:1 AccessDenied scheitern, obwohl der sichtbare Wert stimmt.
+    return os.environ.get(name, "").strip()
+
+
+EMAIL = _env("KICKBASE_EMAIL")
+PASSWORD = _env("KICKBASE_PASSWORD")
 
 # Mehrere Ligen: das Briefing läuft nacheinander über alle Einträge.
 # Spielplan/Gegnerstärke-Kaskade (main.load_fixture_data):
@@ -38,13 +46,13 @@ LEAGUES = [
     },
 ]
 
-FOOTBALL_DATA_API_KEY = os.environ.get("FOOTBALL_DATA_API_KEY", "")  # optional, La-Liga-Fallback
+FOOTBALL_DATA_API_KEY = _env("FOOTBALL_DATA_API_KEY")  # optional, La-Liga-Fallback
 
 # the-odds-api.com Free Tier (500 Requests/Monat). Nur Fallback-Nutzung (s.o.),
 # max. 1 Request pro Liga pro Lauf. Outright-/Meisterquoten NICHT verfügbar
 # für D2/La Liga auf diesem Tier (geprüft: INVALID_MARKET_COMBO) - daher kein
 # zusätzliches Team-Power-Signal, nur Ersatz für die regulären Spielquoten.
-ODDS_API_KEY = os.environ.get("ODDS_API_KEY", "")
+ODDS_API_KEY = _env("ODDS_API_KEY")
 
 # Scoring-Gewichte (Summe = 1.0). Ausgewogen: Trading & Punkte Hand in Hand.
 WEIGHTS = {
@@ -59,4 +67,4 @@ WEIGHTS = {
 # erreichbar!). Kein echter Schutz (Client-seitiges JS, SHA-256-Hash liegt im
 # Quelltext) - reicht nur gegen zufälliges Finden der URL. Leer lassen = keine
 # Sperre (z.B. für lokale Vorschau).
-PAGE_PASSWORD = os.environ.get("PAGE_PASSWORD", "")
+PAGE_PASSWORD = _env("PAGE_PASSWORD")
