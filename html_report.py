@@ -57,11 +57,17 @@ def _market_card(m, highlight=False):
     tick = "✅" if m.get("affordable") else "❌"
     bid_html = ""
     if bid and "KEIN BEDARF" not in headline:
+        extra = ""
+        if bid.get("projection_note"):
+            extra += f"<div class='meta'>↳ {_esc(bid['projection_note'])}</div>"
+        if bid.get("star_ceiling"):
+            extra += (f"<div class='meta'>↳ Star-Ausnahme: in Einzelfällen bis "
+                      f"{bid['star_ceiling']:,.0f} € belegt (nicht die Regel)</div>")
         bid_html = (f"<div class='bid'>💶 Gebot {bid.get('recommended_bid', 0):,.0f} € "
                     f"(22h-MW ~{bid.get('expected_mv_22h', 0):,.0f}, "
                     f"Puffer {bid.get('buffer_pct', 0)}%, "
                     f"WK ~{bid.get('win_probability', 0):.0%}) {tick} "
-                    f"{_esc(m.get('financing', ''))}</div>")
+                    f"{_esc(m.get('financing', ''))}</div>{extra}")
     opponents = (f"<div class='meta'>Nächste Gegner: {_esc(', '.join(m['opponents']))}</div>"
                  if m.get("opponents") else "")
     fitness = f"<div class='meta warn'>⚠️ {_esc(m['fitness'])}</div>" if m.get("fitness") else ""

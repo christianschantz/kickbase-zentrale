@@ -23,7 +23,8 @@ from scoring import score_player, explain, player_reliability_profile, punktetyp
 from bid_advisor import learn_league_overpay
 from odds import load_fixture_odds, load_fixture_odds_api, fixture_ease_odds
 from fixtures import _best_match
-from squad_analysis import classify_own_player, market_vs_squad, POS_NAMES
+from squad_analysis import (classify_own_player, market_vs_squad,
+                            finalize_headline_recommendations, POS_NAMES)
 
 
 def _match_name(name, candidates):
@@ -173,8 +174,16 @@ def run_league(kb, cfg):
     compared, free_slots = market_vs_squad(market_scored, squad_classified,
                                            budget, max_squad,
                                            league_overpay=league_overpay)
+    compared = finalize_headline_recommendations(compared)
     if free_slots:
         print(f"   ({free_slots} freie Kaderplätze!)")
+
+    def _print_bid_extra(b):
+        if b.get("projection_note"):
+            print(f"     ↳ {b['projection_note']}")
+        if b.get("star_ceiling"):
+            print(f"     ↳ Star-Ausnahme: in Einzelfällen bis "
+                  f"{b['star_ceiling']:,.0f} € belegt (nicht die Regel)")
 
     bangers = sorted([m2 for m2 in compared if m2.get("banger")],
                      key=lambda x: -x["star"])
@@ -188,6 +197,7 @@ def run_league(kb, cfg):
             print(f"  🎯 {m2['team_verdict']}")
             print(f"  💶 Gebot {b['recommended_bid']:,.0f} € "
                   f"(WK ~{b['win_probability']:.0%}) {tick} {m2['financing']}")
+            _print_bid_extra(b)
 
     for m in compared[:6]:
         print(f"\n• {m['name']} ({m['pos']}) Score {m['score']} "
@@ -205,6 +215,7 @@ def run_league(kb, cfg):
             print(f"  💶 Gebot {b['recommended_bid']:,.0f} € "
                   f"(22h-MW ~{b['expected_mv_22h']:,.0f}, Puffer {b['buffer_pct']}%, "
                   f"WK ~{b['win_probability']:.0%}) {tick} {m['financing']}")
+            _print_bid_extra(b)
 
     return {
         "name": name,

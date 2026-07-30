@@ -231,7 +231,9 @@ def market_vs_squad(market_scored, squad_classified, budget, max_squad,
 
         aggr = dynamic_aggressiveness(m["score"])
         bid = recommend_bid(m["mv"], m["tfhmvt"], aggressiveness=aggr,
-                            league_overpay=league_overpay)
+                            league_overpay=league_overpay,
+                            sporting_core=m["meta"]["sporting_core"],
+                            star=m.get("star", 0))
 
         if free_slots > 0:
             headline = "KAUFEN (freier Kaderplatz)"
@@ -263,3 +265,43 @@ def market_vs_squad(market_scored, squad_classified, budget, max_squad,
                         "financing": financing,
                         "trading_angle": trading, "sporting_angle": sporting})
     return results, free_slots
+
+
+ACTIONABLE_MARKERS = ("UPGRADE", "KAUFEN")
+SKIP_STAR_THRESHOLD = 0.6
+
+
+def finalize_headline_recommendations(compared):
+    """
+    Wählt aus den bewerteten Marktkandidaten bis zu zwei mit einer klaren
+    Kaufen/Nicht-Kaufen-Entscheidung statt nur Pro/Contra + Gebot (User-
+    Feedback: "du wägst sehr gut ab, aber gibst keine finale Handlungs-
+    empfehlung"). Alle anderen Kandidaten bleiben unverändert eine Abwägung.
+
+    - Kauf-Empfehlung: höchster Score mit echtem Handlungs-Ansatz (UPGRADE
+      oder freier Kaderplatz) UND finanzierbar.
+    - Nicht-Kaufen-Empfehlung: der auffälligste Star-Kandidat (Star-Power
+      >= 0.6), der GERADE NICHT finanzierbar ist - "sieht gut aus, aber
+      aktuell keine Jagd wert".
+    Beides ist optional (0, 1 oder 2 Treffer je nach Marktlage).
+    """
+    buy_pick = None
+    for m in sorted(compared, key=lambda x: -x["score"]):
+        if m["affordable"] and any(k in m["team_verdict"] for k in ACTIONABLE_MARKERS):
+            buy_pick = m
+            break
+
+    skip_pick = None
+    for m in sorted(compared, key=lambda x: -x.get("star", 0)):
+        if m is buy_pick:
+            continue
+        if m.get("star", 0) >= SKIP_STAR_THRESHOLD and not m["affordable"]:
+            skip_pick = m
+            break
+
+    if buy_pick:
+        buy_pick["team_verdict"] = "✅ KLARE KAUFEMPFEHLUNG — " + buy_pick["team_verdict"]
+    if skip_pick:
+        skip_pick["team_verdict"] = ("⛔ EHER NICHT (aktuell nicht finanzierbar) — "
+                                     + skip_pick["team_verdict"])
+    return compared
