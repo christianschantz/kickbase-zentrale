@@ -15,13 +15,31 @@ class KickbaseAPI:
 
     # ---------- Auth ----------
     def login(self):
+        if not EMAIL or not PASSWORD:
+            print("❌ Login: EMAIL/PASSWORD sind leer (Secret nicht gesetzt oder falsch benannt?)")
+            return False
+
         payload = {"rep": {}, "pass": PASSWORD, "ext": True, "em": EMAIL, "loy": False}
-        r = requests.post(f"{BASE}/v4/user/login", json=payload, headers=self.headers)
-        if r.status_code == 200:
-            self.token = r.json().get("tkn")
-            self.headers["Authorization"] = f"Bearer {self.token}"
-            return True
-        return False
+        try:
+            r = requests.post(f"{BASE}/v4/user/login", json=payload, headers=self.headers, timeout=20)
+        except requests.RequestException as e:
+            print(f"❌ Login-Request fehlgeschlagen: {e}")
+            return False
+
+        if r.status_code != 200:
+            print(f"❌ Login HTTP {r.status_code}: {r.text[:300]}")
+            return False
+
+        # Kickbase liefert Fehler mit HTTP 200 und {"err": N, "errMsg": "..."} im Body!
+        data = r.json()
+        token = data.get("tkn")
+        if not token:
+            print(f"❌ Login-Fehler: err={data.get('err')} msg={data.get('errMsg')}")
+            return False
+
+        self.token = token
+        self.headers["Authorization"] = f"Bearer {self.token}"
+        return True
 
     def _get(self, path, params=None):
         r = requests.get(f"{BASE}{path}", headers=self.headers, params=params, timeout=20)
