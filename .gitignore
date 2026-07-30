@@ -1,0 +1,9 @@
+# Enthält echte Kickbase-Credentials - niemals committen (siehe CLAUDE.md).
+config.py
+
+__pycache__/
+*.pyc
+
+# Build-Output des HTML-Briefings (main.py generiert das jeden Lauf neu,
+# der GitHub-Actions-Workflow published nur diesen Ordner auf gh-pages).
+site/

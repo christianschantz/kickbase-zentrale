@@ -1,0 +1,45 @@
+name: Kickbase Briefing
+
+on:
+  schedule:
+    # 16:00 UTC = 18:00 CEST / 17:00 CET - vor dem 22-Uhr-MW-Update.
+    # Cron ist UTC-fix, driftet also um 1h wenn Deutschland zwischen
+    # Sommer-/Winterzeit wechselt - bei Bedarf anpassen.
+    - cron: "0 16 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build config.py from Template + Secrets
+        run: cp config_template.py config.py
+
+      - name: Briefing erzeugen
+        env:
+          KICKBASE_EMAIL: ${{ secrets.KICKBASE_EMAIL }}
+          KICKBASE_PASSWORD: ${{ secrets.KICKBASE_PASSWORD }}
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
+          PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+        run: python main.py
+
+      - name: Auf GitHub Pages veröffentlichen (gh-pages Branch)
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
