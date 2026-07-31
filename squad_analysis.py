@@ -7,23 +7,26 @@ Kader-Analyse mit klarer Verdikt-Hierarchie:
 2. HALTEN (Trading) nur, wenn der Fall primär ein Wertpapier ist:
    sportlich (noch) kein Stamm-Argument, aber der MW steigt spürbar.
 3. BEOBACHTEN: weder klares Stamm- noch klares Trading-Argument,
-   Momentum flacht NACHWEISBAR ab (echter 3-Tage-vs-3-Tage-Vergleich aus der
-   MW-Historie, s.u.) -> Verkaufsfenster im Blick behalten.
+   Momentum flacht laut Momentum-Ratio deutlich ab (s.u.) -> Verkaufsfenster
+   im Blick behalten.
 4. VERKAUFEN: sportlich schwach UND MW-Motor aus (fällt/stagniert).
 
 Bei unvollständiger Datenlage (Neuzugang ohne Kickbase-Punkte) werden die
 Schwellen zugunsten des Spielers ausgelegt - hoher MW = hohe Erwartung.
 
-A1-Fix (2026-07-31): "flacht ab" wurde bisher aus einem einzelnen 24h-Wert
-(`tfhmvt`) geraten - das ist mathematisch keine Abflachung (zweite Ableitung),
-nur ein niedriger Tageswert. `classify_own_player` bekommt jetzt optional
-`mv_history` (aus `scoring.analyze_mv_history`, basierend auf der echten
-MW-Historie) und nutzt `accelerating is False` (echter 3-Tage-vs-3-Tage-
-Vergleich) als Bedingung. Ohne genug Historie wird das explizit ausgewiesen
-statt weiter zu raten.
+A1-Fix (2026-07-31, überarbeitet): "flacht ab" wurde ursprünglich aus einem
+einzelnen 24h-Wert (`tfhmvt`) geraten - mathematisch keine Abflachung (zweite
+Ableitung), nur ein niedriger Tageswert. Erst über eine eigene 92-Tage-
+Historie gelöst, dann durch den Fund von `sdmvt` (7-Tage-MW-Differenz, kommt
+kostenlos im Kader-Response mit, kein Zusatz-Call) stark vereinfacht:
+`classify_own_player` bekommt optional `sdmvt` und bildet daraus
+`scoring.momentum_ratio()` = (tfhmvt×7)/sdmvt. Ratio <0.6 = "flacht deutlich
+ab" -> BEOBACHTEN. Ohne sdmvt wird das explizit ausgewiesen statt zu raten.
+Einschränkung: Ratio ist eine Momentaufnahme, kein bestätigter Mehrtages-Trend
+(dafür bräuchte es Tagessnapshots, noch nicht gebaut, s. CLAUDE.md B4).
 """
 
-from scoring import score_player
+from scoring import score_player, momentum_ratio
 from bid_advisor import recommend_bid, dynamic_aggressiveness
 
 POS_NAMES = {1: "TW", 2: "ABW", 3: "MF", 4: "ANG"}
@@ -32,10 +35,10 @@ STAMM_CORE = 0.55       # sporting_core-Schwelle für Stamm
 STAMM_CORE_NODATA = 0.60  # ohne Punktehistorie etwas strenger (MW-Proxy)
 STRONG_RISE = 0.008     # >0.8%/Tag
 FLATTENING = 0.002
-NEAR_ATH = 0.03         # <=3% unter Allzeithoch = Überhitzungs-Hinweis
+RATIO_FLATTENING = 0.6  # Momentum-Ratio darunter = "flacht deutlich ab"
 
 
-def classify_own_player(p, details, ease, weights=None, mv_history=None):
+def classify_own_player(p, details, ease, weights=None, sdmvt=None):
     total, comps, meta = score_player(p, details, ease, weights)
     mv = details.get("mv", p.get("mv", 0)) or 0
     tfhmvt = details.get("tfhmvt", 0) or 0
@@ -47,12 +50,10 @@ def classify_own_player(p, details, ease, weights=None, mv_history=None):
     reasons = []
     core_threshold = STAMM_CORE if meta["data_complete"] else STAMM_CORE_NODATA
 
-    # A1: "flacht ab" nur bei echtem Beleg aus der Mehrtages-Historie -
-    # accelerating ist None, wenn dafür zu wenig Datenpunkte (<7) vorliegen;
-    # dann NICHT raten (weder True noch False annehmen).
-    truly_flattening = (mv_history is not None
-                        and mv_history["accelerating"] is False
-                        and (mv_history["trend_3d"] or 0) > 0)
+    # A1: "flacht ab" nur bei echtem Beleg aus der Momentum-Ratio - ohne
+    # sdmvt (ratio=None) NICHT raten.
+    ratio = momentum_ratio(tfhmvt, sdmvt)
+    truly_flattening = ratio is not None and daily_pct > 0 and ratio < RATIO_FLATTENING
 
     # 1) STAMM zuerst - sportliche Substanz schlägt Momentum
     if core >= core_threshold and fit and likely_starter:
@@ -75,16 +76,17 @@ def classify_own_player(p, details, ease, weights=None, mv_history=None):
     elif truly_flattening or (core >= 0.45 and fit):
         verdict = "BEOBACHTEN"
         if truly_flattening:
-            reasons.append(f"MW-Anstieg flacht nachweisbar ab (3-Tage-Ø {mv_history['trend_3d']:+,.0f}/Tag, "
-                           f"7-Tage-Ø {mv_history['trend_7d']:+,.0f}/Tag) - Verkaufsfenster im Blick behalten")
+            reasons.append(f"MW-Anstieg flacht ab (Momentum-Ratio {ratio:.2f} - 24h-Wert nur "
+                           f"noch {ratio:.0%} des 7-Tage-Schnitts) - Verkaufsfenster im Blick behalten "
+                           "(Momentaufnahme, kein bestätigter Mehrtages-Trend)")
         else:
             reasons.append(f"sportlich Mittelfeld (Kern {core:.0%}), MW stagniert - "
                            "Entwicklung abwarten")
     # 4) Verkaufen
     else:
         verdict = "VERKAUFEN"
-        if mv_history is None:
-            reasons.append("MW stagniert/fällt (24h-Wert - keine Historie zur Bestätigung abgerufen)")
+        if ratio is None:
+            reasons.append("MW stagniert/fällt (24h-Wert - keine Momentum-Ratio berechenbar, sdmvt fehlt)")
         elif tfhmvt < 0:
             reasons.append(f"MW fällt ({tfhmvt:+,.0f} €/Tag) - Peak überschritten")
         else:
@@ -94,14 +96,15 @@ def classify_own_player(p, details, ease, weights=None, mv_history=None):
         if core < 0.4:
             reasons.append(f"sportlich schwach (Kern {core:.0%})")
 
-    if mv_history is not None:
-        if mv_history["accelerating"] is None and verdict in ("BEOBACHTEN", "VERKAUFEN"):
-            reasons.append(f"ℹ️ MW-Historie zu kurz für Beschleunigungs-Check "
-                           f"({mv_history['n_points']} Tage, mind. 7 nötig) - "
-                           "Abflachung nicht nachweisbar, nur vermutet")
-        dist = mv_history.get("dist_to_hmv")
-        if dist is not None and 0 <= dist <= NEAR_ATH:
-            reasons.append(f"nah am Allzeithoch ({dist:.0%} drunter) - möglicher Überhitzungs-Indikator")
+    if ratio is not None:
+        if sdmvt < 0 and ratio > 1:
+            reasons.append(f"⚠️ Absturz beschleunigt sich (Momentum-Ratio {ratio:.2f})")
+        elif verdict in ("STAMM", "HALTEN (Trading)"):
+            reasons.append(f"Momentum-Ratio {ratio:.2f} (24h vs. Ø 7-Tage)")
+
+    if not meta.get("status_known", True):
+        reasons.append(f"⚠️ Status-Code unbekannt (st={details.get('st')}) - "
+                       "Verfügbarkeit neutral angenommen, nicht verlässlich")
 
     return {
         "id": str(p.get("i")),

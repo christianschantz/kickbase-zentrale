@@ -13,20 +13,24 @@ Aufbau pro Liga:
 import sys
 import time
 from config import LEAGUES, WEIGHTS, FOOTBALL_DATA_API_KEY, ODDS_API_KEY
+
+CLUB_LIMIT = 3  # max. Spieler desselben Vereins im Kader (User-bestätigt)
 from kickbase_api import KickbaseAPI
 from fixtures import (get_table, get_table_football_data, build_strength_map,
                       team_strength_for,
                       get_upcoming_by_team, get_upcoming_by_team_football_data,
                       get_table_tsdb, get_upcoming_by_team_tsdb,
                       fixture_ease_for_team)
-from scoring import (score_player, explain, player_reliability_profile,
-                     punktetyp_label, analyze_mv_history)
+from scoring import score_player, explain, player_reliability_profile, punktetyp_label
 from bid_advisor import learn_league_overpay
 from odds import load_fixture_odds, load_fixture_odds_api, fixture_ease_odds
 from fixtures import _best_match
 from squad_analysis import (classify_own_player, market_vs_squad,
                             finalize_headline_recommendations,
                             flag_formation_risk, POS_NAMES)
+from league_board import build_league_board
+
+LEAGUE_BOARD_TOP_N = 10  # Top N je Position in der Liga-Bestenliste (B5)
 
 
 def _match_name(name, candidates):
@@ -102,11 +106,13 @@ def run_league(kb, cfg):
     me = kb.get_me(league_id)
     budget = me.get("b", 0)
     max_squad = me.get("mppu", 20)
-    # ACHTUNG: "tpc" ist NICHT das Vereinslimit (frühere Fehlannahme in
-    # CLAUDE.md) - live geprüft, es ist eine Liste {tid, npt}, die AKTUELLE
-    # Spieleranzahl je Verein im Kader. Das eigentliche Limit steht nirgends
-    # in /me -> Check bleibt deaktiviert (None), bis der echte Wert bekannt ist.
-    club_limit = None
+    # "tpc" ist NICHT das Vereinslimit (frühere Fehlannahme, korrigiert) -
+    # es ist eine Liste {tid, npt} = AKTUELLE Spieleranzahl je Verein.
+    # Das echte Limit (User-bestätigt 2026-07-31): max. 3 Spieler pro Verein.
+    club_limit = CLUB_LIMIT
+    # cid robust aus /me ableiten statt dem hartkodierten (bei La Liga
+    # unverifizierten) config-Wert zu vertrauen.
+    cid = int(me.get("cpi") or cfg["competition_id"])
     strength_map, upcoming, fixture_mode = load_fixture_data(cfg)
     if not upcoming:
         print("ℹ️ Kein Spielplan verfügbar -> Spielplan-Komponente neutral.")
@@ -120,13 +126,10 @@ def run_league(kb, cfg):
               f"Budget {budget:+,.0f} €):")
         for p, d, ease, opps in enrich_players(kb, league_id, squad_players,
                                                strength_map, upcoming, fixture_mode):
-            # A1: echte MW-Historie für 3/7-Tage-Trend statt nur dem 24h-Wert
-            # (repariert "BEOBACHTEN" - s. squad_analysis-Docstring).
-            hist_raw = kb.get_mv_history(cfg["competition_id"], p.get("i"), league_id)
-            time.sleep(0.25)
-            mv_history = (analyze_mv_history(hist_raw, d.get("mv", p.get("mv", 0)) or 0)
-                         if hist_raw.get("it") else None)
-            c = classify_own_player(p, d, ease, WEIGHTS, mv_history=mv_history)
+            # A1: sdmvt (7-Tage-MW-Differenz) kommt im Kader-Response direkt
+            # mit -> Momentum-Ratio ohne Zusatz-API-Call (repariert
+            # "BEOBACHTEN" - s. squad_analysis-Docstring).
+            c = classify_own_player(p, d, ease, WEIGHTS, sdmvt=p.get("sdmvt"))
             c["opponents"] = opps
             squad_classified.append(c)
         flag_formation_risk(squad_classified)
@@ -238,6 +241,32 @@ def run_league(kb, cfg):
                   f"WK ~{b['win_probability']:.0%}) {tick} {m['financing']}")
             _print_bid_extra(b)
 
+    # ---------- 3) BESTE SPIELER DER LIGA (B5) ----------
+    own_ids = {c["id"] for c in squad_classified}
+    league_board = build_league_board(kb, cid, league_id, own_ids, strength_map,
+                                      upcoming, fixture_mode, _match_name,
+                                      weights=WEIGHTS, top_n=LEAGUE_BOARD_TOP_N,
+                                      league_overpay=league_overpay)
+    status_icon = {"EIGEN": "🟢", "MITSPIELER": "👤", "MARKT": "🛒", "FREI": "⚪",
+                  "UNBEKANNT": "❓"}
+    print(f"\n🏆 BESTE SPIELER DER LIGA (Top {LEAGUE_BOARD_TOP_N} je Position, "
+          f"gesamte Competition):")
+    for pos, entries in league_board.items():
+        if not entries:
+            continue
+        print(f"\n  -- {pos} --")
+        for e in entries[:5]:
+            icon = status_icon.get(e["status"], "❓")
+            owner_txt = f" ({e['owner']})" if e["owner"] else ""
+            line = (f"  {icon} {e['name']} ({e['team']}) Score {e['score']} | "
+                    f"MW {e['mv']:,.0f} | Ø {e['ap']} P | {e['status']}{owner_txt}")
+            print(line)
+            if e["bid"]:
+                tick_note = e["bid"].get("projection_note")
+                print(f"      💶 Gebot {e['bid']['recommended_bid']:,.0f} € "
+                      f"(WK ~{e['bid']['win_probability']:.0%})"
+                      + (f" ↳ {tick_note}" if tick_note else ""))
+
     return {
         "name": name,
         "budget": budget,
@@ -249,6 +278,7 @@ def run_league(kb, cfg):
         "free_slots": free_slots,
         "fixture_mode": fixture_mode,
         "has_fixtures": bool(upcoming),
+        "league_board": league_board,
     }
 
 

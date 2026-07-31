@@ -1,3 +1,4 @@
+import time
 import requests
 from config import EMAIL, PASSWORD
 
@@ -11,6 +12,7 @@ class KickbaseAPI:
             "User-Agent": "Kickster/4.8.0/8776 (iPhone; iOS 26.5.2; Scale/3.00)",
             "Content-Type": "application/json",
             "Accept": "application/json",
+            "Accept-Language": "de-DE;q=1, en-DE;q=0.9",
         }
 
     # ---------- Auth ----------
@@ -56,12 +58,58 @@ class KickbaseAPI:
         return None
 
     def get_me(self, league_id):
-        """Budget (b), max. Kadergröße (mppu), Spieler pro Verein (tpc), etc."""
+        """
+        Budget (b), max. Kadergröße (mppu), Competition-ID (cpi), etc.
+        `tpc` ist NICHT das Vereinslimit (frühere Fehlannahme) - es ist eine
+        Liste {tid, npt} = AKTUELLE Spieleranzahl je Verein im Kader.
+        """
         return self._get(f"/v4/leagues/{league_id}/me") or {}
 
     def get_ranking(self, league_id, day_number=None):
         params = {"dayNumber": day_number} if day_number else None
         return self._get(f"/v4/leagues/{league_id}/ranking", params) or {}
+
+    # ---------- Liga-weite Spielerdaten (B5) ----------
+    def get_competition_table(self, competition_id):
+        """Tabelle der Competition -> alle Team-IDs (tid) unter 'it'."""
+        return self._get(f"/v4/competitions/{competition_id}/table") or {}
+
+    def get_team_profile(self, competition_id, team_id, league_id):
+        """
+        Kompletter Vereinskader (~21-30 Spieler) unter 'it': mv, sdmvt
+        (verifiziert: exakte 7-Tage-MW-Differenz), mvgl, ap, st, prob, pos,
+        mvt, iotm. Die mitgelieferten onm/iotm/oui/uim sind hier nur
+        lückenhaft befüllt - NICHT als Besitzquelle nutzen, dafür
+        search_players() (onm dort zu 100% befüllt).
+        """
+        return self._get(f"/v4/competitions/{competition_id}/teams/{team_id}/teamprofile",
+                         params={"leagueId": league_id}) or {}
+
+    def search_players(self, competition_id, league_id, query="", start=0):
+        """
+        Eine Seite der durchblätterbaren Gesamtliste aller Spieler der
+        Competition. Paginierung AUSSCHLIESSLICH über 'start' in 25er-
+        Schritten (offset/page/limit werden ignoriert). Ende = leere Liste.
+        Felder: pi, n, mv, pos, st, onm (Besitzquelle, zu 100% befüllt -
+        ACHTUNG: kommt mit angehängtem Leerzeichen zurück, .strip() nötig!),
+        iotm, tid, pim.
+        """
+        return self._get(f"/v4/competitions/{competition_id}/players/search",
+                         params={"query": query, "leagueId": league_id, "start": start}) or {}
+
+    def search_all_players(self, competition_id, league_id, page_size=25, sleep=0.15):
+        """Blättert search_players() komplett durch bis 0 Treffer."""
+        out = []
+        start = 0
+        while True:
+            data = self.search_players(competition_id, league_id, start=start)
+            items = data.get("it", []) if isinstance(data, dict) else (data or [])
+            if not items:
+                break
+            out.extend(items)
+            start += page_size
+            time.sleep(sleep)
+        return out
 
     # ---------- Markt ----------
     def get_transfer_market(self, league_id, only_free=True):

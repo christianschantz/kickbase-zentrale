@@ -59,6 +59,10 @@ def score_player(market_entry, details, fix_ease, weights=None):
 
     st = details.get("st", 0)
     prob = details.get("prob", 3)
+    # 'st' ist laut Live-Stichprobe (2. Liga) eine Bitmaske - reale Werte
+    # 0/1/2/4/16/256 beobachtet, nur 0/1/2 sind bisher geklärt (User prüft
+    # 4/16/256 noch in der App). Unbekannte Werte NICHT still auf "neutral"
+    # fallen lassen, sondern als solche kennzeichnen (status_known in meta).
     availability = STATUS_PENALTY.get(st, 0.5) * PROB_SCORE.get(prob, 0.5)
 
     components = {
@@ -79,12 +83,43 @@ def score_player(market_entry, details, fix_ease, weights=None):
         "sporting_core": round(sporting_core, 3),
         "data_complete": data_complete,
         "daily_pct": daily_pct,
+        "status_known": st in STATUS_PENALTY,
     }
+
+
+def momentum_ratio(tfhmvt, sdmvt):
+    """
+    A1 (überarbeitet 2026-07-31, verifiziert gegen analyze_mv_history/
+    marketValue/92 - exakte Übereinstimmung): Verhältnis 24h-Änderung zu
+    Ø-7-Tage-Änderung, beantwortet "flacht der Anstieg ab?" OHNE eigene
+    Mehrtages-Historie zu ziehen. `sdmvt` (7-Tage-MW-Differenz) kommt direkt
+    im Kader-/Teamprofil-Response mit - kein Zusatz-API-Call nötig.
+
+    ratio = (tfhmvt * 7) / sdmvt
+
+    >1.1 beschleunigt, 0.9-1.1 konstant, 0.6-0.9 lässt nach,
+    <0.6 flacht deutlich ab -> Verkaufsfenster prüfen.
+    Bei fallendem MW (sdmvt<0) kehrt sich die Interpretation um: ratio>1
+    heißt der Absturz beschleunigt sich.
+    None bei sdmvt fehlend/0 - dann NICHT raten.
+
+    Einschränkung (aus der Spec übernommen): in der Saisonvorbereitung
+    steigen MW schubweise, ein einzelner schwacher Tag ist noch kein Peak -
+    für ein belastbares Signal bräuchte es mehrere Tage in Folge unter der
+    Schwelle (Tagessnapshots, noch nicht gebaut). Bis dahin ein
+    Momentaufnahme-Indikator, kein bestätigter Trend.
+    """
+    if not sdmvt:
+        return None
+    return (tfhmvt * 7) / sdmvt
 
 
 def analyze_mv_history(history_response, current_mv):
     """
-    Echter Mehrtages-Trend statt Ein-Tages-Heuristik (A1). Quelle:
+    Mehrtages-Trend aus der vollen MW-Historie - seit dem momentum_ratio()-
+    Fund (sdmvt kommt kostenlos im Kader-/Teamprofil-Response mit) nur noch
+    für Detailansichten gedacht, nicht mehr für die Massen-Trendberechnung
+    im täglichen Lauf (spart einen API-Call pro Spieler). Quelle:
     kickbase_api.get_mv_history() - liefert bis zu 92 Tage MW-Historie
     ({"it": [{"dt": Tagesnummer, "mv": float}], "hmv": Allzeithoch}).
     Führende mv=0.0-Einträge (vor Tracking-Beginn) werden gefiltert.
@@ -221,4 +256,6 @@ def explain(components, meta=None):
     s = " | ".join(f"{labels[k]}: {v:.0%}" for k, v in components.items())
     if meta and not meta.get("data_complete", True):
         s += "  [⚠️ keine Punktehistorie - Form aus MW geschätzt]"
+    if meta and not meta.get("status_known", True):
+        s += "  [⚠️ Status-Code unbekannt - Einsatz-WK neutral angenommen]"
     return s

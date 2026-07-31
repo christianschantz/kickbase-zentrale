@@ -116,6 +116,8 @@ def _league_section(report):
     fixture_note = ("" if report.get("has_fixtures")
                     else "<p class='note warn'>⚠️ Kein Spielplan verfügbar - Spielplan-Komponente neutral</p>")
 
+    board_html = _league_board_section(report.get("league_board"))
+
     return f"""<section class="league">
   <h2>🏆 {name}</h2>
   <div class="league-meta">Budget {report['budget']:+,.0f} € · Kader {report['squad_slots']}/{report['max_squad']}</div>
@@ -126,7 +128,49 @@ def _league_section(report):
   <h3>🛒 Transfermarkt</h3>
   {free_slots_note}
   <div class="grid">{market_html}</div>
+  {board_html}
 </section>"""
+
+
+STATUS_ICON = {"EIGEN": "🟢", "MITSPIELER": "👤", "MARKT": "🛒", "FREI": "⚪", "UNBEKANNT": "❓"}
+STATUS_LABEL = {"EIGEN": "Eigen", "MITSPIELER": "Mitspieler", "MARKT": "Markt",
+                "FREI": "Frei", "UNBEKANNT": "Unbekannt"}
+
+
+def _board_row(e):
+    status = e.get("status", "UNBEKANNT")
+    icon = STATUS_ICON.get(status, "❓")
+    owner = f" ({_esc(e['owner'])})" if e.get("owner") else ""
+    cls = "board-row eigen" if status == "EIGEN" else "board-row"
+    bid_html = ""
+    if e.get("bid"):
+        b = e["bid"]
+        note = f" ↳ {_esc(b['projection_note'])}" if b.get("projection_note") else ""
+        bid_html = (f"<div class='board-bid'>💶 Gebot {b['recommended_bid']:,.0f} € "
+                    f"(WK ~{b['win_probability']:.0%}){note}</div>")
+    return f"""<div class="{cls}">
+  <span class="board-status">{icon} {STATUS_LABEL.get(status, status)}{owner}</span>
+  <span class="board-name">{_esc(e['name'])} <span class="pos">({_esc(e['team'])})</span></span>
+  <span class="board-stats">Score {e['score']} · MW {e['mv']:,.0f} € · Ø {e['ap']} P</span>
+  {bid_html}
+</div>"""
+
+
+def _league_board_section(board):
+    """B5: Liga-weite Bestenliste je Position, unabhängig von Kader/Tagesmarkt."""
+    if not board:
+        return ""
+    groups = []
+    for pos in ("TW", "ABW", "MF", "ANG"):
+        entries = board.get(pos) or []
+        if not entries:
+            continue
+        rows = "".join(_board_row(e) for e in entries)
+        groups.append(f"<div class='board-group'><h4>{pos}</h4>{rows}</div>")
+    if not groups:
+        return ""
+    return (f"<h3>🏆 Beste Spieler der Liga (gesamte Competition)</h3>"
+           f"<div class='board'>{''.join(groups)}</div>")
 
 
 CSS = """
@@ -181,6 +225,18 @@ section.league h3 { font-size: 0.95rem; margin: 1.1rem 0 0.5rem; color: var(--te
 .gate-box input { width: 100%; padding: 0.6rem; margin: 0.8rem 0; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 1rem; }
 .gate-box button { width: 100%; padding: 0.6rem; border-radius: 8px; border: none; background: var(--accent); color: #fff; font-size: 1rem; }
 .gate-box .err { color: #c94b4b; font-size: 0.85rem; }
+.board-group { margin-bottom: 0.8rem; }
+.board-group h4 { font-size: 0.8rem; color: var(--text-dim); margin: 0.6rem 0 0.3rem; text-transform: uppercase; letter-spacing: 0.03em; }
+.board-row {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem;
+  padding: 0.4rem 0.6rem; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--card-bg); margin-bottom: 0.35rem; font-size: 0.85rem;
+}
+.board-row.eigen { border-left: 3px solid #2e9e50; }
+.board-row .board-status { white-space: nowrap; color: var(--text-dim); font-size: 0.8rem; }
+.board-row .board-name { font-weight: 600; }
+.board-row .board-stats { color: var(--text-dim); font-size: 0.8rem; margin-left: auto; }
+.board-row .board-bid { flex-basis: 100%; font-size: 0.8rem; }
 footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-top: 2rem; }
 """
 
