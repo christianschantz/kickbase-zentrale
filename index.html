@@ -118,6 +118,19 @@ details.deep[open] summary::after { content: "▾"; }
 .deep-body { padding: 0.75rem 0.85rem; }
 .change-line { font-size: 0.85rem; padding: 0.3rem 0; border-bottom: 1px solid var(--border); }
 .change-line:last-child { border-bottom: none; }
+.llm-block {
+  margin-top: 0.8rem; padding: 0.75rem 0.85rem; border-radius: 10px;
+  background: linear-gradient(135deg, #6d5bd022, #1f6fd622);
+  border: 1px solid var(--accent);
+}
+.llm-label { font-size: 0.75rem; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.03em; }
+.llm-report { font-size: 0.88rem; margin-top: 0.35rem; }
+.llm-flags { margin-top: 0.6rem; display: flex; flex-direction: column; gap: 0.35rem; }
+.flag-row { font-size: 0.8rem; background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.4rem 0.6rem; }
+.flag-name { font-weight: 600; }
+.flag-tag { color: var(--accent); font-weight: 600; }
+.flag-conf { color: var(--text-dim); font-size: 0.75rem; }
+.flag-note { color: var(--text-dim); font-size: 0.78rem; margin-top: 0.15rem; }
 footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-top: 2rem; }
 </style>
 </head>
@@ -134,7 +147,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
 <div id="content" style="display:none">
 <header class="top">
   <h1>⚽ Kickbase-Zentrale</h1>
-  <div class="ts">Stand: 31.07.2026 13:21 UTC · MW-Update in ~6 h 38 min</div>
+  <div class="ts">Stand: 31.07.2026 15:04 UTC · MW-Update in ~4 h 55 min</div>
   <div class="tabs"><button class="tab-btn" data-league="league-0">1899</button><button class="tab-btn" data-league="league-1">WirSchaffenStudium!!!</button></div>
 </header>
 <main>
@@ -147,21 +160,27 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
   <span class="action-icon">🎯</span>
   <div class="action-body">
     <div class="action-text">Gebot auf Marcel Schuhen (Darmstadt) <span class='action-amount'>13,62 Mio €</span></div>
-    <div class="action-reason">Score 72.8 · Kaufkraft reicht · ⏳ 31 h</div>
-  </div>
-</div><div class="action-item urgent">
-  <span class="action-icon">⏰</span>
-  <div class="action-body">
-    <div class="action-text">Fynn Otto (Nürnberg) läuft ab <span class='action-amount'>7,17 Mio €</span></div>
-    <div class="action-reason">Score 72.6 · KAUFEN (freier Kaderplatz) · ⏳ 1 h</div>
+    <div class="action-reason">Score 72.6 · Kaufkraft reicht · ⏳ 29 h</div>
   </div>
 </div><div class="action-item">
   <span class="action-icon">⏰</span>
   <div class="action-body">
     <div class="action-text">Stefano Russo (Bielefeld) läuft ab <span class='action-amount'>11,98 Mio €</span></div>
-    <div class="action-reason">Score 66.8 · KAUFEN (freier Kaderplatz) · ⏳ 18 h</div>
+    <div class="action-reason">Score 66.6 · KAUFEN (freier Kaderplatz) · ⏳ 16 h</div>
+  </div>
+</div><div class="action-item urgent">
+  <span class="action-icon">⏰</span>
+  <div class="action-body">
+    <div class="action-text">Paul Hennrich (Heidenheim) läuft ab <span class='action-amount'>3,96 Mio €</span></div>
+    <div class="action-reason">Score 60.7 · KAUFEN (freier Kaderplatz) · ⏳ 5 h</div>
   </div>
 </div></div>
+
+  <div class="llm-block">
+  <div class="llm-label">🤖 KI-Einordnung</div>
+  <div class="llm-report">Finanzlage auf Kurs: Bei einem Minus von 12,4 Mio. € und einem täglichen Kader-Ertrag von 2,43 Mio. € ist das Konto in 5,1 Tagen im Plus - pünktlich 3 Tage vor Saisonstart. Trading-Treiber wie Crimaldi (+386k/Tag) und Väänänen beschleunigen das Marktwert-Wachstum kräftig. Bei Pieringer und Janeš flacht das MW-Momentum spürbar ab; Pieringer bleibt sportlich als STAMM jedoch unangefochten. Auf dem Transfermarkt bietet sich Torwart Marcel Schuhen als klare Kaufempfehlung an. Keine externen Ausfälle oder Verletzungen bekannt.</div>
+  <div class='llm-flags'><div class='flag-row'><span class='flag-name'>Crimaldi</span> <span class='flag-tag'>momentum_accelerating</span> <span class='flag-conf'>high</span><div class='flag-note'>Starker Marktwert-Anstieg mit hoher Momentum-Ratio von 1.64.</div></div><div class='flag-row'><span class='flag-name'>Väänänen</span> <span class='flag-tag'>momentum_accelerating</span> <span class='flag-conf'>high</span><div class='flag-note'>MW-Anstieg beschleunigt weiter bei einer Momentum-Ratio von 1.24.</div></div><div class='flag-row'><span class='flag-name'>Pieringer</span> <span class='flag-tag'>momentum_fading</span> <span class='flag-conf'>medium</span><div class='flag-note'>MW-Momentum flacht ab (Ratio 0.32), als Stammspieler aber unverkäuflich.</div></div><div class='flag-row'><span class='flag-name'>Janeš</span> <span class='flag-tag'>momentum_fading</span> <span class='flag-conf'>medium</span><div class='flag-note'>Marktwert-Momentum verlangsamt sich (Ratio 0.34).</div></div></div>
+</div>
 
   <div class='kpi-grid'><div class="kpi-tile up">
   <div class="kpi-label">Teamwert</div>
@@ -195,19 +214,19 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
   <div class='watch-group'><h4>🔥 Jetzt auf dem Markt</h4><div class="board-row">
   <span class="board-status">🛒 Markt</span>
   <span class="board-name">Schuhen <span class="pos">(Darmstadt)</span></span>
-  <span class="board-stats">Score 81.2 · MW 13,07 Mio € · Ø 105 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 81.3 · MW 13,07 Mio € · Ø 105 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 105 P - für 13,07 Mio € erwartbar wären 85 P - +20 P ggü. Preiserwartung</div>
   <div class='board-bid'>💶 Gebot 13,62 Mio € (WK ~58%)</div>
 </div></div><div class='watch-group'><h4>🤝 Bei Mitspieler</h4><div class="board-row">
   <span class="board-status">👤 Mitspieler (david)</span>
   <span class="board-name">Reese <span class="pos">(Wolfsburg)</span></span>
-  <span class="board-stats">Score 93.4 · MW 25,15 Mio € · Ø 125 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 93.3 · MW 25,15 Mio € · Ø 125 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 125 P - für 25,15 Mio € erwartbar wären 98 P - +28 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (Robin04)</span>
   <span class="board-name">Zukowski <span class="pos">(Magdeburg)</span></span>
-  <span class="board-stats">Score 87.6 · MW 19,11 Mio € · Ø 134 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 87.7 · MW 19,11 Mio € · Ø 134 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 134 P - für 19,11 Mio € erwartbar wären 92 P - +42 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
@@ -225,13 +244,13 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (malte.srn)</span>
   <span class="board-name">Tomiak <span class="pos">(Hannover)</span></span>
-  <span class="board-stats">Score 81.0 · MW 12,65 Mio € · Ø 98 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 81.1 · MW 12,65 Mio € · Ø 98 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 98 P - für 12,65 Mio € erwartbar wären 84 P - +14 P ggü. Preiserwartung</div>
   
 </div></div><div class='watch-group'><h4>⚪ Frei, nicht gelistet</h4><div class="board-row">
   <span class="board-status">⚪ Frei</span>
   <span class="board-name">Reichert <span class="pos">(Nürnberg)</span></span>
-  <span class="board-stats">Score 83.6 · MW 11,30 Mio € · Ø 100 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 83.7 · MW 11,30 Mio € · Ø 100 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 100 P - für 11,30 Mio € erwartbar wären 82 P - +18 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
@@ -243,19 +262,19 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
 </div><div class="board-row">
   <span class="board-status">⚪ Frei</span>
   <span class="board-name">Horn <span class="pos">(Bochum)</span></span>
-  <span class="board-stats">Score 80.3 · MW 13,33 Mio € · Ø 107 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 80.5 · MW 13,33 Mio € · Ø 107 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 107 P - für 13,33 Mio € erwartbar wären 85 P - +22 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
   <span class="board-status">⚪ Frei</span>
   <span class="board-name">Klefisch <span class="pos">(Darmstadt)</span></span>
-  <span class="board-stats">Score 79.0 · MW 11,98 Mio € · Ø 88 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 79.1 · MW 11,98 Mio € · Ø 88 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 88 P - für 11,98 Mio € erwartbar wären 83 P - +5 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
   <span class="board-status">⚪ Frei</span>
   <span class="board-name">Zoma <span class="pos">(Nürnberg)</span></span>
-  <span class="board-stats">Score 77.9 · MW 16,67 Mio € · Ø 106 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 78.0 · MW 16,67 Mio € · Ø 106 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 106 P - für 16,67 Mio € erwartbar wären 89 P - +17 P ggü. Preiserwartung</div>
   
 </div></div>
@@ -326,9 +345,9 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
       <h4 class='board-sub'>💎 Banger-Ziele (Tagesmarkt)</h4><div class='grid'><div class="card market-card banger">
   <div class="card-head">
     <span class="name">Marcel Schuhen <span class="pos">(TW, Darmstadt)</span></span>
-    <span class='star'>💎 Star 78%</span>
+    <span class='star'>💎 Star 77%</span>
   </div>
-  <div class="stats">Score 72.8 · MW 13,07 Mio € (+14,816 €/Tag) · Ø 105 P · ⏳ 31h</div>
+  <div class="stats">Score 72.6 · MW 13,07 Mio € (+14,816 €/Tag) · Ø 105 P · ⏳ 29h</div>
   <div class="components">Preis-Leistung: 42% | MW-Momentum: 54% | Einsatz-WK: 100% | Spielplan: 43% | Form/Schnitt: 100%</div>
   <div class='meta'>Nächste Gegner: Holstein Kiel (43% Sieg-WK)</div>
   
@@ -357,9 +376,9 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="badge" style="background:#2e9e50">⭐ STAMM</span>
     <span class="name">Pieringer <span class="pos">(ANG)</span></span>
   </div>
-  <div class="stats">Score 68.3 · MW 12,64 Mio € (+48,972 €/Tag)</div>
+  <div class="stats">Score 68.6 · MW 12,64 Mio € (+48,972 €/Tag)</div>
   <ul class="reasons"><li>sportlicher Kern 70% - fitter Startelf-Kandidat</li><li>keine Kickbase-Punktehistorie - Einstufung über MW/Status</li><li>MW-Trend zusätzlich positiv (+48,972/Tag)</li><li>Momentum-Ratio 0.32 (24h vs. Ø 7-Tage)</li></ul>
-  <div class='meta'>Nächste Gegner: VfL Osnabrück (60% Sieg-WK)</div>
+  <div class='meta'>Nächste Gegner: VfL Osnabrück (61% Sieg-WK)</div>
 </div><div class="card" style="border-left-color:#2e9e50">
   <div class="card-head">
     <span class="badge" style="background:#2e9e50">⭐ STAMM</span>
@@ -461,9 +480,9 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="badge" style="background:#1f6fd6">📈 HALTEN (Trading)</span>
     <span class="name">Janeš <span class="pos">(MF)</span></span>
   </div>
-  <div class="stats">Score 50.0 · MW 3,29 Mio € (+79,063 €/Tag)</div>
+  <div class="stats">Score 50.2 · MW 3,29 Mio € (+79,063 €/Tag)</div>
   <ul class="reasons"><li>MW steigt +79,063 €/Tag (+2.4%)</li><li>sportlich (noch) kein Stamm-Argument - reines Wert-Investment</li><li>Momentum-Ratio 0.34 (24h vs. Ø 7-Tage)</li></ul>
-  <div class='meta'>Nächste Gegner: VfL Osnabrück (60% Sieg-WK)</div>
+  <div class='meta'>Nächste Gegner: VfL Osnabrück (61% Sieg-WK)</div>
 </div><div class="card" style="border-left-color:#1f6fd6">
   <div class="card-head">
     <span class="badge" style="background:#1f6fd6">📈 HALTEN (Trading)</span>
@@ -484,13 +503,13 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     </div>
   </details>
   <details class="deep">
-    <summary>🛒 Kompletter Tagesmarkt (20 Spieler)</summary>
+    <summary>🛒 Kompletter Tagesmarkt (21 Spieler)</summary>
     <div class="deep-body"><div class="grid"><div class="card market-card">
   <div class="card-head">
     <span class="name">Marcel Schuhen <span class="pos">(TW, Darmstadt)</span></span>
-    <span class='star'>💎 Star 78%</span>
+    <span class='star'>💎 Star 77%</span>
   </div>
-  <div class="stats">Score 72.8 · MW 13,07 Mio € (+14,816 €/Tag) · Ø 105 P · ⏳ 31h</div>
+  <div class="stats">Score 72.6 · MW 13,07 Mio € (+14,816 €/Tag) · Ø 105 P · ⏳ 29h</div>
   <div class="components">Preis-Leistung: 42% | MW-Momentum: 54% | Einsatz-WK: 100% | Spielplan: 43% | Form/Schnitt: 100%</div>
   <div class='meta'>Nächste Gegner: Holstein Kiel (43% Sieg-WK)</div>
   
@@ -499,22 +518,10 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
   <div class='bid'>💶 Gebot 13,62 Mio € (22h-MW ~13,09 Mio €, Puffer 4.0%, WK ~58%) ✅ Kaufkraft 26,874,038 (33% von Netto-Teamwert 119,013,550 = max. Schulden 39,274,472, Budget -12,400,433)</div><div class='meta'>↳ Star-Ausnahme: in Einzelfällen bis 16,07 Mio € belegt (nicht die Regel)</div>
 </div><div class="card market-card">
   <div class="card-head">
-    <span class="name">Fynn Otto <span class="pos">(ABW, Nürnberg)</span></span>
-    
-  </div>
-  <div class="stats">Score 72.6 · MW 6,38 Mio € (+112,557 €/Tag) · Ø 0 P · ⏳ 1h</div>
-  <div class="components">Preis-Leistung: 50% | MW-Momentum: 100% | Einsatz-WK: 75% | Spielplan: 47% | Form/Schnitt: 60%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
-  <div class='meta'>Nächste Gegner: Dynamo Dresden (47% Sieg-WK)</div>
-  
-  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
-  <ul class="angles"><li>📈 TRADING: MW-Momentum +1.8%/Tag &gt; schwächster Trading-Hold Taz (+1.5%/Tag)</li><li>⚽ stärker als Frees (ABW), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
-  <div class='bid'>💶 Gebot 7,17 Mio € (22h-MW ~6,49 Mio €, Puffer 4.0%, WK ~58%) ✅ Kaufkraft 26,874,038 (33% von Netto-Teamwert 119,013,550 = max. Schulden 39,274,472, Budget -12,400,433)</div><div class='meta'>↳ stark &amp; nachhaltig steigend (+1.8%/Tag) - Gebotsbasis auf 4-Tage-Projektion (6,888,902 €) angehoben, das bieten erfahrungsgemäß alle</div>
-</div><div class="card market-card">
-  <div class="card-head">
     <span class="name">Stefano Russo <span class="pos">(MF, Bielefeld)</span></span>
     
   </div>
-  <div class="stats">Score 66.8 · MW 11,54 Mio € (-15,633 €/Tag) · Ø 88 P · ⏳ 18h</div>
+  <div class="stats">Score 66.6 · MW 11,54 Mio € (-15,633 €/Tag) · Ø 88 P · ⏳ 16h</div>
   <div class="components">Preis-Leistung: 39% | MW-Momentum: 45% | Einsatz-WK: 100% | Spielplan: 37% | Form/Schnitt: 100%</div>
   <div class='meta'>Nächste Gegner: Karlsruher SC (37% Sieg-WK)</div>
   
@@ -523,10 +530,22 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
   <div class='bid'>💶 Gebot 11,98 Mio € (22h-MW ~11,54 Mio €, Puffer 3.8%, WK ~57%) ✅ Kaufkraft 26,874,038 (33% von Netto-Teamwert 119,013,550 = max. Schulden 39,274,472, Budget -12,400,433)</div>
 </div><div class="card market-card">
   <div class="card-head">
+    <span class="name">Felix Klaus <span class="pos">(MF, Fürth)</span></span>
+    
+  </div>
+  <div class="stats">Score 64.7 · MW 15,80 Mio € (+24,143 €/Tag) · Ø 109 P · ⏳ 34h</div>
+  <div class="components">Preis-Leistung: 33% | MW-Momentum: 55% | Einsatz-WK: 100% | Spielplan: 23% | Form/Schnitt: 100%</div>
+  <div class='meta'>Nächste Gegner: FC St. Pauli (23% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"><li>⚽ stärker als Klein (MF), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li><li>📊 Rohpunkte-Typ: Ø 157 P. bei Sieg, Ø 128 P. bei Niederlage (3 Spiele, kleine Stichprobe) -&gt; auch bei schwachem Spielplan (Spielplan-Score nur 23%) ein Kandidat, Punkte hängen nicht am Sieg</li></ul>
+  <div class='bid'>💶 Gebot 16,42 Mio € (22h-MW ~15,82 Mio €, Puffer 3.8%, WK ~56%) ✅ Kaufkraft 26,874,038 (33% von Netto-Teamwert 119,013,550 = max. Schulden 39,274,472, Budget -12,400,433)</div>
+</div><div class="card market-card">
+  <div class="card-head">
     <span class="name">Vincent Vermeij <span class="pos">(ANG, Dresden)</span></span>
     
   </div>
-  <div class="stats">Score 64.2 · MW 14,20 Mio € (+15,089 €/Tag) · Ø 90 P · ⏳ 37h</div>
+  <div class="stats">Score 64.0 · MW 14,20 Mio € (+15,089 €/Tag) · Ø 90 P · ⏳ 36h</div>
   <div class="components">Preis-Leistung: 28% | MW-Momentum: 54% | Einsatz-WK: 100% | Spielplan: 26% | Form/Schnitt: 100%</div>
   <div class='meta'>Nächste Gegner: 1. FC Nürnberg (26% Sieg-WK)</div>
   
@@ -538,19 +557,19 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Paul Hennrich <span class="pos">(MF, Heidenheim)</span></span>
     
   </div>
-  <div class="stats">Score 59.9 · MW 2,73 Mio € (+242,341 €/Tag) · Ø 0 P · ⏳ 7h</div>
-  <div class="components">Preis-Leistung: 50% | MW-Momentum: 100% | Einsatz-WK: 50% | Spielplan: 60% | Form/Schnitt: 19%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
-  <div class='meta'>Nächste Gegner: VfL Osnabrück (60% Sieg-WK)</div>
+  <div class="stats">Score 60.7 · MW 2,73 Mio € (+242,341 €/Tag) · Ø 0 P · ⏳ 5h</div>
+  <div class="components">Preis-Leistung: 50% | MW-Momentum: 100% | Einsatz-WK: 50% | Spielplan: 61% | Form/Schnitt: 19%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
+  <div class='meta'>Nächste Gegner: VfL Osnabrück (61% Sieg-WK)</div>
   
   <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
   <ul class="angles"><li>📈 TRADING: MW-Momentum +8.9%/Tag &gt; schwächster Trading-Hold Taz (+1.5%/Tag)</li><li>⚽ stärker als Klein (MF), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
-  <div class='bid'>💶 Gebot 3,96 Mio € (22h-MW ~2,97 Mio €, Puffer 3.6%, WK ~55%) ✅ Kaufkraft 26,874,038 (33% von Netto-Teamwert 119,013,550 = max. Schulden 39,274,472, Budget -12,400,433)</div><div class='meta'>↳ stark &amp; nachhaltig steigend (+8.9%/Tag) - Gebotsbasis auf 4-Tage-Projektion (3,819,484 €) angehoben, das bieten erfahrungsgemäß alle</div>
+  <div class='bid'>💶 Gebot 3,96 Mio € (22h-MW ~2,97 Mio €, Puffer 3.7%, WK ~55%) ✅ Kaufkraft 26,874,038 (33% von Netto-Teamwert 119,013,550 = max. Schulden 39,274,472, Budget -12,400,433)</div><div class='meta'>↳ stark &amp; nachhaltig steigend (+8.9%/Tag) - Gebotsbasis auf 4-Tage-Projektion (3,819,484 €) angehoben, das bieten erfahrungsgemäß alle</div>
 </div><div class="card market-card">
   <div class="card-head">
     <span class="name">Alessio Besio <span class="pos">(ANG, Wolfsburg)</span></span>
     
   </div>
-  <div class="stats">Score 56.3 · MW 5,27 Mio € (+3,682 €/Tag) · Ø 0 P · ⏳ 27h</div>
+  <div class="stats">Score 56.5 · MW 5,27 Mio € (+3,682 €/Tag) · Ø 0 P · ⏳ 25h</div>
   <div class="components">Preis-Leistung: 50% | MW-Momentum: 52% | Einsatz-WK: 50% | Spielplan: 61% | Form/Schnitt: 47%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
   <div class='meta'>Nächste Gegner: 1. FC Kaiserslautern (61% Sieg-WK)</div>
   
@@ -562,7 +581,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Giorgi Kvilitaia <span class="pos">(ANG, Kiel)</span></span>
     
   </div>
-  <div class="stats">Score 55.8 · MW 3,27 Mio € (+212,573 €/Tag) · Ø 0 P · ⏳ 9h</div>
+  <div class="stats">Score 55.8 · MW 3,27 Mio € (+212,573 €/Tag) · Ø 0 P · ⏳ 8h</div>
   <div class="components">Preis-Leistung: 50% | MW-Momentum: 100% | Einsatz-WK: 50% | Spielplan: 31% | Form/Schnitt: 25%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
   <div class='meta'>Nächste Gegner: SV Darmstadt 98 (31% Sieg-WK)</div>
   
@@ -574,7 +593,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Finn Becker <span class="pos">(MF, Nürnberg)</span></span>
     
   </div>
-  <div class="stats">Score 54.0 · MW 10,27 Mio € (-81,986 €/Tag) · Ø 79 P · ⏳ 14h</div>
+  <div class="stats">Score 53.8 · MW 10,27 Mio € (-81,986 €/Tag) · Ø 79 P · ⏳ 12h</div>
   <div class="components">Preis-Leistung: 39% | MW-Momentum: 23% | Einsatz-WK: 50% | Spielplan: 47% | Form/Schnitt: 98%</div>
   <div class='meta'>Nächste Gegner: Dynamo Dresden (47% Sieg-WK)</div>
   
@@ -586,7 +605,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Scott Banks <span class="pos">(ANG, St. Pauli)</span></span>
     
   </div>
-  <div class="stats">Score 53.4 · MW 2,99 Mio € (+197,188 €/Tag) · Ø 0 P · ⏳ 31h</div>
+  <div class="stats">Score 53.6 · MW 2,99 Mio € (+197,188 €/Tag) · Ø 0 P · ⏳ 30h</div>
   <div class="components">Preis-Leistung: 50% | MW-Momentum: 100% | Einsatz-WK: 25% | Spielplan: 53% | Form/Schnitt: 22%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
   <div class='meta'>Nächste Gegner: Greuther Fürth (53% Sieg-WK)</div>
   
@@ -598,7 +617,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Yunus Ünal <span class="pos">(MF, Hannover)</span></span>
     
   </div>
-  <div class="stats">Score 48.7 · MW 3,77 Mio € (+131,757 €/Tag) · Ø 0 P · ⏳ 25h</div>
+  <div class="stats">Score 48.9 · MW 3,77 Mio € (+131,757 €/Tag) · Ø 0 P · ⏳ 23h</div>
   <div class="components">Preis-Leistung: 50% | MW-Momentum: 100% | Einsatz-WK: 0% | Spielplan: 43% | Form/Schnitt: 31%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
   <div class='meta'>Nächste Gegner: FC Energie Cottbus (43% Sieg-WK)</div>
   
@@ -610,7 +629,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Marko Ivezic <span class="pos">(ABW, Kiel)</span></span>
     
   </div>
-  <div class="stats">Score 46.3 · MW 3,09 Mio € (-94,497 €/Tag) · Ø 70 P · ⏳ 38h</div>
+  <div class="stats">Score 46.3 · MW 3,09 Mio € (-94,497 €/Tag) · Ø 70 P · ⏳ 36h</div>
   <div class="components">Preis-Leistung: 100% | MW-Momentum: 0% | Einsatz-WK: 25% | Spielplan: 31% | Form/Schnitt: 83%</div>
   <div class='meta'>Nächste Gegner: SV Darmstadt 98 (31% Sieg-WK)</div>
   
@@ -622,7 +641,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Ferdinand Gebert <span class="pos">(TW, Karlsruhe)</span></span>
     
   </div>
-  <div class="stats">Score 44.6 · MW 2,17 Mio € (+196,575 €/Tag) · Ø 0 P · ⏳ 23h</div>
+  <div class="stats">Score 44.6 · MW 2,17 Mio € (+196,575 €/Tag) · Ø 0 P · ⏳ 22h</div>
   <div class="components">Preis-Leistung: 50% | MW-Momentum: 100% | Einsatz-WK: 0% | Spielplan: 37% | Form/Schnitt: 13%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
   <div class='meta'>Nächste Gegner: Arminia Bielefeld (37% Sieg-WK)</div>
   
@@ -634,7 +653,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Lasse Rosenboom <span class="pos">(ABW, Kiel)</span></span>
     
   </div>
-  <div class="stats">Score 33.5 · MW 0,34 Mio € (-42,083 €/Tag) · Ø 44 P · ⏳ 11h</div>
+  <div class="stats">Score 33.5 · MW 0,34 Mio € (-42,083 €/Tag) · Ø 44 P · ⏳ 9h</div>
   <div class="components">Preis-Leistung: 100% | MW-Momentum: 0% | Einsatz-WK: 0% | Spielplan: 31% | Form/Schnitt: 40%</div>
   <div class='meta'>Nächste Gegner: SV Darmstadt 98 (31% Sieg-WK)</div>
   <div class='meta warn'>⚠️ Riss des Syndesmosebandes - fällt mehrere Wochen aus</div>
@@ -646,7 +665,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Justin Butler <span class="pos">(ANG, Cottbus)</span></span>
     
   </div>
-  <div class="stats">Score 33.3 · MW 0,25 Mio € (+0 €/Tag) · Ø 0 P · ⏳ 29h</div>
+  <div class="stats">Score 33.3 · MW 0,25 Mio € (+0 €/Tag) · Ø 0 P · ⏳ 27h</div>
   <div class="components">Preis-Leistung: 50% | MW-Momentum: 50% | Einsatz-WK: 25% | Spielplan: 31% | Form/Schnitt: 0%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
   <div class='meta'>Nächste Gegner: Hannover 96 (31% Sieg-WK)</div>
   
@@ -658,7 +677,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Guillermo Balzi <span class="pos">(MF, Kiel)</span></span>
     
   </div>
-  <div class="stats">Score 29.6 · MW 3,15 Mio € (-53,228 €/Tag) · Ø 0 P · ⏳ 20h</div>
+  <div class="stats">Score 29.6 · MW 3,15 Mio € (-53,228 €/Tag) · Ø 0 P · ⏳ 18h</div>
   <div class="components">Preis-Leistung: 50% | MW-Momentum: 0% | Einsatz-WK: 50% | Spielplan: 31% | Form/Schnitt: 24%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
   <div class='meta'>Nächste Gegner: SV Darmstadt 98 (31% Sieg-WK)</div>
   
@@ -670,19 +689,19 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Leart Pacarada <span class="pos">(ABW, Heidenheim)</span></span>
     
   </div>
-  <div class="stats">Score 27.7 · MW 3,55 Mio € (-84,315 €/Tag) · Ø 0 P · ⏳ 14h</div>
-  <div class="components">Preis-Leistung: 50% | MW-Momentum: 0% | Einsatz-WK: 0% | Spielplan: 60% | Form/Schnitt: 28%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
-  <div class='meta'>Nächste Gegner: VfL Osnabrück (60% Sieg-WK)</div>
+  <div class="stats">Score 28.3 · MW 3,55 Mio € (-84,315 €/Tag) · Ø 0 P · ⏳ 12h</div>
+  <div class="components">Preis-Leistung: 50% | MW-Momentum: 0% | Einsatz-WK: 0% | Spielplan: 61% | Form/Schnitt: 28%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
+  <div class='meta'>Nächste Gegner: VfL Osnabrück (61% Sieg-WK)</div>
   <div class='meta warn'>⚠️ Nach Kreuzbandriss - trainiert anteilig mit dem Team</div>
   <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
   <ul class="angles"></ul>
-  <div class='bid'>💶 Gebot 3,64 Mio € (22h-MW ~3,55 Mio €, Puffer 2.5%, WK ~46%) ✅ Kaufkraft 26,874,038 (33% von Netto-Teamwert 119,013,550 = max. Schulden 39,274,472, Budget -12,400,433)</div>
+  <div class='bid'>💶 Gebot 3,64 Mio € (22h-MW ~3,55 Mio €, Puffer 2.6%, WK ~47%) ✅ Kaufkraft 26,874,038 (33% von Netto-Teamwert 119,013,550 = max. Schulden 39,274,472, Budget -12,400,433)</div>
 </div><div class="card market-card">
   <div class="card-head">
     <span class="name">Simon Straudi <span class="pos">(ABW, Dresden)</span></span>
     
   </div>
-  <div class="stats">Score 27.7 · MW 0,25 Mio € (+0 €/Tag) · Ø 0 P · ⏳ 21h</div>
+  <div class="stats">Score 27.7 · MW 0,25 Mio € (+0 €/Tag) · Ø 0 P · ⏳ 19h</div>
   <div class="components">Preis-Leistung: 50% | MW-Momentum: 50% | Einsatz-WK: 0% | Spielplan: 26% | Form/Schnitt: 0%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
   <div class='meta'>Nächste Gegner: 1. FC Nürnberg (26% Sieg-WK)</div>
   
@@ -694,7 +713,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Kevin Wiethaup <span class="pos">(MF, Karlsruhe)</span></span>
     
   </div>
-  <div class="stats">Score 26.2 · MW 1,00 Mio € (-35,437 €/Tag) · Ø 0 P · ⏳ 11h</div>
+  <div class="stats">Score 26.2 · MW 1,00 Mio € (-35,437 €/Tag) · Ø 0 P · ⏳ 10h</div>
   <div class="components">Preis-Leistung: 50% | MW-Momentum: 0% | Einsatz-WK: 50% | Spielplan: 37% | Form/Schnitt: 0%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
   <div class='meta'>Nächste Gegner: Arminia Bielefeld (37% Sieg-WK)</div>
   
@@ -703,13 +722,25 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
   <div class='bid'>💶 Gebot 1,02 Mio € (22h-MW ~1,00 Mio €, Puffer 2.5%, WK ~46%) ✅ Kaufkraft 26,874,038 (33% von Netto-Teamwert 119,013,550 = max. Schulden 39,274,472, Budget -12,400,433)</div>
 </div><div class="card market-card">
   <div class="card-head">
+    <span class="name">Babis Drakas <span class="pos">(ANG, Bochum)</span></span>
+    
+  </div>
+  <div class="stats">Score 24.7 · MW 0,25 Mio € (-2,898 €/Tag) · Ø 0 P · ⏳ 15h</div>
+  <div class="components">Preis-Leistung: 50% | MW-Momentum: 11% | Einsatz-WK: 25% | Spielplan: 41% | Form/Schnitt: 0%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
+  <div class='meta'>Nächste Gegner: Hertha Berlin (41% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
+  <ul class="angles"></ul>
+  <div class='bid'>💶 Gebot 0,26 Mio € (22h-MW ~0,25 Mio €, Puffer 2.5%, WK ~46%) ✅ Kaufkraft 26,874,038 (33% von Netto-Teamwert 119,013,550 = max. Schulden 39,274,472, Budget -12,400,433)</div>
+</div><div class="card market-card">
+  <div class="card-head">
     <span class="name">Sebastian Schonlau <span class="pos">(ABW, Kiel)</span></span>
     
   </div>
-  <div class="stats">Score 20.3 · MW 3,52 Mio € (-161,422 €/Tag) · Ø 0 P · ⏳ 9h</div>
-  <div class="components">Preis-Leistung: 50% | MW-Momentum: 0% | Einsatz-WK: 0% | Spielplan: 31% | Form/Schnitt: 28%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]  [⚠️ Status-Code unbekannt - Einsatz-WK neutral angenommen]</div>
+  <div class="stats">Score 20.3 · MW 3,52 Mio € (-161,422 €/Tag) · Ø 0 P · ⏳ 7h</div>
+  <div class="components">Preis-Leistung: 50% | MW-Momentum: 0% | Einsatz-WK: 0% | Spielplan: 31% | Form/Schnitt: 28%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
   <div class='meta'>Nächste Gegner: SV Darmstadt 98 (31% Sieg-WK)</div>
-  <div class='meta warn'>⚠️ Muskelfaserriss im Oberschenkel - trainiert individuell</div>
+  <div class='meta warn'>⚠️ Nach Muskelfaserriss im Oberschenkel - fraglich für SVD (A)</div>
   <div class="verdict">🎯 KAUFEN (freier Kaderplatz)</div>
   <ul class="angles"></ul>
   <div class='bid'>💶 Gebot 3,60 Mio € (22h-MW ~3,52 Mio €, Puffer 2.3%, WK ~44%) ✅ Kaufkraft 26,874,038 (33% von Netto-Teamwert 119,013,550 = max. Schulden 39,274,472, Budget -12,400,433)</div>
@@ -718,7 +749,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Ryan Patrick Malone <span class="pos">(ABW, Cottbus)</span></span>
     
   </div>
-  <div class="stats">Score 16.3 · MW 1,52 Mio € (-61,865 €/Tag) · Ø 0 P · ⏳ 2h</div>
+  <div class="stats">Score 16.3 · MW 1,52 Mio € (-61,865 €/Tag) · Ø 0 P · ⏳ 0h</div>
   <div class="components">Preis-Leistung: 50% | MW-Momentum: 0% | Einsatz-WK: 0% | Spielplan: 31% | Form/Schnitt: 6%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
   <div class='meta'>Nächste Gegner: Hannover 96 (31% Sieg-WK)</div>
   <div class='meta warn'>⚠️ Muskelverletzung im Oberschenkel - fällt mehrere Wochen aus</div>
@@ -740,55 +771,55 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
 </div><div class="board-row">
   <span class="board-status">⚪ Frei</span>
   <span class="board-name">Reichert <span class="pos">(Nürnberg)</span></span>
-  <span class="board-stats">Score 83.6 · MW 11,30 Mio € · Ø 100 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 83.7 · MW 11,30 Mio € · Ø 100 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 100 P - für 11,30 Mio € erwartbar wären 82 P - +18 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
   <span class="board-status">🛒 Markt</span>
   <span class="board-name">Schuhen <span class="pos">(Darmstadt)</span></span>
-  <span class="board-stats">Score 81.2 · MW 13,07 Mio € · Ø 105 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 81.3 · MW 13,07 Mio € · Ø 105 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 105 P - für 13,07 Mio € erwartbar wären 85 P - +20 P ggü. Preiserwartung</div>
   <div class='board-bid'>💶 Gebot 13,62 Mio € (WK ~58%)</div>
 </div><div class="board-row">
   <span class="board-status">⚪ Frei</span>
   <span class="board-name">Horn <span class="pos">(Bochum)</span></span>
-  <span class="board-stats">Score 80.3 · MW 13,33 Mio € · Ø 107 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 80.5 · MW 13,33 Mio € · Ø 107 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 107 P - für 13,33 Mio € erwartbar wären 85 P - +22 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (david)</span>
   <span class="board-name">Bernat <span class="pos">(Karlsruhe)</span></span>
-  <span class="board-stats">Score 76.9 · MW 10,76 Mio € · Ø 93 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 77.0 · MW 10,76 Mio € · Ø 93 P</span>
   <div class='board-residual'>Ø 93 P - für 10,76 Mio € erwartbar wären 81 P - +12 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (SvenNumeroUno)</span>
   <span class="board-name">Lotka <span class="pos">(Cottbus)</span></span>
-  <span class="board-stats">Score 74.8 · MW 6,86 Mio € · Ø 126 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 75.1 · MW 6,86 Mio € · Ø 126 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 126 P - für 6,86 Mio € erwartbar wären 72 P - +54 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (Moosi)</span>
   <span class="board-name">Weiner <span class="pos">(Kiel)</span></span>
-  <span class="board-stats">Score 74.0 · MW 9,60 Mio € · Ø 107 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 74.3 · MW 9,60 Mio € · Ø 107 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 107 P - für 9,60 Mio € erwartbar wären 78 P - +28 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
   <span class="board-status">⚪ Frei</span>
   <span class="board-name">Kersken <span class="pos">(Bielefeld)</span></span>
-  <span class="board-stats">Score 68.8 · MW 8,87 Mio € · Ø 88 P</span>
+  <span class="board-stats">Score 69.0 · MW 8,87 Mio € · Ø 88 P</span>
   <div class='board-residual'>Ø 88 P - für 8,87 Mio € erwartbar wären 77 P - +11 P ggü. Preiserwartung</div>
   
 </div><div class="board-row eigen">
   <span class="board-status">🟢 Eigen</span>
   <span class="board-name">Hoffmann <span class="pos">(Braunschweig)</span></span>
-  <span class="board-stats">Score 68.0 · MW 8,39 Mio € · Ø 90 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 68.3 · MW 8,39 Mio € · Ø 90 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 90 P - für 8,39 Mio € erwartbar wären 76 P - +14 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (tizi05)</span>
   <span class="board-name">Krahl <span class="pos">(Kaiserslautern)</span></span>
-  <span class="board-stats">Score 66.4 · MW 11,50 Mio € · Ø 108 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 66.8 · MW 11,50 Mio € · Ø 108 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 108 P - für 11,50 Mio € erwartbar wären 82 P - +26 P ggü. Preiserwartung</div>
   
 </div></div><div class='board-group'><h4>ABW</h4><div class="board-row eigen">
@@ -800,56 +831,56 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (malte.srn)</span>
   <span class="board-name">Tomiak <span class="pos">(Hannover)</span></span>
-  <span class="board-stats">Score 81.0 · MW 12,65 Mio € · Ø 98 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 81.1 · MW 12,65 Mio € · Ø 98 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 98 P - für 12,65 Mio € erwartbar wären 84 P - +14 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (SvenNumeroUno)</span>
   <span class="board-name">Pfeiffer <span class="pos">(Darmstadt)</span></span>
-  <span class="board-stats">Score 80.3 · MW 13,72 Mio € · Ø 95 P</span>
+  <span class="board-stats">Score 80.4 · MW 13,72 Mio € · Ø 95 P</span>
   <div class='board-residual'>Ø 95 P - für 13,72 Mio € erwartbar wären 86 P - +9 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (Robin04)</span>
   <span class="board-name">Wittek <span class="pos">(Bochum)</span></span>
-  <span class="board-stats">Score 79.8 · MW 11,54 Mio € · Ø 104 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 79.9 · MW 11,54 Mio € · Ø 104 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 104 P - für 11,54 Mio € erwartbar wären 82 P - +22 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (david)</span>
   <span class="board-name">Hugonet <span class="pos">(Hannover)</span></span>
-  <span class="board-stats">Score 77.8 · MW 10,78 Mio € · Ø 83 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 78.0 · MW 10,78 Mio € · Ø 83 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 83 P - für 10,78 Mio € erwartbar wären 81 P - +2 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
   <span class="board-status">⚪ Frei</span>
   <span class="board-name">Bauer <span class="pos">(Bielefeld)</span></span>
-  <span class="board-stats">Score 76.2 · MW 11,93 Mio € · Ø 92 P</span>
+  <span class="board-stats">Score 76.4 · MW 11,93 Mio € · Ø 92 P</span>
   <div class='board-residual'>Ø 92 P - für 11,93 Mio € erwartbar wären 83 P - +9 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (Luke)</span>
   <span class="board-name">Kobald <span class="pos">(Karlsruhe)</span></span>
-  <span class="board-stats">Score 75.6 · MW 8,95 Mio € · Ø 88 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 75.8 · MW 8,95 Mio € · Ø 88 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 88 P - für 8,95 Mio € erwartbar wären 77 P - +11 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
   <span class="board-status">⚪ Frei</span>
   <span class="board-name">Franke <span class="pos">(Karlsruhe)</span></span>
-  <span class="board-stats">Score 73.6 · MW 9,70 Mio € · Ø 81 P</span>
+  <span class="board-stats">Score 73.7 · MW 9,70 Mio € · Ø 81 P</span>
   <div class='board-residual'>Ø 81 P - für 9,70 Mio € erwartbar wären 79 P - +2 P ggü. Preiserwartung</div>
-  
-</div><div class="board-row">
-  <span class="board-status">⚪ Frei</span>
-  <span class="board-name">Handwerker <span class="pos">(Bielefeld)</span></span>
-  <span class="board-stats">Score 71.9 · MW 13,19 Mio € · Ø 114 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
-  <div class='board-residual'>Ø 114 P - für 13,19 Mio € erwartbar wären 85 P - +29 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (PaulBowa)</span>
   <span class="board-name">Keller <span class="pos">(Dresden)</span></span>
-  <span class="board-stats">Score 71.8 · MW 12,24 Mio € · Ø 112 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 72.1 · MW 12,24 Mio € · Ø 112 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 112 P - für 12,24 Mio € erwartbar wären 83 P - +29 P ggü. Preiserwartung</div>
+  
+</div><div class="board-row">
+  <span class="board-status">⚪ Frei</span>
+  <span class="board-name">Handwerker <span class="pos">(Bielefeld)</span></span>
+  <span class="board-stats">Score 72.0 · MW 13,19 Mio € · Ø 114 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <div class='board-residual'>Ø 114 P - für 13,19 Mio € erwartbar wären 85 P - +29 P ggü. Preiserwartung</div>
   
 </div></div><div class='board-group'><h4>MF</h4><div class="board-row">
   <span class="board-status">⚪ Frei</span>
@@ -860,7 +891,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (Moosi)</span>
   <span class="board-name">Wanitzek <span class="pos">(Karlsruhe)</span></span>
-  <span class="board-stats">Score 79.4 · MW 30,54 Mio € · Ø 156 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 79.5 · MW 30,54 Mio € · Ø 156 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 156 P - für 30,54 Mio € erwartbar wären 101 P - +55 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
@@ -872,7 +903,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
 </div><div class="board-row">
   <span class="board-status">⚪ Frei</span>
   <span class="board-name">Klefisch <span class="pos">(Darmstadt)</span></span>
-  <span class="board-stats">Score 79.0 · MW 11,98 Mio € · Ø 88 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 79.1 · MW 11,98 Mio € · Ø 88 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 88 P - für 11,98 Mio € erwartbar wären 83 P - +5 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
@@ -884,43 +915,43 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (Adrian)</span>
   <span class="board-name">Justvan <span class="pos">(Nürnberg)</span></span>
-  <span class="board-stats">Score 77.2 · MW 15,97 Mio € · Ø 99 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 77.3 · MW 15,97 Mio € · Ø 99 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 99 P - für 15,97 Mio € erwartbar wären 88 P - +10 P ggü. Preiserwartung</div>
   
 </div><div class="board-row eigen">
   <span class="board-status">🟢 Eigen</span>
   <span class="board-name">Thórdarson <span class="pos">(Hannover)</span></span>
-  <span class="board-stats">Score 75.3 · MW 9,64 Mio € · Ø 71 P</span>
+  <span class="board-stats">Score 75.4 · MW 9,64 Mio € · Ø 71 P</span>
   <div class='board-residual'>Ø 71 P - für 9,64 Mio € erwartbar wären 79 P - -8 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
   <span class="board-status">🛒 Markt</span>
   <span class="board-name">Russo <span class="pos">(Bielefeld)</span></span>
-  <span class="board-stats">Score 75.1 · MW 11,54 Mio € · Ø 88 P</span>
+  <span class="board-stats">Score 75.3 · MW 11,54 Mio € · Ø 88 P</span>
   <div class='board-residual'>Ø 88 P - für 11,54 Mio € erwartbar wären 82 P - +6 P ggü. Preiserwartung</div>
   <div class='board-bid'>💶 Gebot 11,95 Mio € (WK ~54%)</div>
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (Luke)</span>
   <span class="board-name">Akiyama <span class="pos">(Darmstadt)</span></span>
-  <span class="board-stats">Score 74.5 · MW 7,86 Mio € · Ø 69 P</span>
+  <span class="board-stats">Score 74.6 · MW 7,86 Mio € · Ø 69 P</span>
   <div class='board-residual'>Ø 69 P - für 7,86 Mio € erwartbar wären 75 P - -6 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
   <span class="board-status">⚪ Frei</span>
   <span class="board-name">Oudenne <span class="pos">(Hannover)</span></span>
-  <span class="board-stats">Score 71.0 · MW 10,43 Mio € · Ø 81 P</span>
+  <span class="board-stats">Score 71.1 · MW 10,43 Mio € · Ø 81 P</span>
   <div class='board-residual'>Ø 81 P - für 10,43 Mio € erwartbar wären 80 P - +1 P ggü. Preiserwartung</div>
   
 </div></div><div class='board-group'><h4>ANG</h4><div class="board-row">
   <span class="board-status">👤 Mitspieler (david)</span>
   <span class="board-name">Reese <span class="pos">(Wolfsburg)</span></span>
-  <span class="board-stats">Score 93.4 · MW 25,15 Mio € · Ø 125 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 93.3 · MW 25,15 Mio € · Ø 125 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 125 P - für 25,15 Mio € erwartbar wären 98 P - +28 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (Robin04)</span>
   <span class="board-name">Zukowski <span class="pos">(Magdeburg)</span></span>
-  <span class="board-stats">Score 87.6 · MW 19,11 Mio € · Ø 134 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 87.7 · MW 19,11 Mio € · Ø 134 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 134 P - für 19,11 Mio € erwartbar wären 92 P - +42 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
@@ -932,26 +963,32 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (PaulBowa)</span>
   <span class="board-name">Hornby <span class="pos">(Wolfsburg)</span></span>
-  <span class="board-stats">Score 81.0 · MW 14,45 Mio € · Ø 126 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 80.9 · MW 14,45 Mio € · Ø 126 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 126 P - für 14,45 Mio € erwartbar wären 87 P - +39 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (SvenNumeroUno)</span>
   <span class="board-name">Hofmann <span class="pos">(Bochum)</span></span>
-  <span class="board-stats">Score 80.0 · MW 16,73 Mio € · Ø 105 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 80.1 · MW 16,73 Mio € · Ø 105 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 105 P - für 16,73 Mio € erwartbar wären 90 P - +16 P ggü. Preiserwartung</div>
-  
-</div><div class="board-row">
-  <span class="board-status">⚪ Frei</span>
-  <span class="board-name">Zoma <span class="pos">(Nürnberg)</span></span>
-  <span class="board-stats">Score 77.9 · MW 16,67 Mio € · Ø 106 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
-  <div class='board-residual'>Ø 106 P - für 16,67 Mio € erwartbar wären 89 P - +17 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (nico)</span>
   <span class="board-name">Conteh <span class="pos">(Heidenheim)</span></span>
-  <span class="board-stats">Score 77.8 · MW 6,89 Mio € · Ø 66 P</span>
+  <span class="board-stats">Score 78.7 · MW 6,89 Mio € · Ø 66 P</span>
   <div class='board-residual'>Ø 66 P - für 6,89 Mio € erwartbar wären 72 P - -6 P ggü. Preiserwartung</div>
+  
+</div><div class="board-row">
+  <span class="board-status">⚪ Frei</span>
+  <span class="board-name">Zoma <span class="pos">(Nürnberg)</span></span>
+  <span class="board-stats">Score 78.0 · MW 16,67 Mio € · Ø 106 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <div class='board-residual'>Ø 106 P - für 16,67 Mio € erwartbar wären 89 P - +17 P ggü. Preiserwartung</div>
+  
+</div><div class="board-row">
+  <span class="board-status">👤 Mitspieler (Moosi)</span>
+  <span class="board-name">Brekalo <span class="pos">(Hertha BSC)</span></span>
+  <span class="board-stats">Score 72.4 · MW 13,73 Mio € · Ø 85 P</span>
+  <div class='board-residual'>Ø 85 P - für 13,73 Mio € erwartbar wären 86 P - -1 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (SvenNumeroUno)</span>
@@ -962,14 +999,8 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (malte.srn)</span>
   <span class="board-name">Bobzien <span class="pos">(Dresden)</span></span>
-  <span class="board-stats">Score 70.9 · MW 11,54 Mio € · Ø 104 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 71.2 · MW 11,54 Mio € · Ø 104 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 104 P - für 11,54 Mio € erwartbar wären 82 P - +22 P ggü. Preiserwartung</div>
-  
-</div><div class="board-row">
-  <span class="board-status">👤 Mitspieler (Robin04)</span>
-  <span class="board-name">Bundu <span class="pos">(Hannover)</span></span>
-  <span class="board-stats">Score 70.5 · MW 12,65 Mio € · Ø 79 P</span>
-  <div class='board-residual'>Ø 79 P - für 12,65 Mio € erwartbar wären 84 P - -5 P ggü. Preiserwartung</div>
   
 </div></div></div>
       <h4 class="board-sub">Beste Deals (Preis-Leistung/Trading)</h4>
@@ -982,7 +1013,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (Robin04)</span>
   <span class="board-name">Krumrey <span class="pos">(Osnabrück)</span></span>
-  <span class="board-stats">Score 82.2 · MW 6,37 Mio € · Ø 96 P</span>
+  <span class="board-stats">Score 82.0 · MW 6,37 Mio € · Ø 96 P</span>
   <div class='board-residual'>Ø 96 P - für 6,37 Mio € erwartbar wären 70 P - +26 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
@@ -1000,7 +1031,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (tizi05)</span>
   <span class="board-name">Krahl <span class="pos">(Kaiserslautern)</span></span>
-  <span class="board-stats">Score 74.9 · MW 11,50 Mio € · Ø 108 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 74.8 · MW 11,50 Mio € · Ø 108 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 108 P - für 11,50 Mio € erwartbar wären 82 P - +26 P ggü. Preiserwartung</div>
   
 </div><div class="board-row eigen">
@@ -1028,10 +1059,10 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
   <div class='board-residual'>Ø 105 P - für 13,07 Mio € erwartbar wären 85 P - +20 P ggü. Preiserwartung</div>
   <div class='board-bid'>💶 Gebot 13,62 Mio € (WK ~58%)</div>
 </div><div class="board-row">
-  <span class="board-status">👤 Mitspieler (david)</span>
-  <span class="board-name">Bernat <span class="pos">(Karlsruhe)</span></span>
-  <span class="board-stats">Score 68.1 · MW 10,76 Mio € · Ø 93 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
-  <div class='board-residual'>Ø 93 P - für 10,76 Mio € erwartbar wären 81 P - +12 P ggü. Preiserwartung</div>
+  <span class="board-status">⚪ Frei</span>
+  <span class="board-name">Gersbeck <span class="pos">(Hertha BSC)</span></span>
+  <span class="board-stats">Score 71.2 · MW 3,74 Mio € · Ø 73 P</span>
+  <div class='board-residual'>Ø 73 P - für 3,74 Mio € erwartbar wären 60 P - +13 P ggü. Preiserwartung</div>
   
 </div></div><div class='board-group'><h4>ABW</h4><div class="board-row">
   <span class="board-status">👤 Mitspieler (Robin04)</span>
@@ -1100,11 +1131,11 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
   <div class='board-residual'>Ø 156 P - für 30,54 Mio € erwartbar wären 101 P - +55 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
-  <span class="board-status">⚪ Frei</span>
+  <span class="board-status">🛒 Markt</span>
   <span class="board-name">Klaus <span class="pos">(Fürth)</span></span>
   <span class="board-stats">Score 70.3 · MW 15,80 Mio € · Ø 109 P</span>
   <div class='board-residual'>Ø 109 P - für 15,80 Mio € erwartbar wären 88 P - +21 P ggü. Preiserwartung</div>
-  
+  <div class='board-bid'>💶 Gebot 16,46 Mio € (WK ~58%)</div>
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (Moosi)</span>
   <span class="board-name">Schramm <span class="pos">(Kaiserslautern)</span></span>
@@ -1126,7 +1157,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
 </div><div class="board-row">
   <span class="board-status">⚪ Frei</span>
   <span class="board-name">Kerber <span class="pos">(Heidenheim)</span></span>
-  <span class="board-stats">Score 63.1 · MW 3,45 Mio € · Ø 0 P</span>
+  <span class="board-stats">Score 63.3 · MW 3,45 Mio € · Ø 0 P</span>
   
   
 </div><div class="board-row">
@@ -1150,7 +1181,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (malte.srn)</span>
   <span class="board-name">Schöppner <span class="pos">(Heidenheim)</span></span>
-  <span class="board-stats">Score 62.1 · MW 8,50 Mio € · Ø 0 P</span>
+  <span class="board-stats">Score 62.3 · MW 8,50 Mio € · Ø 0 P</span>
   
   
 </div></div><div class='board-group'><h4>ANG</h4><div class="board-row">
@@ -1180,7 +1211,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (PaulBowa)</span>
   <span class="board-name">Hornby <span class="pos">(Wolfsburg)</span></span>
-  <span class="board-stats">Score 72.0 · MW 14,45 Mio € · Ø 126 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 72.1 · MW 14,45 Mio € · Ø 126 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 126 P - für 14,45 Mio € erwartbar wären 87 P - +39 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
@@ -1225,7 +1256,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
   <span class="action-icon">🎯</span>
   <div class="action-body">
     <div class="action-text">Gebot auf Jon Guridi (Sevilla FC) <span class='action-amount'>0,94 Mio €</span></div>
-    <div class="action-reason">Score 71.4 · Kaufkraft reicht · ⏳ 13 h</div>
+    <div class="action-reason">Score 71.4 · Kaufkraft reicht · ⏳ 11 h</div>
   </div>
 </div><div class="action-item">
   <span class="action-icon">⛔</span>
@@ -1237,15 +1268,21 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
   <span class="action-icon">⏰</span>
   <div class="action-body">
     <div class="action-text">Jude Bellingham (Real Madrid) läuft ab <span class='action-amount'>39,74 Mio €</span></div>
-    <div class="action-reason">Score 72.2 · interessant, aber kein Kaderzwang (Stamm/Trading-Holds nicht ersetzbar) · ⏳ 14 h</div>
+    <div class="action-reason">Score 72.2 · interessant, aber kein Kaderzwang (Stamm/Trading-Holds nicht ersetzbar) · ⏳ 13 h</div>
   </div>
-</div><div class="action-item urgent">
+</div><div class="action-item">
   <span class="action-icon">⏰</span>
   <div class="action-body">
-    <div class="action-text">Dani Olmo (FC Barcelona) läuft ab <span class='action-amount'>31,51 Mio €</span></div>
-    <div class="action-reason">Score 62.8 · interessant, aber kein Kaderzwang (Stamm/Trading-Holds nicht ersetzbar) · ⏳ 1 h</div>
+    <div class="action-text">Iñigo Ruiz de Galarreta (Athletic Club) läuft ab <span class='action-amount'>9,15 Mio €</span></div>
+    <div class="action-reason">Score 63.3 · interessant, aber kein Kaderzwang (Stamm/Trading-Holds nicht ersetzbar) · ⏳ 20 h</div>
   </div>
 </div></div>
+
+  <div class="llm-block">
+  <div class="llm-label">🤖 KI-Einordnung</div>
+  <div class="llm-report">Bei noch 8 Tagen bis Saisonstart und einem Minus von 43,07 Mio. Euro reicht der tägliche Kaderertrag (3,32 Mio. Euro/Tag, ca. 13 Tage bis Ausgleich) alleine nicht aus, um pünktlich im Plus zu sein. Daher müssen rechtzeitig vor dem 1. Spieltag gezielt Trading-Gewinne realisiert werden. Solange der Markt steigt, halten wir ertragsstarke Trading-Assets wie Mantilla (+315k Euro/Tag) und Johnny Cardoso, deren MW-Dynamik sich weiter beschleunigt. Bei Moscardo bietet sich mit Jon Guridi ein klares Trading-Upgrade an. Fokus für die nächsten Tage: Marktwertgewinne maximal auskosten, aber Verkäufe rechtzeitig vor Saisonstart einplanen.</div>
+  <div class='llm-flags'><div class='flag-row'><span class='flag-name'>Johnny Cardoso</span> <span class='flag-tag'>momentum_accelerating</span> <span class='flag-conf'>high</span><div class='flag-note'>Marktwert-Momentum beschleunigt deutlich (Ratio 1.33, +197k Euro/Tag).</div></div><div class='flag-row'><span class='flag-name'>Mantilla</span> <span class='flag-tag'>momentum_accelerating</span> <span class='flag-conf'>high</span><div class='flag-note'>Sehr starker absoluter Tagesgewinn (+315k Euro/Tag) bei beschleunigender Dynamik (Ratio 1.23).</div></div></div>
+</div>
 
   <div class='kpi-grid'><div class="kpi-tile up">
   <div class="kpi-label">Teamwert</div>
@@ -1279,15 +1316,9 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
   <div class='watch-group'><h4>🔥 Jetzt auf dem Markt</h4><div class="board-row">
   <span class="board-status">🛒 Markt</span>
   <span class="board-name">Bellingham <span class="pos">(Real Madrid)</span></span>
-  <span class="board-stats">Score 92.3 · MW 38,10 Mio € · Ø 128 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 92.4 · MW 38,10 Mio € · Ø 128 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 128 P - für 38,10 Mio € erwartbar wären 108 P - +20 P ggü. Preiserwartung</div>
   <div class='board-bid'>💶 Gebot 39,82 Mio € (WK ~60%)</div>
-</div><div class="board-row">
-  <span class="board-status">🛒 Markt</span>
-  <span class="board-name">Olmo <span class="pos">(FC Barcelona)</span></span>
-  <span class="board-stats">Score 79.7 · MW 30,31 Mio € · Ø 129 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
-  <div class='board-residual'>Ø 129 P - für 30,31 Mio € erwartbar wären 104 P - +25 P ggü. Preiserwartung</div>
-  <div class='board-bid'>💶 Gebot 31,61 Mio € (WK ~58%)</div>
 </div></div><div class='watch-group'><h4>🤝 Bei Mitspieler</h4><div class="board-row">
   <span class="board-status">👤 Mitspieler (afcmikias)</span>
   <span class="board-name">Lamine Yamal <span class="pos">(FC Barcelona)</span></span>
@@ -1321,7 +1352,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
 </div><div class="board-row">
   <span class="board-status">⚪ Frei</span>
   <span class="board-name">Mbappé <span class="pos">(Real Madrid)</span></span>
-  <span class="board-stats">Score 93.2 · MW 50,98 Mio € · Ø 190 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 93.3 · MW 50,98 Mio € · Ø 190 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 190 P - für 50,98 Mio € erwartbar wären 114 P - +76 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
@@ -1333,7 +1364,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
 </div><div class="board-row">
   <span class="board-status">⚪ Frei</span>
   <span class="board-name">Vinicius Jr. <span class="pos">(Real Madrid)</span></span>
-  <span class="board-stats">Score 92.6 · MW 54,57 Mio € · Ø 144 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 92.7 · MW 54,57 Mio € · Ø 144 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 144 P - für 54,57 Mio € erwartbar wären 115 P - +29 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
@@ -1409,10 +1440,22 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <div class="deep-body">
       <h4 class='board-sub'>💎 Banger-Ziele (Tagesmarkt)</h4><div class='grid'><div class="card market-card banger">
   <div class="card-head">
+    <span class="name">Ademola Lookman <span class="pos">(ANG, Atlético Madrid)</span></span>
+    <span class='star'>💎 Star 96%</span>
+  </div>
+  <div class="stats">Score 61.8 · MW 25,75 Mio € (+1,724 €/Tag) · Ø 68 P · ⏳ 20h</div>
+  <div class="components">Preis-Leistung: 0% | MW-Momentum: 50% | Einsatz-WK: 75% | Spielplan: 73% | Form/Schnitt: 80%</div>
+  <div class='meta'>Nächste Gegner: Málaga (73% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 interessant, aber kein Kaderzwang (Stamm/Trading-Holds nicht ersetzbar)</div>
+  <ul class="angles"><li>⚽ stärker als Villalibre (ANG), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 26,70 Mio € (22h-MW ~25,75 Mio €, Puffer 3.7%, WK ~56%) ❌ Kaufkraft 10,075,688</div><div class='meta'>↳ Star-Ausnahme: in Einzelfällen bis 28,75 Mio € belegt (nicht die Regel)</div>
+</div><div class="card market-card banger">
+  <div class="card-head">
     <span class="name">Jude Bellingham <span class="pos">(MF, Real Madrid)</span></span>
     <span class='star'>💎 Star 95%</span>
   </div>
-  <div class="stats">Score 72.2 · MW 38,10 Mio € (+94,798 €/Tag) · Ø 128 P · ⏳ 14h</div>
+  <div class="stats">Score 72.2 · MW 38,10 Mio € (+94,798 €/Tag) · Ø 128 P · ⏳ 13h</div>
   <div class="components">Preis-Leistung: 3% | MW-Momentum: 58% | Einsatz-WK: 100% | Spielplan: 67% | Form/Schnitt: 100%</div>
   <div class='meta'>Nächste Gegner: Real Sociedad (67% Sieg-WK)</div>
   
@@ -1421,22 +1464,10 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
   <div class='bid'>💶 Gebot 39,74 Mio € (22h-MW ~38,20 Mio €, Puffer 4.0%, WK ~58%) ❌ Kaufkraft 10,075,688</div><div class='meta'>↳ Star-Ausnahme: in Einzelfällen bis 41,10 Mio € belegt (nicht die Regel)</div>
 </div><div class="card market-card banger">
   <div class="card-head">
-    <span class="name">Ademola Lookman <span class="pos">(ANG, Atlético Madrid)</span></span>
-    <span class='star'>💎 Star 95%</span>
-  </div>
-  <div class="stats">Score 61.5 · MW 25,75 Mio € (+1,724 €/Tag) · Ø 68 P · ⏳ 21h</div>
-  <div class="components">Preis-Leistung: 0% | MW-Momentum: 50% | Einsatz-WK: 75% | Spielplan: 72% | Form/Schnitt: 80%</div>
-  <div class='meta'>Nächste Gegner: Málaga (72% Sieg-WK)</div>
-  
-  <div class="verdict">🎯 interessant, aber kein Kaderzwang (Stamm/Trading-Holds nicht ersetzbar)</div>
-  <ul class="angles"><li>⚽ stärker als Villalibre (ANG), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
-  <div class='bid'>💶 Gebot 26,70 Mio € (22h-MW ~25,75 Mio €, Puffer 3.7%, WK ~56%) ❌ Kaufkraft 10,075,688</div><div class='meta'>↳ Star-Ausnahme: in Einzelfällen bis 28,75 Mio € belegt (nicht die Regel)</div>
-</div><div class="card market-card banger">
-  <div class="card-head">
     <span class="name">Gerard Gerard Moreno <span class="pos">(ANG, Villarreal CF)</span></span>
-    <span class='star'>💎 Star 72%</span>
+    <span class='star'>💎 Star 73%</span>
   </div>
-  <div class="stats">Score 49.9 · MW 19,71 Mio € (-249,313 €/Tag) · Ø 104 P · ⏳ 14h</div>
+  <div class="stats">Score 50.2 · MW 19,71 Mio € (-249,313 €/Tag) · Ø 104 P · ⏳ 12h</div>
   <div class="components">Preis-Leistung: 19% | MW-Momentum: 8% | Einsatz-WK: 75% | Spielplan: 45% | Form/Schnitt: 100%</div>
   <div class='meta'>Nächste Gegner: Real Racing Club de Santander (45% Sieg-WK)</div>
   
@@ -1451,7 +1482,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
   </div>
   <div class="stats">Score 83.0 · MW 8,30 Mio € (+163,476 €/Tag)</div>
   <ul class="reasons"><li>sportlicher Kern 77% - fitter Startelf-Kandidat</li><li>MW-Trend zusätzlich positiv (+163,476/Tag)</li><li>Momentum-Ratio 1.08 (24h vs. Ø 7-Tage)</li></ul>
-  <div class='meta'>Nächste Gegner: Getafe (39% Sieg-WK)</div>
+  <div class='meta'>Nächste Gegner: Getafe (40% Sieg-WK)</div>
 </div><div class="card" style="border-left-color:#2e9e50">
   <div class="card-head">
     <span class="badge" style="background:#2e9e50">⭐ STAMM</span>
@@ -1467,7 +1498,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
   </div>
   <div class="stats">Score 79.9 · MW 10,56 Mio € (+144,570 €/Tag)</div>
   <ul class="reasons"><li>sportlicher Kern 74% - fitter Startelf-Kandidat</li><li>MW-Trend zusätzlich positiv (+144,570/Tag)</li><li>Momentum-Ratio 0.77 (24h vs. Ø 7-Tage)</li></ul>
-  <div class='meta'>Nächste Gegner: Málaga (72% Sieg-WK)</div>
+  <div class='meta'>Nächste Gegner: Málaga (73% Sieg-WK)</div>
 </div><div class="card" style="border-left-color:#2e9e50">
   <div class="card-head">
     <span class="badge" style="background:#2e9e50">⭐ STAMM</span>
@@ -1507,7 +1538,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
   </div>
   <div class="stats">Score 69.8 · MW 12,25 Mio € (+79,488 €/Tag)</div>
   <ul class="reasons"><li>sportlicher Kern 69% - fitter Startelf-Kandidat</li><li>MW-Trend zusätzlich positiv (+79,488/Tag)</li><li>Momentum-Ratio 0.67 (24h vs. Ø 7-Tage)</li></ul>
-  <div class='meta'>Nächste Gegner: Getafe (39% Sieg-WK)</div>
+  <div class='meta'>Nächste Gegner: Getafe (40% Sieg-WK)</div>
 </div><div class="card" style="border-left-color:#2e9e50">
   <div class="card-head">
     <span class="badge" style="background:#2e9e50">⭐ STAMM</span>
@@ -1571,15 +1602,15 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
   </div>
   <div class="stats">Score 67.4 · MW 5,52 Mio € (+235,380 €/Tag)</div>
   <ul class="reasons"><li>MW steigt +235,380 €/Tag (+4.3%)</li><li>Momentum-Ratio 0.95 (24h vs. Ø 7-Tage)</li></ul>
-  <div class='meta'>Nächste Gegner: Atlético Madrid (9% Sieg-WK)</div>
+  <div class='meta'>Nächste Gegner: Atlético Madrid (10% Sieg-WK)</div>
 </div><div class="card" style="border-left-color:#1f6fd6">
   <div class="card-head">
     <span class="badge" style="background:#1f6fd6">📈 HALTEN (Trading)</span>
     <span class="name">Johnny Cardoso <span class="pos">(MF)</span></span>
   </div>
-  <div class="stats">Score 71.4 · MW 1,88 Mio € (+197,701 €/Tag)</div>
+  <div class="stats">Score 71.5 · MW 1,88 Mio € (+197,701 €/Tag)</div>
   <ul class="reasons"><li>MW steigt +197,701 €/Tag (+10.5%)</li><li>sportlich (noch) kein Stamm-Argument - reines Wert-Investment</li><li>Momentum-Ratio 1.33 (24h vs. Ø 7-Tage)</li><li>⚠️ Status-Code unbekannt (st=4) - Verfügbarkeit neutral angenommen, nicht verlässlich</li></ul>
-  <div class='meta'>Nächste Gegner: Málaga (72% Sieg-WK)</div>
+  <div class='meta'>Nächste Gegner: Málaga (73% Sieg-WK)</div>
 </div><div class="card" style="border-left-color:#1f6fd6">
   <div class="card-head">
     <span class="badge" style="background:#1f6fd6">📈 HALTEN (Trading)</span>
@@ -1614,7 +1645,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Jude Bellingham <span class="pos">(MF, Real Madrid)</span></span>
     <span class='star'>💎 Star 95%</span>
   </div>
-  <div class="stats">Score 72.2 · MW 38,10 Mio € (+94,798 €/Tag) · Ø 128 P · ⏳ 14h</div>
+  <div class="stats">Score 72.2 · MW 38,10 Mio € (+94,798 €/Tag) · Ø 128 P · ⏳ 13h</div>
   <div class="components">Preis-Leistung: 3% | MW-Momentum: 58% | Einsatz-WK: 100% | Spielplan: 67% | Form/Schnitt: 100%</div>
   <div class='meta'>Nächste Gegner: Real Sociedad (67% Sieg-WK)</div>
   
@@ -1626,7 +1657,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Jon Guridi <span class="pos">(MF, Sevilla FC)</span></span>
     
   </div>
-  <div class="stats">Score 71.4 · MW 0,72 Mio € (+40,162 €/Tag) · Ø 28 P · ⏳ 13h</div>
+  <div class="stats">Score 71.4 · MW 0,72 Mio € (+40,162 €/Tag) · Ø 28 P · ⏳ 11h</div>
   <div class="components">Preis-Leistung: 100% | MW-Momentum: 100% | Einsatz-WK: 75% | Spielplan: 43% | Form/Schnitt: 13%</div>
   <div class='meta'>Nächste Gegner: Rayo Vallecano (43% Sieg-WK)</div>
   
@@ -1638,9 +1669,9 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Alejandro Grimaldo <span class="pos">(ABW, Atlético Madrid)</span></span>
     
   </div>
-  <div class="stats">Score 68.3 · MW 32,12 Mio € (+77,641 €/Tag) · Ø 0 P · ⏳ 6h</div>
-  <div class="components">Preis-Leistung: 50% | MW-Momentum: 58% | Einsatz-WK: 50% | Spielplan: 72% | Form/Schnitt: 70%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
-  <div class='meta'>Nächste Gegner: Málaga (72% Sieg-WK)</div>
+  <div class="stats">Score 68.3 · MW 32,12 Mio € (+77,641 €/Tag) · Ø 0 P · ⏳ 4h</div>
+  <div class="components">Preis-Leistung: 50% | MW-Momentum: 58% | Einsatz-WK: 50% | Spielplan: 73% | Form/Schnitt: 70%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
+  <div class='meta'>Nächste Gegner: Málaga (73% Sieg-WK)</div>
   
   <div class="verdict">🎯 ⛔ EHER NICHT (aktuell nicht finanzierbar) — interessant, aber kein Kaderzwang (Stamm/Trading-Holds nicht ersetzbar)</div>
   <ul class="angles"><li>⚽ stärker als Diaby (ABW), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
@@ -1650,7 +1681,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Karim Adeyemi <span class="pos">(ANG, FC Barcelona)</span></span>
     
   </div>
-  <div class="stats">Score 64.2 · MW 17,87 Mio € (+125,802 €/Tag) · Ø 0 P · ⏳ 29h</div>
+  <div class="stats">Score 64.5 · MW 17,87 Mio € (+125,802 €/Tag) · Ø 0 P · ⏳ 27h</div>
   <div class="components">Preis-Leistung: 50% | MW-Momentum: 73% | Einsatz-WK: 25% | Spielplan: 66% | Form/Schnitt: 70%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
   <div class='meta'>Nächste Gegner: Athletic Bilbao (66% Sieg-WK)</div>
   
@@ -1659,22 +1690,22 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
   
 </div><div class="card market-card">
   <div class="card-head">
-    <span class="name">Dani Olmo <span class="pos">(MF, FC Barcelona)</span></span>
+    <span class="name">Iñigo Ruiz de Galarreta <span class="pos">(MF, Athletic Club)</span></span>
     
   </div>
-  <div class="stats">Score 62.8 · MW 30,31 Mio € (+66,908 €/Tag) · Ø 129 P · ⏳ 1h</div>
-  <div class="components">Preis-Leistung: 10% | MW-Momentum: 57% | Einsatz-WK: 50% | Spielplan: 66% | Form/Schnitt: 100%</div>
-  <div class='meta'>Nächste Gegner: Athletic Bilbao (66% Sieg-WK)</div>
+  <div class="stats">Score 63.3 · MW 8,48 Mio € (+76,544 €/Tag) · Ø 62 P · ⏳ 20h</div>
+  <div class="components">Preis-Leistung: 36% | MW-Momentum: 80% | Einsatz-WK: 100% | Spielplan: 14% | Form/Schnitt: 70%</div>
+  <div class='meta'>Nächste Gegner: Barcelona (14% Sieg-WK)</div>
   
   <div class="verdict">🎯 interessant, aber kein Kaderzwang (Stamm/Trading-Holds nicht ersetzbar)</div>
-  <ul class="angles"><li>⚽ stärker als Moscardo (MF), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li><li>📊 Rohpunkte-Typ: Ø 114 P. bei Sieg, Ø 70 P. bei Niederlage (3 Spiele, kleine Stichprobe)</li></ul>
-  <div class='bid'>💶 Gebot 31,51 Mio € (22h-MW ~30,38 Mio €, Puffer 3.7%, WK ~56%) ❌ Kaufkraft 10,075,688</div><div class='meta'>↳ Star-Ausnahme: in Einzelfällen bis 33,31 Mio € belegt (nicht die Regel)</div>
+  <ul class="angles"><li>⚽ stärker als Moscardo (MF), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
+  <div class='bid'>💶 Gebot 9,15 Mio € (22h-MW ~8,55 Mio €, Puffer 3.8%, WK ~56%) ✅ Kaufkraft 10,075,688</div><div class='meta'>↳ stark &amp; nachhaltig steigend (+0.9%/Tag) - Gebotsbasis auf 4-Tage-Projektion (8,820,070 €) angehoben, das bieten erfahrungsgemäß alle</div>
 </div><div class="card market-card">
   <div class="card-head">
     <span class="name">Hugo Hugo Duro <span class="pos">(ANG, Valencia CF)</span></span>
     
   </div>
-  <div class="stats">Score 62.3 · MW 4,10 Mio € (+225,949 €/Tag) · Ø 44 P · ⏳ 28h</div>
+  <div class="stats">Score 62.3 · MW 4,10 Mio € (+225,949 €/Tag) · Ø 44 P · ⏳ 27h</div>
   <div class="components">Preis-Leistung: 64% | MW-Momentum: 100% | Einsatz-WK: 50% | Spielplan: 36% | Form/Schnitt: 40%</div>
   <div class='meta'>Nächste Gegner: Real Betis (36% Sieg-WK)</div>
   
@@ -1684,11 +1715,11 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
 </div><div class="card market-card">
   <div class="card-head">
     <span class="name">Ademola Lookman <span class="pos">(ANG, Atlético Madrid)</span></span>
-    <span class='star'>💎 Star 95%</span>
+    <span class='star'>💎 Star 96%</span>
   </div>
-  <div class="stats">Score 61.5 · MW 25,75 Mio € (+1,724 €/Tag) · Ø 68 P · ⏳ 21h</div>
-  <div class="components">Preis-Leistung: 0% | MW-Momentum: 50% | Einsatz-WK: 75% | Spielplan: 72% | Form/Schnitt: 80%</div>
-  <div class='meta'>Nächste Gegner: Málaga (72% Sieg-WK)</div>
+  <div class="stats">Score 61.8 · MW 25,75 Mio € (+1,724 €/Tag) · Ø 68 P · ⏳ 20h</div>
+  <div class="components">Preis-Leistung: 0% | MW-Momentum: 50% | Einsatz-WK: 75% | Spielplan: 73% | Form/Schnitt: 80%</div>
+  <div class='meta'>Nächste Gegner: Málaga (73% Sieg-WK)</div>
   
   <div class="verdict">🎯 interessant, aber kein Kaderzwang (Stamm/Trading-Holds nicht ersetzbar)</div>
   <ul class="angles"><li>⚽ stärker als Villalibre (ANG), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li></ul>
@@ -1698,7 +1729,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Luis Miguel Luismi Cruz <span class="pos">(ANG, RC Deportivo)</span></span>
     
   </div>
-  <div class="stats">Score 58.7 · MW 3,94 Mio € (+186,206 €/Tag) · Ø 0 P · ⏳ 12h</div>
+  <div class="stats">Score 58.7 · MW 3,94 Mio € (+186,206 €/Tag) · Ø 0 P · ⏳ 11h</div>
   <div class="components">Preis-Leistung: 50% | MW-Momentum: 100% | Einsatz-WK: 50% | Spielplan: 41% | Form/Schnitt: 33%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
   <div class='meta'>Nächste Gegner: Elche CF (41% Sieg-WK)</div>
   
@@ -1710,7 +1741,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Junior Firpo <span class="pos">(ABW, Real Betis)</span></span>
     
   </div>
-  <div class="stats">Score 54.9 · MW 5,33 Mio € (+233,776 €/Tag) · Ø 55 P · ⏳ 24h</div>
+  <div class="stats">Score 54.9 · MW 5,33 Mio € (+233,776 €/Tag) · Ø 55 P · ⏳ 22h</div>
   <div class="components">Preis-Leistung: 61% | MW-Momentum: 100% | Einsatz-WK: 0% | Spielplan: 35% | Form/Schnitt: 58%</div>
   <div class='meta'>Nächste Gegner: Valencia (35% Sieg-WK)</div>
   
@@ -1722,7 +1753,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">José Copete <span class="pos">(ABW, Valencia CF)</span></span>
     
   </div>
-  <div class="stats">Score 52.3 · MW 0,50 Mio € (+0 €/Tag) · Ø 61 P · ⏳ 9h</div>
+  <div class="stats">Score 52.3 · MW 0,50 Mio € (+0 €/Tag) · Ø 61 P · ⏳ 7h</div>
   <div class="components">Preis-Leistung: 100% | MW-Momentum: 50% | Einsatz-WK: 0% | Spielplan: 36% | Form/Schnitt: 68%</div>
   <div class='meta'>Nächste Gegner: Real Betis (36% Sieg-WK)</div>
   <div class='meta warn'>⚠️ Meniskus-OP - Saisonaus</div>
@@ -1734,7 +1765,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">José Antonio Tete Morente <span class="pos">(MF, Elche CF)</span></span>
     
   </div>
-  <div class="stats">Score 51.0 · MW 4,13 Mio € (-203,427 €/Tag) · Ø 70 P · ⏳ 9h</div>
+  <div class="stats">Score 51.0 · MW 4,13 Mio € (-203,427 €/Tag) · Ø 70 P · ⏳ 7h</div>
   <div class="components">Preis-Leistung: 100% | MW-Momentum: 0% | Einsatz-WK: 50% | Spielplan: 29% | Form/Schnitt: 83%</div>
   <div class='meta'>Nächste Gegner: Deportivo La Coruña (29% Sieg-WK)</div>
   
@@ -1744,9 +1775,9 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
 </div><div class="card market-card">
   <div class="card-head">
     <span class="name">Gerard Gerard Moreno <span class="pos">(ANG, Villarreal CF)</span></span>
-    <span class='star'>💎 Star 72%</span>
+    <span class='star'>💎 Star 73%</span>
   </div>
-  <div class="stats">Score 49.9 · MW 19,71 Mio € (-249,313 €/Tag) · Ø 104 P · ⏳ 14h</div>
+  <div class="stats">Score 50.2 · MW 19,71 Mio € (-249,313 €/Tag) · Ø 104 P · ⏳ 12h</div>
   <div class="components">Preis-Leistung: 19% | MW-Momentum: 8% | Einsatz-WK: 75% | Spielplan: 45% | Form/Schnitt: 100%</div>
   <div class='meta'>Nächste Gegner: Real Racing Club de Santander (45% Sieg-WK)</div>
   
@@ -1758,7 +1789,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Borja Mayoral <span class="pos">(ANG, Getafe CF)</span></span>
     
   </div>
-  <div class="stats">Score 48.4 · MW 0,50 Mio € (+0 €/Tag) · Ø 48 P · ⏳ 18h</div>
+  <div class="stats">Score 48.4 · MW 0,50 Mio € (+0 €/Tag) · Ø 48 P · ⏳ 17h</div>
   <div class="components">Preis-Leistung: 100% | MW-Momentum: 50% | Einsatz-WK: 6% | Spielplan: 27% | Form/Schnitt: 47%</div>
   <div class='meta'>Nächste Gegner: Alavés (27% Sieg-WK)</div>
   <div class='meta warn'>⚠️ Unbekannter Grund - fehlt im Teamtraining</div>
@@ -1770,7 +1801,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Franco Mastantuono <span class="pos">(MF, Real Madrid)</span></span>
     
   </div>
-  <div class="stats">Score 47.2 · MW 9,18 Mio € (-23,048 €/Tag) · Ø 66 P · ⏳ 20h</div>
+  <div class="stats">Score 47.5 · MW 9,18 Mio € (-23,048 €/Tag) · Ø 66 P · ⏳ 19h</div>
   <div class="components">Preis-Leistung: 35% | MW-Momentum: 42% | Einsatz-WK: 0% | Spielplan: 67% | Form/Schnitt: 77%</div>
   <div class='meta'>Nächste Gegner: Real Sociedad (67% Sieg-WK)</div>
   
@@ -1782,7 +1813,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Ali Houary <span class="pos">(ANG, Elche CF)</span></span>
     
   </div>
-  <div class="stats">Score 45.5 · MW 3,56 Mio € (+175,596 €/Tag) · Ø 27 P · ⏳ 20h</div>
+  <div class="stats">Score 45.5 · MW 3,56 Mio € (+175,596 €/Tag) · Ø 27 P · ⏳ 18h</div>
   <div class="components">Preis-Leistung: 38% | MW-Momentum: 100% | Einsatz-WK: 25% | Spielplan: 29% | Form/Schnitt: 12%</div>
   <div class='meta'>Nächste Gegner: Deportivo La Coruña (29% Sieg-WK)</div>
   
@@ -1791,22 +1822,10 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
   <div class='bid'>💶 Gebot 3,86 Mio € (22h-MW ~3,74 Mio €, Puffer 3.1%, WK ~51%) ✅ Kaufkraft nach Verkauf 16,830,124 (Budget -43,072,749 + Erlös 6,754,436 = voller MW, 33% vom neuen Netto-Teamwert)</div><div class='meta'>↳ steigt stark, punktet aber sportlich schwach - Projektions-Aufschlag bewusst NICHT angesetzt</div>
 </div><div class="card market-card">
   <div class="card-head">
-    <span class="name">Juan Luis Juanlu <span class="pos">(MF, Sevilla FC)</span></span>
-    
-  </div>
-  <div class="stats">Score 44.6 · MW 2,18 Mio € (-134,921 €/Tag) · Ø 42 P · ⏳ 6h</div>
-  <div class="components">Preis-Leistung: 100% | MW-Momentum: 0% | Einsatz-WK: 50% | Spielplan: 43% | Form/Schnitt: 37%</div>
-  <div class='meta'>Nächste Gegner: Rayo Vallecano (43% Sieg-WK)</div>
-  
-  <div class="verdict">🎯 interessant, aber kein Kaderzwang (Stamm/Trading-Holds nicht ersetzbar)</div>
-  <ul class="angles"><li>⚽ stärker als Moscardo (MF), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li><li>📊 Rohpunkte-Typ: Ø 39 P. bei Sieg, Ø 42 P. bei Niederlage (3 Spiele, kleine Stichprobe) -&gt; auch bei schwachem Spielplan (Spielplan-Score nur 43%) ein Kandidat, Punkte hängen nicht am Sieg</li></ul>
-  <div class='bid'>💶 Gebot 2,25 Mio € (22h-MW ~2,18 Mio €, Puffer 3.1%, WK ~51%) ✅ Kaufkraft 10,075,688</div>
-</div><div class="card market-card">
-  <div class="card-head">
     <span class="name">Endrick Felipe Endrick <span class="pos">(ANG, Real Madrid)</span></span>
     
   </div>
-  <div class="stats">Score 44.6 · MW 6,25 Mio € (+163,163 €/Tag) · Ø 28 P · ⏳ 13h</div>
+  <div class="stats">Score 44.7 · MW 6,25 Mio € (+163,163 €/Tag) · Ø 28 P · ⏳ 12h</div>
   <div class="components">Preis-Leistung: 12% | MW-Momentum: 100% | Einsatz-WK: 0% | Spielplan: 67% | Form/Schnitt: 13%</div>
   <div class='meta'>Nächste Gegner: Real Sociedad (67% Sieg-WK)</div>
   
@@ -1815,10 +1834,22 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
   <div class='bid'>💶 Gebot 6,61 Mio € (22h-MW ~6,41 Mio €, Puffer 3.1%, WK ~51%) ✅ Kaufkraft 10,075,688</div><div class='meta'>↳ steigt stark, punktet aber sportlich schwach - Projektions-Aufschlag bewusst NICHT angesetzt</div>
 </div><div class="card market-card">
   <div class="card-head">
+    <span class="name">Juan Luis Juanlu <span class="pos">(MF, Sevilla FC)</span></span>
+    
+  </div>
+  <div class="stats">Score 44.6 · MW 2,18 Mio € (-134,921 €/Tag) · Ø 42 P · ⏳ 4h</div>
+  <div class="components">Preis-Leistung: 100% | MW-Momentum: 0% | Einsatz-WK: 50% | Spielplan: 43% | Form/Schnitt: 37%</div>
+  <div class='meta'>Nächste Gegner: Rayo Vallecano (43% Sieg-WK)</div>
+  
+  <div class="verdict">🎯 interessant, aber kein Kaderzwang (Stamm/Trading-Holds nicht ersetzbar)</div>
+  <ul class="angles"><li>⚽ stärker als Moscardo (MF), der ist aber HALTEN (Trading) -&gt; kein sportlicher Zwang</li><li>📊 Rohpunkte-Typ: Ø 39 P. bei Sieg, Ø 42 P. bei Niederlage (3 Spiele, kleine Stichprobe) -&gt; auch bei schwachem Spielplan (Spielplan-Score nur 43%) ein Kandidat, Punkte hängen nicht am Sieg</li></ul>
+  <div class='bid'>💶 Gebot 2,25 Mio € (22h-MW ~2,18 Mio €, Puffer 3.1%, WK ~51%) ✅ Kaufkraft 10,075,688</div>
+</div><div class="card market-card">
+  <div class="card-head">
     <span class="name">Alexander Freeman <span class="pos">(ABW, Villarreal CF)</span></span>
     
   </div>
-  <div class="stats">Score 38.6 · MW 0,50 Mio € (-79,335 €/Tag) · Ø 38 P · ⏳ 4h</div>
+  <div class="stats">Score 38.6 · MW 0,50 Mio € (-79,335 €/Tag) · Ø 38 P · ⏳ 2h</div>
   <div class="components">Preis-Leistung: 100% | MW-Momentum: 0% | Einsatz-WK: 25% | Spielplan: 45% | Form/Schnitt: 30%</div>
   <div class='meta'>Nächste Gegner: Real Racing Club de Santander (45% Sieg-WK)</div>
   
@@ -1830,7 +1861,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Rodrigo Riquelme <span class="pos">(MF, Real Betis)</span></span>
     
   </div>
-  <div class="stats">Score 36.1 · MW 3,27 Mio € (-127,810 €/Tag) · Ø 38 P · ⏳ 37h</div>
+  <div class="stats">Score 36.1 · MW 3,27 Mio € (-127,810 €/Tag) · Ø 38 P · ⏳ 36h</div>
   <div class="components">Preis-Leistung: 72% | MW-Momentum: 0% | Einsatz-WK: 50% | Spielplan: 35% | Form/Schnitt: 30%</div>
   <div class='meta'>Nächste Gegner: Valencia (35% Sieg-WK)</div>
   
@@ -1842,7 +1873,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Alejandro Iturbe <span class="pos">(TW, Elche CF)</span></span>
     
   </div>
-  <div class="stats">Score 28.0 · MW 0,50 Mio € (+0 €/Tag) · Ø 0 P · ⏳ 25h</div>
+  <div class="stats">Score 28.0 · MW 0,50 Mio € (+0 €/Tag) · Ø 0 P · ⏳ 23h</div>
   <div class="components">Preis-Leistung: 50% | MW-Momentum: 50% | Einsatz-WK: 0% | Spielplan: 29% | Form/Schnitt: 0%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
   <div class='meta'>Nächste Gegner: Deportivo La Coruña (29% Sieg-WK)</div>
   
@@ -1854,7 +1885,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Mikel Santos <span class="pos">(TW, Athletic Club)</span></span>
     
   </div>
-  <div class="stats">Score 26.0 · MW 0,50 Mio € (+0 €/Tag) · Ø 0 P · ⏳ 37h</div>
+  <div class="stats">Score 26.0 · MW 0,50 Mio € (+0 €/Tag) · Ø 0 P · ⏳ 35h</div>
   <div class="components">Preis-Leistung: 50% | MW-Momentum: 50% | Einsatz-WK: 0% | Spielplan: 14% | Form/Schnitt: 0%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
   <div class='meta'>Nächste Gegner: Barcelona (14% Sieg-WK)</div>
   
@@ -1866,9 +1897,9 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
     <span class="name">Andrés Céspedes <span class="pos">(TW, Málaga CF)</span></span>
     
   </div>
-  <div class="stats">Score 25.3 · MW 0,50 Mio € (+0 €/Tag) · Ø 0 P · ⏳ 4h</div>
-  <div class="components">Preis-Leistung: 50% | MW-Momentum: 50% | Einsatz-WK: 0% | Spielplan: 9% | Form/Schnitt: 0%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
-  <div class='meta'>Nächste Gegner: Atlético Madrid (9% Sieg-WK)</div>
+  <div class="stats">Score 25.3 · MW 0,50 Mio € (+0 €/Tag) · Ø 0 P · ⏳ 2h</div>
+  <div class="components">Preis-Leistung: 50% | MW-Momentum: 50% | Einsatz-WK: 0% | Spielplan: 10% | Form/Schnitt: 0%  [⚠️ keine Punktehistorie - Form aus MW geschätzt]</div>
+  <div class='meta'>Nächste Gegner: Atlético Madrid (10% Sieg-WK)</div>
   
   <div class="verdict">🎯 KEIN BEDARF - weder Trading- noch sportlicher Mehrwert erkennbar</div>
   <ul class="angles"></ul>
@@ -1996,7 +2027,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
 </div><div class="board-row">
   <span class="board-status">⚪ Frei</span>
   <span class="board-name">Huijsen <span class="pos">(Real Madrid)</span></span>
-  <span class="board-stats">Score 78.8 · MW 28,21 Mio € · Ø 115 P</span>
+  <span class="board-stats">Score 78.9 · MW 28,21 Mio € · Ø 115 P</span>
   <div class='board-residual'>Ø 115 P - für 28,21 Mio € erwartbar wären 103 P - +12 P ggü. Preiserwartung</div>
   
 </div></div><div class='board-group'><h4>MF</h4><div class="board-row">
@@ -2014,7 +2045,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
 </div><div class="board-row">
   <span class="board-status">🛒 Markt</span>
   <span class="board-name">Bellingham <span class="pos">(Real Madrid)</span></span>
-  <span class="board-stats">Score 92.3 · MW 38,10 Mio € · Ø 128 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 92.4 · MW 38,10 Mio € · Ø 128 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 128 P - für 38,10 Mio € erwartbar wären 108 P - +20 P ggü. Preiserwartung</div>
   <div class='board-bid'>💶 Gebot 39,82 Mio € (WK ~60%)</div>
 </div><div class="board-row eigen">
@@ -2042,11 +2073,11 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
   <div class='board-residual'>Ø 127 P - für 31,23 Mio € erwartbar wären 105 P - +22 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
-  <span class="board-status">🛒 Markt</span>
+  <span class="board-status">⚪ Frei</span>
   <span class="board-name">Olmo <span class="pos">(FC Barcelona)</span></span>
   <span class="board-stats">Score 79.7 · MW 30,31 Mio € · Ø 129 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 129 P - für 30,31 Mio € erwartbar wären 104 P - +25 P ggü. Preiserwartung</div>
-  <div class='board-bid'>💶 Gebot 31,61 Mio € (WK ~58%)</div>
+  
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (KickbaseUser4660)</span>
   <span class="board-name">Fornals <span class="pos">(Real Betis)</span></span>
@@ -2062,7 +2093,7 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
 </div></div><div class='board-group'><h4>ANG</h4><div class="board-row">
   <span class="board-status">⚪ Frei</span>
   <span class="board-name">Mbappé <span class="pos">(Real Madrid)</span></span>
-  <span class="board-stats">Score 93.2 · MW 50,98 Mio € · Ø 190 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 93.3 · MW 50,98 Mio € · Ø 190 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 190 P - für 50,98 Mio € erwartbar wären 114 P - +76 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
@@ -2074,13 +2105,13 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
 </div><div class="board-row">
   <span class="board-status">⚪ Frei</span>
   <span class="board-name">Vinicius Jr. <span class="pos">(Real Madrid)</span></span>
-  <span class="board-stats">Score 92.6 · MW 54,57 Mio € · Ø 144 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
+  <span class="board-stats">Score 92.7 · MW 54,57 Mio € · Ø 144 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 144 P - für 54,57 Mio € erwartbar wären 115 P - +29 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
   <span class="board-status">👤 Mitspieler (minihwa)</span>
   <span class="board-name">Ferran Torres <span class="pos">(FC Barcelona)</span></span>
-  <span class="board-stats">Score 82.7 · MW 26,94 Mio € · Ø 98 P</span>
+  <span class="board-stats">Score 82.8 · MW 26,94 Mio € · Ø 98 P</span>
   <div class='board-residual'>Ø 98 P - für 26,94 Mio € erwartbar wären 102 P - -4 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
@@ -2284,15 +2315,15 @@ footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-
   <div class='board-residual'>Ø 55 P - für 1,01 Mio € erwartbar wären 43 P - +12 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
-  <span class="board-status">🛒 Markt</span>
+  <span class="board-status">⚪ Frei</span>
   <span class="board-name">Olmo <span class="pos">(FC Barcelona)</span></span>
   <span class="board-stats">Score 72.8 · MW 30,31 Mio € · Ø 129 P</span> <span class='both-badge'>⭐ auch in anderer Liste</span>
   <div class='board-residual'>Ø 129 P - für 30,31 Mio € erwartbar wären 104 P - +25 P ggü. Preiserwartung</div>
-  <div class='board-bid'>💶 Gebot 31,61 Mio € (WK ~58%)</div>
+  
 </div><div class="board-row eigen">
   <span class="board-status">🟢 Eigen</span>
   <span class="board-name">Guido Rodríguez <span class="pos">(Valencia CF)</span></span>
-  <span class="board-stats">Score 71.7 · MW 10,36 Mio € · Ø 97 P</span>
+  <span class="board-stats">Score 71.8 · MW 10,36 Mio € · Ø 97 P</span>
   <div class='board-residual'>Ø 97 P - für 10,36 Mio € erwartbar wären 85 P - +12 P ggü. Preiserwartung</div>
   
 </div><div class="board-row">
