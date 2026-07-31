@@ -28,8 +28,11 @@ from odds import load_fixture_odds, load_fixture_odds_api, fixture_ease_odds
 from fixtures import _best_match
 from squad_analysis import (classify_own_player, market_vs_squad,
                             finalize_headline_recommendations,
-                            flag_formation_risk, POS_NAMES)
+                            flag_formation_risk, POS_NAMES, DEBT_RATIO)
 from league_board import build_league_lists
+from report_builder import (compute_kpis, build_actions, build_squad_action_items,
+                            build_targets, build_risks, season_phase,
+                            save_report, load_previous_snapshot, diff_reports)
 
 LEAGUE_BOARD_TOP_N = 10  # Top N je Position in der Liga-Bestenliste (B5)
 
@@ -93,7 +96,7 @@ def enrich_players(kb, league_id, players, strength_map, upcoming_by_team, mode)
     return out
 
 
-def run_league(kb, cfg):
+def run_league(kb, cfg, run_timestamp):
     name = cfg["name"]
     print("\n" + "=" * 62)
     print(f"🏆 LIGA: {name}")
@@ -148,6 +151,13 @@ def run_league(kb, cfg):
         print("\nℹ️ Kader-Endpoint lieferte nichts - Team-Ansicht in der App mit "
               "HTTP Toolkit aufnehmen, dann verifiziere ich den Pfad.")
     squad_slots = len(squad_players)
+
+    # Kaufkraft-Kennzahlen fürs Dashboard (identische Formel wie in
+    # squad_analysis.market_vs_squad, dort nicht nach außen gereicht).
+    squad_value = sum(s["mv"] for s in squad_classified)
+    net_value = squad_value + budget
+    max_debt = DEBT_RATIO * net_value
+    capacity = max_debt + budget
 
     # ---------- 2) MARKT IM TEAM-KONTEXT ----------
     market = kb.get_transfer_market(league_id)
@@ -292,11 +302,21 @@ def run_league(kb, cfg):
         for e in entries[:5]:
             _print_board_entry(e, "value_score")
 
-    return {
-        "name": name,
-        "budget": budget,
-        "max_squad": max_squad,
-        "squad_slots": squad_slots,
+    # ---------- 4) DASHBOARD-BAUSTEINE (Report-Objekt statt nur Text) ----------
+    ranking = kb.get_ranking(league_id)
+    kpis = compute_kpis(budget, squad_classified, max_squad, squad_slots,
+                        capacity, net_value, max_debt, ranking, kb.user_id)
+    actions = build_actions(compared, squad_classified)
+    squad_action_items = build_squad_action_items(squad_classified)
+    targets = build_targets(board)
+    risks = build_risks(capacity, net_value, budget, compared, bool(upcoming))
+
+    report = {
+        "league": {"name": name, "id": league_id, "cid": cid,
+                  "generated_at": run_timestamp.isoformat()},
+        "kpis": kpis,
+        "actions": actions,
+        "squad_action_items": squad_action_items,
         "squad_classified": squad_classified,
         "market": compared,
         "bangers": bangers,
@@ -304,37 +324,51 @@ def run_league(kb, cfg):
         "fixture_mode": fixture_mode,
         "has_fixtures": bool(upcoming),
         "league_board": board,
+        "targets": targets,
+        "risks": risks,
+        "meta": {"season_phase": season_phase(kpis)},
+        # Rückwärtskompatible Top-Level-Felder (html_report.py-Detailblöcke):
+        "name": name, "budget": budget, "max_squad": max_squad,
+        "squad_slots": squad_slots,
     }
+
+    previous = load_previous_snapshot(name, run_timestamp.strftime("%Y-%m-%d"))
+    report["changes"] = diff_reports(report, previous)
+    saved_path = save_report(report)
+    print(f"\n💾 Tages-Snapshot gespeichert: {saved_path}")
+
+    return report
 
 
 def main():
+    from datetime import datetime, timezone
+
     kb = KickbaseAPI()
     print("Verbinde mit Kickbase...")
     if not kb.login():
         print("❌ Login fehlgeschlagen - EMAIL/PASSWORD prüfen (lokal in config.py, "
               "in CI in den GitHub Secrets KICKBASE_EMAIL/KICKBASE_PASSWORD).")
         sys.exit(1)
+    run_timestamp = datetime.now(timezone.utc)
     reports = []
     for cfg in LEAGUES:
         if "DEIN-" in cfg["name"]:
             continue
-        report = run_league(kb, cfg)
+        report = run_league(kb, cfg, run_timestamp)
         if report:
             reports.append(report)
 
-    write_html_report(reports)
+    write_html_report(reports, run_timestamp)
 
 
-def write_html_report(reports):
+def write_html_report(reports, generated_at):
     import hashlib
     import os
-    from datetime import datetime, timezone
     from config import PAGE_PASSWORD
     from html_report import render_html
 
     password_hash = (hashlib.sha256(PAGE_PASSWORD.encode()).hexdigest()
                      if PAGE_PASSWORD else None)
-    generated_at = datetime.now(timezone.utc)
     html = render_html(reports, generated_at, password_hash)
 
     out_dir = "site"

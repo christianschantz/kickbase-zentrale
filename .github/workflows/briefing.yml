@@ -38,6 +38,18 @@ jobs:
           PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
         run: python main.py
 
+      - name: Tages-Snapshot zurück ins Repo committen (data/, für Tagesvergleich)
+        run: |
+          git config user.name "kickbase-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/
+          if ! git diff --cached --quiet; then
+            git commit -m "Tages-Snapshot $(date -u +%Y-%m-%d)"
+            git push
+          else
+            echo "Keine Änderungen an data/ - nichts zu committen."
+          fi
+
       - name: Auf GitHub Pages veröffentlichen (gh-pages Branch)
         uses: peaceiris/actions-gh-pages@v4
         with:

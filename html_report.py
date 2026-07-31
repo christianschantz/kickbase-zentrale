@@ -1,7 +1,15 @@
 """
-Rendert die main.py-Ergebnisse (Liste von Liga-Reports) als eine
-selbstständige index.html - keine externen Assets, läuft offline,
-funktioniert als "Zum Home-Bildschirm hinzufügen"-Mini-App auf dem Handy.
+Rendert main.py-Reports als eine selbstständige index.html - keine externen
+Assets, läuft offline, funktioniert als "Zum Home-Bildschirm hinzufügen"-
+Mini-App auf dem Handy.
+
+Dashboard-Redesign (2026-07-31): Die Seite zeigt ENTSCHEIDUNGEN, nicht Daten.
+Reihenfolge pro Liga: Handlungsleiste (max. 5 Einträge) -> KPI-Zeile ->
+Risiko-Banner (nur bei Anlass) -> Transferziele-Watchlist ->
+Kader-Handlungsbedarf (nur VERKAUFEN/BEOBACHTEN) -> MW-Steiger -> alles
+andere (kompletter Kader/Markt/Liga-Bestenlisten) in aufklappbaren
+<details>-Blöcken. Beide Ligen in einer Datei als Tabs (JS, kein Reload,
+Deep-Link über den URL-Hash).
 
 Optionale Passwort-Sperre (siehe config.PAGE_PASSWORD): rein client-seitig,
 SHA-256-Hash liegt im Quelltext - KEIN echter Schutz, verhindert nur
@@ -9,6 +17,7 @@ zufälliges Finden der (ohnehin öffentlichen) GitHub-Pages-URL.
 """
 
 import html as _html
+from datetime import timedelta
 
 from scoring import explain
 
@@ -25,11 +34,45 @@ VERDICT_ICONS = {
     "HALTEN (Trading)": "📈",
 }
 SQUAD_ORDER = {"VERKAUFEN": 0, "BEOBACHTEN": 1, "STAMM": 2, "HALTEN (Trading)": 3}
+STATUS_ICON = {"EIGEN": "🟢", "MITSPIELER": "👤", "MARKT": "🛒", "FREI": "⚪", "UNBEKANNT": "❓"}
+STATUS_LABEL = {"EIGEN": "Eigen", "MITSPIELER": "Mitspieler", "MARKT": "Markt",
+                "FREI": "Frei", "UNBEKANNT": "Unbekannt"}
+GROUP_LABEL = {"MARKT": "🔥 Jetzt auf dem Markt", "MITSPIELER": "🤝 Bei Mitspieler",
+               "FREI": "⚪ Frei, nicht gelistet"}
 
 
 def _esc(s):
     return _html.escape(str(s))
 
+
+def _mio(value):
+    """Millionen-Kurzform, deutsches Komma - '12,48 Mio €' statt '12.480.000 €'."""
+    return f"{value / 1e6:.2f} Mio €".replace(".", ",")
+
+
+def _mio_signed(value):
+    sign = "+" if value >= 0 else ""
+    return f"{sign}{_mio(value)}"
+
+
+def _next_22_countdown(generated_at):
+    """
+    Grobe DST-Näherung (Ende März-Ende Oktober = UTC+2, sonst UTC+1) - wie
+    beim Workflow-Cron bereits akzeptiert (CLAUDE.md: "driftet 1h bei
+    Sommer-/Winterzeit-Wechsel").
+    """
+    offset = 2 if 3 <= generated_at.month <= 10 else 1
+    local = generated_at + timedelta(hours=offset)
+    target = local.replace(hour=22, minute=0, second=0, microsecond=0)
+    if local >= target:
+        target += timedelta(days=1)
+    delta = target - local
+    hrs = delta.seconds // 3600
+    mins = (delta.seconds % 3600) // 60
+    return f"{hrs} h {mins} min"
+
+
+# ---------- Wiederverwendete Karten (Kader/Markt/Liga-Board) ----------
 
 def _squad_card(c):
     color = VERDICT_COLORS.get(c["verdict"], "#888")
@@ -42,7 +85,7 @@ def _squad_card(c):
     <span class="badge" style="background:{color}">{icon} {_esc(c['verdict'])}</span>
     <span class="name">{_esc(c['name'])} <span class="pos">({_esc(c['pos'])})</span></span>
   </div>
-  <div class="stats">Score {c['score']} · MW {c['mv']:,.0f} € ({c['tfhmvt']:+,.0f} €/Tag)</div>
+  <div class="stats">Score {c['score']} · MW {_mio(c['mv'])} ({c['tfhmvt']:+,.0f} €/Tag)</div>
   <ul class="reasons">{reasons}</ul>
   {opponents}
 </div>"""
@@ -62,9 +105,9 @@ def _market_card(m, highlight=False):
             extra += f"<div class='meta'>↳ {_esc(bid['projection_note'])}</div>"
         if bid.get("star_ceiling"):
             extra += (f"<div class='meta'>↳ Star-Ausnahme: in Einzelfällen bis "
-                      f"{bid['star_ceiling']:,.0f} € belegt (nicht die Regel)</div>")
-        bid_html = (f"<div class='bid'>💶 Gebot {bid.get('recommended_bid', 0):,.0f} € "
-                    f"(22h-MW ~{bid.get('expected_mv_22h', 0):,.0f}, "
+                      f"{_mio(bid['star_ceiling'])} belegt (nicht die Regel)</div>")
+        bid_html = (f"<div class='bid'>💶 Gebot {_mio(bid.get('recommended_bid', 0))} "
+                    f"(22h-MW ~{_mio(bid.get('expected_mv_22h', 0))}, "
                     f"Puffer {bid.get('buffer_pct', 0)}%, "
                     f"WK ~{bid.get('win_probability', 0):.0%}) {tick} "
                     f"{_esc(m.get('financing', ''))}</div>{extra}")
@@ -80,7 +123,7 @@ def _market_card(m, highlight=False):
     <span class="name">{_esc(m['name'])} <span class="pos">({_esc(m['pos'])}, {_esc(m.get('team', ''))})</span></span>
     {star_badge}
   </div>
-  <div class="stats">Score {m['score']} · MW {m['mv']:,.0f} € ({m['tfhmvt']:+,.0f} €/Tag) · Ø {m['ap']} P · ⏳ {m.get('expiry_s', 0)/3600:.0f}h</div>
+  <div class="stats">Score {m['score']} · MW {_mio(m['mv'])} ({m['tfhmvt']:+,.0f} €/Tag) · Ø {m['ap']} P · ⏳ {m.get('expiry_s', 0)/3600:.0f}h</div>
   <div class="components">{_esc(comps)}</div>
   {opponents}
   {fitness}
@@ -88,53 +131,6 @@ def _market_card(m, highlight=False):
   <ul class="angles">{angle_html}</ul>
   {bid_html}
 </div>"""
-
-
-def _league_section(report):
-    name = _esc(report.get("name", "?"))
-    if report.get("error"):
-        return f"""<section class="league">
-  <h2>🏆 {name}</h2>
-  <p class="empty">❌ {_esc(report['error'])}</p>
-</section>"""
-
-    squad_sorted = sorted(report.get("squad_classified", []),
-                          key=lambda x: SQUAD_ORDER.get(x["verdict"], 9))
-    squad_html = ("".join(_squad_card(c) for c in squad_sorted)
-                 or "<p class='empty'>Kein Kader geladen.</p>")
-
-    bangers_html = ""
-    if report.get("bangers"):
-        cards = "".join(_market_card(m, highlight=True) for m in report["bangers"][:3])
-        bangers_html = f"<h3>💎 Banger-Ziele</h3><div class='grid'>{cards}</div>"
-
-    market_html = ("".join(_market_card(m) for m in report.get("market", []))
-                  or "<p class='empty'>Kein Marktangebot.</p>")
-
-    free_slots = report.get("free_slots", 0)
-    free_slots_note = f"<p class='note'>🟢 {free_slots} freie Kaderplätze</p>" if free_slots else ""
-    fixture_note = ("" if report.get("has_fixtures")
-                    else "<p class='note warn'>⚠️ Kein Spielplan verfügbar - Spielplan-Komponente neutral</p>")
-
-    board_html = _league_board_section(report.get("league_board"))
-
-    return f"""<section class="league">
-  <h2>🏆 {name}</h2>
-  <div class="league-meta">Budget {report['budget']:+,.0f} € · Kader {report['squad_slots']}/{report['max_squad']}</div>
-  {fixture_note}
-  <h3>👥 Kader-Status</h3>
-  <div class="grid">{squad_html}</div>
-  {bangers_html}
-  <h3>🛒 Transfermarkt</h3>
-  {free_slots_note}
-  <div class="grid">{market_html}</div>
-  {board_html}
-</section>"""
-
-
-STATUS_ICON = {"EIGEN": "🟢", "MITSPIELER": "👤", "MARKT": "🛒", "FREI": "⚪", "UNBEKANNT": "❓"}
-STATUS_LABEL = {"EIGEN": "Eigen", "MITSPIELER": "Mitspieler", "MARKT": "Markt",
-                "FREI": "Frei", "UNBEKANNT": "Unbekannt"}
 
 
 def _board_row(e, score_key):
@@ -146,21 +142,32 @@ def _board_row(e, score_key):
     residual_html = ""
     if e.get("residual") is not None:
         sign = "+" if e["residual"] >= 0 else ""
-        residual_html = (f"<div class='board-residual'>Ø {e['ap']} P - für {e['mv']/1e6:.0f} Mio "
+        residual_html = (f"<div class='board-residual'>Ø {e['ap']} P - für {_mio(e['mv'])} "
                          f"erwartbar wären {e['expected_ap']:.0f} P - {sign}{e['residual']:.0f} P "
                          f"ggü. Preiserwartung</div>")
     bid_html = ""
     if e.get("bid"):
         b = e["bid"]
         note = f" ↳ {_esc(b['projection_note'])}" if b.get("projection_note") else ""
-        bid_html = (f"<div class='board-bid'>💶 Gebot {b['recommended_bid']:,.0f} € "
+        bid_html = (f"<div class='board-bid'>💶 Gebot {_mio(b['recommended_bid'])} "
                     f"(WK ~{b['win_probability']:.0%}){note}</div>")
     return f"""<div class="{cls}">
   <span class="board-status">{icon} {STATUS_LABEL.get(status, status)}{owner}</span>
   <span class="board-name">{_esc(e['name'])} <span class="pos">({_esc(e['team'])})</span></span>
-  <span class="board-stats">Score {e[score_key]} · MW {e['mv']:,.0f} € · Ø {e['ap']} P</span>{both_badge}
+  <span class="board-stats">Score {e[score_key]} · MW {_mio(e['mv'])} · Ø {e['ap']} P</span>{both_badge}
   {residual_html}
   {bid_html}
+</div>"""
+
+
+def _climber_row(e):
+    status = e.get("status", "UNBEKANNT")
+    icon = STATUS_ICON.get(status, "❓")
+    sdmvt = e.get("sdmvt") or 0
+    return f"""<div class="board-row">
+  <span class="board-status">{icon} {STATUS_LABEL.get(status, status)}</span>
+  <span class="board-name">{_esc(e['name'])} <span class="pos">({_esc(e['team'])})</span></span>
+  <span class="board-stats">{sdmvt:+,.0f} €/7 Tage · MW {_mio(e['mv'])}</span>
 </div>"""
 
 
@@ -175,30 +182,183 @@ def _board_list(entries_by_pos, score_key):
     return "".join(groups)
 
 
-def _league_board_section(board):
-    """
-    B5: Liga-weite Bestenliste über die GESAMTE Competition, zwei getrennte
-    Ranglisten (Qualität vs. Deals, s. league_board.py-Docstring) plus
-    Liga-Banger (Top 5 in beiden).
-    """
-    if not board:
+# ---------- Dashboard-Bausteine ----------
+
+def _kpi_tile(label, value, sub, cls=""):
+    return f"""<div class="kpi-tile {cls}">
+  <div class="kpi-label">{_esc(label)}</div>
+  <div class="kpi-value">{_esc(value)}</div>
+  <div class="kpi-sub">{_esc(sub)}</div>
+</div>"""
+
+
+def _kpi_grid(kpis):
+    if not kpis:
         return ""
+    delta = kpis.get("team_value_delta_24h", 0)
+    delta_cls = "up" if delta > 0 else ("down" if delta < 0 else "")
+    tiles = [
+        _kpi_tile("Teamwert", _mio(kpis.get("team_value", 0)), f"{_mio_signed(delta)}/24h", delta_cls),
+        _kpi_tile("Kaufkraft", _mio(kpis.get("capacity", 0)), "33%-Kreditregel"),
+        _kpi_tile("Budget", _mio(kpis.get("budget", 0)), ""),
+    ]
+    if kpis.get("season_started"):
+        gap = kpis.get("points_gap_to_leader") or 0
+        tiles.append(_kpi_tile("Ligaplatz", f"#{kpis.get('league_rank', '?')}",
+                               f"{gap} Pkt. Rückstand" if gap else "Tabellenführer"))
+    else:
+        tiles.append(_kpi_tile("Ligaplatz", "–", "Saison startet bald"))
+    tiles.append(_kpi_tile("Kaderplätze", f"{kpis.get('squad_slots', 0)}/{kpis.get('max_squad', 0)}", ""))
+    tiles.append(_kpi_tile("Tagesertrag", _mio_signed(delta), "Dein Kader heute", delta_cls))
+    return "<div class='kpi-grid'>" + "".join(tiles) + "</div>"
+
+
+def _action_list(actions):
+    if not actions:
+        return "<div class='actions-empty'>✅ Heute keine dringenden Aktionen.</div>"
+    items = []
+    for a in actions:
+        cls = " urgent" if a.get("urgent") else ""
+        amount = f" <span class='action-amount'>{_mio(a['amount'])}</span>" if a.get("amount") else ""
+        deadline = (f" · ⏳ {a['deadline_hours']:.0f} h" if a.get("deadline_hours") is not None else "")
+        items.append(f"""<div class="action-item{cls}">
+  <span class="action-icon">{a['icon']}</span>
+  <div class="action-body">
+    <div class="action-text">{_esc(a['text'])}{amount}</div>
+    <div class="action-reason">{_esc(a['reason'])}{deadline}</div>
+  </div>
+</div>""")
+    return "<div class='actions'>" + "".join(items) + "</div>"
+
+
+def _risk_banner(risks):
+    if not risks:
+        return ""
+    lines = "".join(f"<div class='risk-line {r['level']}'>{r['icon']} {_esc(r['text'])}</div>" for r in risks)
+    return f"<div class='risk-banner'>{lines}</div>"
+
+
+def _watchlist(targets):
+    if not targets:
+        return "<p class='empty'>Keine besonderen Transferziele erkannt.</p>"
+    groups_html = []
+    for key in ("MARKT", "MITSPIELER", "FREI"):
+        entries = targets.get(key) or []
+        if not entries:
+            continue
+        rows = "".join(_board_row(e, "quality_score") for e in entries)
+        groups_html.append(f"<div class='watch-group'><h4>{GROUP_LABEL[key]}</h4>{rows}</div>")
+    return "".join(groups_html) or "<p class='empty'>Keine besonderen Transferziele erkannt.</p>"
+
+
+def _squad_action_section(items):
+    if not items:
+        return "<p class='empty'>✅ Kein Handlungsbedarf im Kader.</p>"
+    return "<div class='grid'>" + "".join(_squad_card(c) for c in items) + "</div>"
+
+
+def _climbers_block(climbers):
+    if not climbers:
+        return "<p class='empty'>Noch keine Daten.</p>"
+    groups = []
+    for pos in ("TW", "ABW", "MF", "ANG"):
+        entries = (climbers.get(pos) or [])[:3]
+        if not entries:
+            continue
+        rows = "".join(_climber_row(e) for e in entries)
+        groups.append(f"<div class='board-group'><h4>{pos}</h4>{rows}</div>")
+    return "".join(groups) or "<p class='empty'>Noch keine Daten.</p>"
+
+
+def _changes_block(changes):
+    if not changes:
+        return "<p class='note'>Noch kein Vortags-Snapshot vorhanden - der Vergleich erscheint ab morgen.</p>"
+    parts = []
+    if changes.get("team_value_change") is not None:
+        parts.append(f"<div class='change-line'>Teamwert seit {_esc(changes['since_date'])}: "
+                     f"{_mio_signed(changes['team_value_change'])}</div>")
+    for vc in changes.get("verdict_changes", [])[:5]:
+        parts.append(f"<div class='change-line'>{_esc(vc['name'])}: "
+                     f"{_esc(vc['from'])} → {_esc(vc['to'])}</div>")
+    for sc in changes.get("status_changes", [])[:5]:
+        parts.append(f"<div class='change-line'>🩺 {_esc(sc)}</div>")
+    for nm in changes.get("new_market", [])[:5]:
+        parts.append(f"<div class='change-line'>🆕 Neu auf dem Markt: {_esc(nm)}</div>")
+    return "".join(parts) or "<p class='note'>Keine nennenswerten Änderungen seit gestern.</p>"
+
+
+def _league_panel(report, panel_id):
+    name = _esc(report.get("name", "?"))
+    if report.get("error"):
+        return f"""<div id="{panel_id}" class="league-panel">
+  <h2>🏆 {name}</h2>
+  <p class="empty">❌ {_esc(report['error'])}</p>
+</div>"""
+
+    kpis = report.get("kpis", {})
+    board = report.get("league_board") or {}
+    squad_sorted = sorted(report.get("squad_classified", []),
+                          key=lambda x: SQUAD_ORDER.get(x["verdict"], 9))
+    full_squad_html = ("".join(_squad_card(c) for c in squad_sorted)
+                       or "<p class='empty'>Kein Kader geladen.</p>")
+    full_market_html = ("".join(_market_card(m) for m in report.get("market", []))
+                        or "<p class='empty'>Kein Marktangebot.</p>")
     bangers_html = ""
-    if board.get("bangers"):
-        rows = "".join(_board_row(e, "quality_score") for e in board["bangers"])
-        bangers_html = f"<h4 class='board-sub'>💎 Liga-Banger (Top 5 in beiden Listen)</h4>{rows}"
+    if report.get("bangers"):
+        cards = "".join(_market_card(m, highlight=True) for m in report["bangers"][:3])
+        bangers_html = f"<h4 class='board-sub'>💎 Banger-Ziele (Tagesmarkt)</h4><div class='grid'>{cards}</div>"
 
-    quality_html = _board_list(board.get("quality") or {}, "quality_score")
-    value_html = _board_list(board.get("value") or {}, "value_score")
-    if not quality_html and not value_html and not bangers_html:
-        return ""
+    fixture_note = ("" if report.get("has_fixtures")
+                    else "<p class='note warn'>⚠️ Kein Spielplan verfügbar - "
+                        "Spielplan-Komponente lief neutral</p>")
 
-    return f"""<h3>🏆 Beste Spieler der Liga (gesamte Competition)</h3>
-{bangers_html}
-<h4 class="board-sub">Qualität (preisunabhängig)</h4>
-<div class="board">{quality_html}</div>
-<h4 class="board-sub">Beste Deals (Preis-Leistung/Trading)</h4>
-<div class="board">{value_html}</div>"""
+    return f"""<div id="{panel_id}" class="league-panel">
+  <h2>🏆 {name}</h2>
+  {fixture_note}
+
+  <h3 class="section-h">📋 Heute zu erledigen</h3>
+  {_action_list(report.get("actions", []))}
+
+  {_kpi_grid(kpis)}
+
+  {_risk_banner(report.get("risks", []))}
+
+  <h3 class="section-h">🎯 Transferziele</h3>
+  {_watchlist(report.get("targets", {}))}
+
+  <h3 class="section-h">👥 Kader-Handlungsbedarf</h3>
+  {_squad_action_section(report.get("squad_action_items", []))}
+
+  <h3 class="section-h">📈 Stärkste MW-Steiger der Liga</h3>
+  <p class="note">In der Saisonvorbereitung die einzige echte Bewegung im Spiel -
+  ab Saisonstart durch echte Formwerte ersetzt.</p>
+  {_climbers_block(board.get("climbers") or {})}
+
+  <details class="deep">
+    <summary>🔄 Was hat sich seit gestern geändert?</summary>
+    <div class="deep-body">{_changes_block(report.get("changes"))}</div>
+  </details>
+  <details class="deep">
+    <summary>👥 Kompletter Kader ({len(report.get('squad_classified', []))} Spieler)</summary>
+    <div class="deep-body">
+      {bangers_html}
+      <div class="grid">{full_squad_html}</div>
+    </div>
+  </details>
+  <details class="deep">
+    <summary>🛒 Kompletter Tagesmarkt ({len(report.get('market', []))} Spieler)</summary>
+    <div class="deep-body"><div class="grid">{full_market_html}</div></div>
+  </details>
+  <details class="deep">
+    <summary>🏆 Liga-Bestenlisten (Qualität &amp; Deals, gesamte Competition)</summary>
+    <div class="deep-body">
+      <h4 class="board-sub">Qualität (preisunabhängig)</h4>
+      <div class="board">{_board_list(board.get("quality") or {}, "quality_score")}</div>
+      <h4 class="board-sub">Beste Deals (Preis-Leistung/Trading)</h4>
+      <div class="board">{_board_list(board.get("value") or {}, "value_score")}</div>
+    </div>
+  </details>
+</div>"""
 
 
 CSS = """
@@ -216,19 +376,24 @@ body {
   font-size: 15px; line-height: 1.45;
 }
 header.top {
-  padding: 1.2rem 1rem 0.8rem; text-align: center;
+  position: sticky; top: 0; z-index: 10; background: var(--bg);
+  padding: 1rem 1rem 0.6rem; text-align: center; border-bottom: 1px solid var(--border);
 }
-header.top h1 { margin: 0 0 0.2rem; font-size: 1.3rem; }
-header.top .ts { color: var(--text-dim); font-size: 0.8rem; }
-main { max-width: 900px; margin: 0 auto; padding: 0 0.75rem; }
-section.league { margin-top: 1.5rem; }
-section.league h2 { font-size: 1.15rem; margin: 0 0 0.2rem; }
-section.league h3 { font-size: 0.95rem; margin: 1.1rem 0 0.5rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.03em; }
-.league-meta { color: var(--text-dim); font-size: 0.85rem; margin-bottom: 0.4rem; }
-.note { font-size: 0.85rem; margin: 0.3rem 0; }
+header.top h1 { margin: 0 0 0.2rem; font-size: 1.2rem; }
+header.top .ts { color: var(--text-dim); font-size: 0.78rem; }
+.tabs { display: flex; gap: 0.4rem; justify-content: center; margin-top: 0.6rem; flex-wrap: wrap; }
+.tab-btn {
+  font: inherit; padding: 0.4rem 0.9rem; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--card-bg); color: var(--text); cursor: pointer;
+}
+.tab-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+main { max-width: 640px; margin: 0 auto; padding: 0.75rem; }
+.league-panel h2 { font-size: 1.1rem; margin: 0.4rem 0 0.6rem; }
+.section-h { font-size: 0.9rem; margin: 1.3rem 0 0.5rem; color: var(--text-dim);
+             text-transform: uppercase; letter-spacing: 0.03em; }
+.note { font-size: 0.85rem; margin: 0.3rem 0; color: var(--text-dim); }
 .note.warn { color: #c17a00; }
 .grid { display: grid; grid-template-columns: 1fr; gap: 0.6rem; }
-@media (min-width: 640px) { .grid { grid-template-columns: 1fr 1fr; } }
 .card {
   background: var(--card-bg); border: 1px solid var(--border); border-left: 4px solid var(--border);
   border-radius: 10px; padding: 0.7rem 0.85rem;
@@ -268,6 +433,43 @@ section.league h3 { font-size: 0.95rem; margin: 1.1rem 0 0.5rem; color: var(--te
 .board-row .board-residual { flex-basis: 100%; font-size: 0.78rem; color: var(--text-dim); }
 .board-sub { font-size: 0.85rem; margin: 0.8rem 0 0.4rem; color: var(--text-dim); }
 .both-badge { font-size: 0.72rem; color: #caa23a; font-weight: 600; }
+.kpi-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; margin-top: 0.8rem; }
+@media (min-width: 480px) { .kpi-grid { grid-template-columns: repeat(3, 1fr); } }
+.kpi-tile { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 0.6rem 0.7rem; }
+.kpi-label { font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.02em; }
+.kpi-value { font-size: 1.05rem; font-weight: 700; margin-top: 0.1rem; }
+.kpi-sub { font-size: 0.72rem; color: var(--text-dim); margin-top: 0.1rem; }
+.kpi-tile.up .kpi-value { color: #2e9e50; }
+.kpi-tile.down .kpi-value { color: #c94b4b; }
+.actions { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.6rem; }
+.actions-empty { margin-top: 0.6rem; font-size: 0.9rem; color: var(--text-dim); }
+.action-item {
+  display: flex; gap: 0.6rem; align-items: flex-start; background: var(--card-bg);
+  border: 1px solid var(--border); border-left: 4px solid var(--accent);
+  border-radius: 10px; padding: 0.6rem 0.75rem;
+}
+.action-item.urgent { border-left-color: #c94b4b; }
+.action-icon { font-size: 1.2rem; line-height: 1.2; }
+.action-text { font-weight: 600; font-size: 0.92rem; }
+.action-amount { color: var(--accent); font-weight: 700; }
+.action-reason { font-size: 0.8rem; color: var(--text-dim); margin-top: 0.15rem; }
+.risk-banner { margin-top: 0.8rem; display: flex; flex-direction: column; gap: 0.35rem; }
+.risk-line { padding: 0.5rem 0.7rem; border-radius: 8px; font-size: 0.85rem; }
+.risk-line.warn { background: #f7d97a22; border: 1px solid #c17a00; color: #c17a00; }
+.risk-line.info { background: #1f6fd622; border: 1px solid var(--accent); color: var(--accent); }
+.watch-group { margin-bottom: 0.9rem; }
+.watch-group h4 { font-size: 0.82rem; margin: 0.4rem 0; }
+details.deep { margin-top: 0.8rem; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+details.deep summary {
+  padding: 0.65rem 0.85rem; cursor: pointer; font-size: 0.88rem; font-weight: 600;
+  background: var(--card-bg); list-style: none;
+}
+details.deep summary::-webkit-details-marker { display: none; }
+details.deep summary::after { content: "▸"; float: right; color: var(--text-dim); }
+details.deep[open] summary::after { content: "▾"; }
+.deep-body { padding: 0.75rem 0.85rem; }
+.change-line { font-size: 0.85rem; padding: 0.3rem 0; border-bottom: 1px solid var(--border); }
+.change-line:last-child { border-bottom: none; }
 footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-top: 2rem; }
 """
 
@@ -296,19 +498,49 @@ document.getElementById("go").addEventListener("click", tryUnlock);
 if (localStorage.getItem("kb_auth") === HASH) {{ unlock(); }}
 """
 
+TABS_SCRIPT = """
+function showLeague(id) {
+  document.querySelectorAll('.league-panel').forEach(function(p) {
+    p.style.display = (p.id === id ? 'block' : 'none');
+  });
+  document.querySelectorAll('.tab-btn').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.league === id);
+  });
+  if (history.replaceState) { history.replaceState(null, '', '#' + id); }
+}
+(function() {
+  var btns = document.querySelectorAll('.tab-btn');
+  btns.forEach(function(b) {
+    b.addEventListener('click', function() { showLeague(b.dataset.league); });
+  });
+  var initial = location.hash.slice(1);
+  var valid = initial && document.getElementById(initial);
+  if (btns.length) { showLeague(valid ? initial : btns[0].dataset.league); }
+})();
+"""
+
 
 def render_html(reports, generated_at, password_hash=None):
     ts = generated_at.strftime("%d.%m.%Y %H:%M UTC")
-    sections = "".join(_league_section(r) for r in reports) or "<p class='empty'>Keine Ligen konfiguriert.</p>"
+    countdown = _next_22_countdown(generated_at)
+
+    tabs_html = "".join(
+        f'<button class="tab-btn" data-league="league-{i}">{_esc(r.get("name", "?"))}</button>'
+        for i, r in enumerate(reports)
+    )
+    panels_html = ("".join(_league_panel(r, f"league-{i}") for i, r in enumerate(reports))
+                  or "<p class='empty'>Keine Ligen konfiguriert.</p>")
 
     body_inner = f"""<header class="top">
   <h1>⚽ Kickbase-Zentrale</h1>
-  <div class="ts">Stand: {ts}</div>
+  <div class="ts">Stand: {ts} · MW-Update in ~{countdown}</div>
+  <div class="tabs">{tabs_html}</div>
 </header>
 <main>
-  {sections}
+  {panels_html}
   <footer>Automatisch generiert · faktenbasiert, keine Blackbox-Scores</footer>
-</main>"""
+</main>
+<script>{TABS_SCRIPT}</script>"""
 
     if password_hash:
         content = f"""<div id="gate">

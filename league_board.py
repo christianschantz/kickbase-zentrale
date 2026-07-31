@@ -196,4 +196,14 @@ def build_league_lists(kb, cid, league_id, own_ids, strength_map, upcoming,
         top5_value_ids = {e["id"] for e in value_lists[pos][:5]}
         bangers.extend(e for pid, e in top5_quality.items() if pid in top5_value_ids)
 
-    return {"quality": quality_lists, "value": value_lists, "bangers": bangers}
+    # Stärkste MW-Steiger der Liga (Dashboard-Spec 2026-07-31): in der
+    # Saisonvorbereitung ist die Formkomponente 0-gewichtet (kein Spieltag),
+    # MW-Bewegung ist dann die einzige echte Signalquelle - dient als
+    # Platzhalter-Block bis Saisonstart, danach durch echte Form ablösbar.
+    climbers = {}
+    for pos in POS_NAMES.values():
+        pool = [e for e in entries.values() if e["pos"] == pos]
+        climbers[pos] = sorted(pool, key=lambda x: -(x["sdmvt"] or 0))[:top_n]
+
+    return {"quality": quality_lists, "value": value_lists, "bangers": bangers,
+           "climbers": climbers}

@@ -120,6 +120,8 @@ def classify_own_player(p, details, ease, weights=None, sdmvt=None):
         "daily_pct": daily_pct,
         "verdict": verdict,
         "reasons": reasons,
+        "fit": fit,  # für Rückkehrer-/Statuswechsel-Diff (Tagesvergleich)
+        "st": details.get("st", 0),
     }
 
 

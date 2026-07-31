@@ -8,6 +8,8 @@ BASE = "https://api.kickbase.com"
 class KickbaseAPI:
     def __init__(self):
         self.token = None
+        self.user_id = None
+        self.user_name = None
         self.headers = {
             "User-Agent": "Kickster/4.8.0/8776 (iPhone; iOS 26.5.2; Scale/3.00)",
             "Content-Type": "application/json",
@@ -41,7 +43,27 @@ class KickbaseAPI:
 
         self.token = token
         self.headers["Authorization"] = f"Bearer {self.token}"
+        self._decode_user_from_token()
         return True
+
+    def _decode_user_from_token(self):
+        """
+        Eigene User-ID/Name aus dem JWT-Payload (kb.uid/kb.name) - steht
+        nirgends direkt in /me. kb.name kommt wie onm mit angehängtem
+        Leerzeichen zurück (.strip() nötig). Rein informativ, keine
+        Signaturprüfung nötig (wir haben den Token gerade selbst erhalten).
+        """
+        import base64
+        import json
+        try:
+            payload_b64 = self.token.split(".")[1]
+            payload_b64 += "=" * (-len(payload_b64) % 4)
+            claims = json.loads(base64.urlsafe_b64decode(payload_b64))
+            self.user_id = claims.get("kb.uid")
+            self.user_name = (claims.get("kb.name") or "").strip()
+        except (IndexError, ValueError, UnicodeDecodeError):
+            self.user_id = None
+            self.user_name = None
 
     def _get(self, path, params=None):
         r = requests.get(f"{BASE}{path}", headers=self.headers, params=params, timeout=20)
