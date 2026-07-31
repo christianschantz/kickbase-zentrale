@@ -84,3 +84,7 @@ WEIGHTS_VALUE = {
     "availability": 0.15,
     "fixtures": 0.10,
 }
+
+# KI-Einordnungsschicht (llm_insights.py, Gemini REST API, kein SDK nötig).
+# Leer lassen = Schicht wird übersprungen (Pipeline läuft normal weiter).
+GEMINI_API_KEY = _env("GEMINI_API_KEY")

@@ -36,6 +36,7 @@ jobs:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
           FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
           PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python main.py
 
       - name: Tages-Snapshot zurück ins Repo committen (data/, für Tagesvergleich)

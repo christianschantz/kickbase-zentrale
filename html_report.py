@@ -287,6 +287,29 @@ def _changes_block(changes):
     return "".join(parts) or "<p class='note'>Keine nennenswerten Änderungen seit gestern.</p>"
 
 
+def _llm_block(insights):
+    """KI-Kurzreport + Flags (llm_insights.py) - läuft nur mit gesetztem
+    GEMINI_API_KEY, sonst None und der Block entfällt ganz."""
+    if not insights:
+        return ""
+    flags_html = ""
+    flags = insights.get("player_flags") or []
+    if flags:
+        rows = "".join(
+            f"<div class='flag-row'><span class='flag-name'>{_esc(f['player_name'])}</span> "
+            f"<span class='flag-tag'>{_esc(f['flag'])}</span> "
+            f"<span class='flag-conf'>{_esc(f['confidence'])}</span>"
+            f"<div class='flag-note'>{_esc(f['note'])}</div></div>"
+            for f in flags
+        )
+        flags_html = f"<div class='llm-flags'>{rows}</div>"
+    return f"""<div class="llm-block">
+  <div class="llm-label">🤖 KI-Einordnung</div>
+  <div class="llm-report">{_esc(insights.get('report', ''))}</div>
+  {flags_html}
+</div>"""
+
+
 def _league_panel(report, panel_id):
     name = _esc(report.get("name", "?"))
     if report.get("error"):
@@ -318,6 +341,8 @@ def _league_panel(report, panel_id):
 
   <h3 class="section-h">📋 Heute zu erledigen</h3>
   {_action_list(report.get("actions", []))}
+
+  {_llm_block(report.get("llm_insights"))}
 
   {_kpi_grid(kpis)}
 
@@ -470,6 +495,19 @@ details.deep[open] summary::after { content: "▾"; }
 .deep-body { padding: 0.75rem 0.85rem; }
 .change-line { font-size: 0.85rem; padding: 0.3rem 0; border-bottom: 1px solid var(--border); }
 .change-line:last-child { border-bottom: none; }
+.llm-block {
+  margin-top: 0.8rem; padding: 0.75rem 0.85rem; border-radius: 10px;
+  background: linear-gradient(135deg, #6d5bd022, #1f6fd622);
+  border: 1px solid var(--accent);
+}
+.llm-label { font-size: 0.75rem; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.03em; }
+.llm-report { font-size: 0.88rem; margin-top: 0.35rem; }
+.llm-flags { margin-top: 0.6rem; display: flex; flex-direction: column; gap: 0.35rem; }
+.flag-row { font-size: 0.8rem; background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.4rem 0.6rem; }
+.flag-name { font-weight: 600; }
+.flag-tag { color: var(--accent); font-weight: 600; }
+.flag-conf { color: var(--text-dim); font-size: 0.75rem; }
+.flag-note { color: var(--text-dim); font-size: 0.78rem; margin-top: 0.15rem; }
 footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-top: 2rem; }
 """
 

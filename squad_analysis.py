@@ -111,6 +111,7 @@ def classify_own_player(p, details, ease, weights=None, sdmvt=None):
         "name": f"{p.get('fn', '')} {p.get('n', '')}".strip(),
         "pos": POS_NAMES.get(p.get("pos"), "?"),
         "tid": str(details.get("tid", p.get("tid", "")) or ""),
+        "team": details.get("tn", ""),
         "mv": mv,
         "ap": p.get("ap", 0),
         "score": total,
@@ -122,6 +123,8 @@ def classify_own_player(p, details, ease, weights=None, sdmvt=None):
         "reasons": reasons,
         "fit": fit,  # für Rückkehrer-/Statuswechsel-Diff (Tagesvergleich)
         "st": details.get("st", 0),
+        "sporting_core": core,  # momentum-frei, für die KI-Schicht (llm_insights.py)
+        "momentum_ratio": ratio,
     }
 
 

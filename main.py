@@ -13,7 +13,7 @@ Aufbau pro Liga:
 import sys
 import time
 from config import (LEAGUES, WEIGHTS, FOOTBALL_DATA_API_KEY, ODDS_API_KEY,
-                    WEIGHTS_QUALITY, WEIGHTS_VALUE)
+                    WEIGHTS_QUALITY, WEIGHTS_VALUE, GEMINI_API_KEY)
 
 CLUB_LIMIT = 3  # max. Spieler desselben Vereins im Kader (User-bestätigt)
 from kickbase_api import KickbaseAPI
@@ -33,6 +33,7 @@ from league_board import build_league_lists
 from report_builder import (compute_kpis, build_actions, build_squad_action_items,
                             build_targets, build_risks, season_phase,
                             save_report, load_previous_snapshot, diff_reports)
+from llm_insights import generate_insights
 
 LEAGUE_BOARD_TOP_N = 10  # Top N je Position in der Liga-Bestenliste (B5)
 
@@ -336,6 +337,17 @@ def run_league(kb, cfg, run_timestamp):
     report["changes"] = diff_reports(report, previous)
     saved_path = save_report(report)
     print(f"\n💾 Tages-Snapshot gespeichert: {saved_path}")
+
+    # ---------- 5) KI-EINORDNUNG (optional, überspringt sich selbst ohne Key) ----------
+    if GEMINI_API_KEY:
+        print("\n🤖 KI-Einordnung (Gemini)...")
+    insights = generate_insights(report, strength_map, fixture_mode, _match_name,
+                                 run_timestamp, GEMINI_API_KEY)
+    report["llm_insights"] = insights
+    if insights:
+        print(f"   {insights['report']}")
+        for f in insights.get("player_flags", []):
+            print(f"   ⚑ {f['player_name']}: {f['flag']} ({f['confidence']}) - {f['note']}")
 
     return report
 
