@@ -137,11 +137,18 @@ STATUS_LABEL = {"EIGEN": "Eigen", "MITSPIELER": "Mitspieler", "MARKT": "Markt",
                 "FREI": "Frei", "UNBEKANNT": "Unbekannt"}
 
 
-def _board_row(e):
+def _board_row(e, score_key):
     status = e.get("status", "UNBEKANNT")
     icon = STATUS_ICON.get(status, "❓")
     owner = f" ({_esc(e['owner'])})" if e.get("owner") else ""
     cls = "board-row eigen" if status == "EIGEN" else "board-row"
+    both_badge = " <span class='both-badge'>⭐ auch in anderer Liste</span>" if e.get("in_both") else ""
+    residual_html = ""
+    if e.get("residual") is not None:
+        sign = "+" if e["residual"] >= 0 else ""
+        residual_html = (f"<div class='board-residual'>Ø {e['ap']} P - für {e['mv']/1e6:.0f} Mio "
+                         f"erwartbar wären {e['expected_ap']:.0f} P - {sign}{e['residual']:.0f} P "
+                         f"ggü. Preiserwartung</div>")
     bid_html = ""
     if e.get("bid"):
         b = e["bid"]
@@ -151,26 +158,47 @@ def _board_row(e):
     return f"""<div class="{cls}">
   <span class="board-status">{icon} {STATUS_LABEL.get(status, status)}{owner}</span>
   <span class="board-name">{_esc(e['name'])} <span class="pos">({_esc(e['team'])})</span></span>
-  <span class="board-stats">Score {e['score']} · MW {e['mv']:,.0f} € · Ø {e['ap']} P</span>
+  <span class="board-stats">Score {e[score_key]} · MW {e['mv']:,.0f} € · Ø {e['ap']} P</span>{both_badge}
+  {residual_html}
   {bid_html}
 </div>"""
 
 
-def _league_board_section(board):
-    """B5: Liga-weite Bestenliste je Position, unabhängig von Kader/Tagesmarkt."""
-    if not board:
-        return ""
+def _board_list(entries_by_pos, score_key):
     groups = []
     for pos in ("TW", "ABW", "MF", "ANG"):
-        entries = board.get(pos) or []
+        entries = entries_by_pos.get(pos) or []
         if not entries:
             continue
-        rows = "".join(_board_row(e) for e in entries)
+        rows = "".join(_board_row(e, score_key) for e in entries)
         groups.append(f"<div class='board-group'><h4>{pos}</h4>{rows}</div>")
-    if not groups:
+    return "".join(groups)
+
+
+def _league_board_section(board):
+    """
+    B5: Liga-weite Bestenliste über die GESAMTE Competition, zwei getrennte
+    Ranglisten (Qualität vs. Deals, s. league_board.py-Docstring) plus
+    Liga-Banger (Top 5 in beiden).
+    """
+    if not board:
         return ""
-    return (f"<h3>🏆 Beste Spieler der Liga (gesamte Competition)</h3>"
-           f"<div class='board'>{''.join(groups)}</div>")
+    bangers_html = ""
+    if board.get("bangers"):
+        rows = "".join(_board_row(e, "quality_score") for e in board["bangers"])
+        bangers_html = f"<h4 class='board-sub'>💎 Liga-Banger (Top 5 in beiden Listen)</h4>{rows}"
+
+    quality_html = _board_list(board.get("quality") or {}, "quality_score")
+    value_html = _board_list(board.get("value") or {}, "value_score")
+    if not quality_html and not value_html and not bangers_html:
+        return ""
+
+    return f"""<h3>🏆 Beste Spieler der Liga (gesamte Competition)</h3>
+{bangers_html}
+<h4 class="board-sub">Qualität (preisunabhängig)</h4>
+<div class="board">{quality_html}</div>
+<h4 class="board-sub">Beste Deals (Preis-Leistung/Trading)</h4>
+<div class="board">{value_html}</div>"""
 
 
 CSS = """
@@ -237,6 +265,9 @@ section.league h3 { font-size: 0.95rem; margin: 1.1rem 0 0.5rem; color: var(--te
 .board-row .board-name { font-weight: 600; }
 .board-row .board-stats { color: var(--text-dim); font-size: 0.8rem; margin-left: auto; }
 .board-row .board-bid { flex-basis: 100%; font-size: 0.8rem; }
+.board-row .board-residual { flex-basis: 100%; font-size: 0.78rem; color: var(--text-dim); }
+.board-sub { font-size: 0.85rem; margin: 0.8rem 0 0.4rem; color: var(--text-dim); }
+.both-badge { font-size: 0.72rem; color: #caa23a; font-weight: 600; }
 footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-top: 2rem; }
 """
 

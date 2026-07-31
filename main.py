@@ -12,7 +12,8 @@ Aufbau pro Liga:
 
 import sys
 import time
-from config import LEAGUES, WEIGHTS, FOOTBALL_DATA_API_KEY, ODDS_API_KEY
+from config import (LEAGUES, WEIGHTS, FOOTBALL_DATA_API_KEY, ODDS_API_KEY,
+                    WEIGHTS_QUALITY, WEIGHTS_VALUE)
 
 CLUB_LIMIT = 3  # max. Spieler desselben Vereins im Kader (User-bestätigt)
 from kickbase_api import KickbaseAPI
@@ -28,7 +29,7 @@ from fixtures import _best_match
 from squad_analysis import (classify_own_player, market_vs_squad,
                             finalize_headline_recommendations,
                             flag_formation_risk, POS_NAMES)
-from league_board import build_league_board
+from league_board import build_league_lists
 
 LEAGUE_BOARD_TOP_N = 10  # Top N je Position in der Liga-Bestenliste (B5)
 
@@ -241,31 +242,55 @@ def run_league(kb, cfg):
                   f"WK ~{b['win_probability']:.0%}) {tick} {m['financing']}")
             _print_bid_extra(b)
 
-    # ---------- 3) BESTE SPIELER DER LIGA (B5) ----------
+    # ---------- 3) BESTE SPIELER DER LIGA (B5, Zwei-Listen-Ranking) ----------
     own_ids = {c["id"] for c in squad_classified}
-    league_board = build_league_board(kb, cid, league_id, own_ids, strength_map,
-                                      upcoming, fixture_mode, _match_name,
-                                      weights=WEIGHTS, top_n=LEAGUE_BOARD_TOP_N,
-                                      league_overpay=league_overpay)
+    board = build_league_lists(kb, cid, league_id, own_ids, strength_map,
+                               upcoming, fixture_mode, _match_name,
+                               weights_quality=WEIGHTS_QUALITY,
+                               weights_value=WEIGHTS_VALUE,
+                               top_n=LEAGUE_BOARD_TOP_N,
+                               league_overpay=league_overpay)
     status_icon = {"EIGEN": "🟢", "MITSPIELER": "👤", "MARKT": "🛒", "FREI": "⚪",
                   "UNBEKANNT": "❓"}
-    print(f"\n🏆 BESTE SPIELER DER LIGA (Top {LEAGUE_BOARD_TOP_N} je Position, "
-          f"gesamte Competition):")
-    for pos, entries in league_board.items():
+
+    def _print_board_entry(e, score_key):
+        icon = status_icon.get(e["status"], "❓")
+        owner_txt = f" ({e['owner']})" if e["owner"] else ""
+        both = " ⭐ (auch in der anderen Liste)" if e.get("in_both") else ""
+        print(f"  {icon} {e['name']} ({e['team']}) Score {e[score_key]} | "
+              f"MW {e['mv']:,.0f} | Ø {e['ap']} P | {e['status']}{owner_txt}{both}")
+        if e.get("residual") is not None:
+            sign = "+" if e["residual"] >= 0 else ""
+            print(f"      Ø {e['ap']} P - für {e['mv']/1e6:.0f} Mio erwartbar wären "
+                  f"{e['expected_ap']:.0f} P - {sign}{e['residual']:.0f} P ggü. Preiserwartung")
+        if e["bid"]:
+            tick_note = e["bid"].get("projection_note")
+            print(f"      💶 Gebot {e['bid']['recommended_bid']:,.0f} € "
+                  f"(WK ~{e['bid']['win_probability']:.0%})"
+                  + (f" ↳ {tick_note}" if tick_note else ""))
+
+    if board["bangers"]:
+        print(f"\n💎 LIGA-BANGER (Top 5 in BEIDEN Listen derselben Position):")
+        for e in board["bangers"]:
+            _print_board_entry(e, "quality_score")
+
+    print(f"\n🏆 BESTE SPIELER DER LIGA - Qualität, preisunabhängig "
+          f"(Top {LEAGUE_BOARD_TOP_N} je Position):")
+    for pos, entries in board["quality"].items():
         if not entries:
             continue
         print(f"\n  -- {pos} --")
         for e in entries[:5]:
-            icon = status_icon.get(e["status"], "❓")
-            owner_txt = f" ({e['owner']})" if e["owner"] else ""
-            line = (f"  {icon} {e['name']} ({e['team']}) Score {e['score']} | "
-                    f"MW {e['mv']:,.0f} | Ø {e['ap']} P | {e['status']}{owner_txt}")
-            print(line)
-            if e["bid"]:
-                tick_note = e["bid"].get("projection_note")
-                print(f"      💶 Gebot {e['bid']['recommended_bid']:,.0f} € "
-                      f"(WK ~{e['bid']['win_probability']:.0%})"
-                      + (f" ↳ {tick_note}" if tick_note else ""))
+            _print_board_entry(e, "quality_score")
+
+    print(f"\n💰 BESTE DEALS DER LIGA - Preis-Leistung/Trading "
+          f"(Top {LEAGUE_BOARD_TOP_N} je Position):")
+    for pos, entries in board["value"].items():
+        if not entries:
+            continue
+        print(f"\n  -- {pos} --")
+        for e in entries[:5]:
+            _print_board_entry(e, "value_score")
 
     return {
         "name": name,
@@ -278,7 +303,7 @@ def run_league(kb, cfg):
         "free_slots": free_slots,
         "fixture_mode": fixture_mode,
         "has_fixtures": bool(upcoming),
-        "league_board": league_board,
+        "league_board": board,
     }
 
 

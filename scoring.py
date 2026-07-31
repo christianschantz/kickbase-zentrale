@@ -31,8 +31,90 @@ def _clamp(x, lo=0.0, hi=1.0):
 
 
 def mv_implied_form(mv):
-    """MW-basierte Leistungserwartung: 1M -> schwach, 10M+ -> Topspieler."""
-    return _clamp((mv - 1_000_000) / 9_000_000)
+    """
+    MW-basierte Leistungserwartung: 1M -> schwach, 10M+ -> gedeckelt bei 0.7.
+    Deckel (Spec-Fix 2026-07-31): ein Spieler OHNE Punktehistorie darf nie
+    dieselbe Formbewertung erreichen wie ein belegter Topscorer (vorher
+    erreichten alle >10M-Neuzugänge 100% - dadurch standen Spieler mit
+    Ø 0 P wie Hjulmand/Aubameyang fälschlich in Top-Ranglisten).
+    """
+    return min(0.70, _clamp((mv - 1_000_000) / 9_000_000))
+
+
+def percentile_rank(value, sorted_values):
+    """
+    Ligarelatives Perzentil (0..1): Anteil der Population mit kleinerem Wert.
+    Ersetzt absolute Skalen, die auf eine Liga (2. Bundesliga) kalibriert
+    waren und in anderen Ligen (La Liga, höheres MW-/Punkteniveau) versagten.
+    """
+    from bisect import bisect_left
+    if not sorted_values:
+        return 0.5
+    return bisect_left(sorted_values, value) / len(sorted_values)
+
+
+def fit_price_curve(players):
+    """
+    Lineare Regression ap = a + b·ln(mv) über alle Spieler einer Competition
+    mit ap>0 und mv>0 - Grundlage für value_residual() (s.u.). Marktwert und
+    Punkte hängen nicht linear zusammen (für die letzten Punkte zahlt man
+    exponentiell mehr), daher der Log-Fit statt eines linearen Preis/Punkte-
+    Verhältnisses (das alte `ap/(mv/1e6)` machte teure Spieler strukturell
+    unerreichbar: Pedri mit 158 P/50 Mio bekam 1.3% statt einer fairen
+    Bewertung). None bei zu wenig Datenpunkten (<20).
+    """
+    import math
+    pts = [(math.log(p["mv"]), p["ap"]) for p in players
+           if p.get("mv", 0) > 0 and p.get("ap", 0) > 0]
+    if len(pts) < 20:
+        return None
+    n = len(pts)
+    mx = sum(x for x, _ in pts) / n
+    my = sum(y for _, y in pts) / n
+    var = sum((x - mx) ** 2 for x, _ in pts)
+    if var == 0:
+        return None
+    b = sum((x - mx) * (y - my) for x, y in pts) / var
+    a = my - b * mx
+    return a, b
+
+
+def value_residual(mv, ap, curve):
+    """
+    Punkte über/unter der Preiserwartung laut fit_price_curve() - positiv =
+    Schnäppchen (liefert mehr als der Preis erwarten lässt), negativ =
+    überteuert. None wenn keine Kurve/Punktehistorie vorliegt.
+    """
+    import math
+    if not curve or mv <= 0 or not ap:
+        return None
+    a, b = curve
+    expected = a + b * math.log(mv)
+    return ap - expected
+
+
+def form_raw(ap, ph, current_season_days):
+    """
+    Aktuelle Form (Ø letzte 5 gespielte Spieltage aus `ph`) gemischt mit dem
+    Saisonschnitt (`ap`), Gewicht der aktuellen Form wächst mit der
+    Spieltagszahl (Deckel 70%, verhindert dass 2 schwache Spiele einen
+    belegten Topspieler aus der Liste kippen).
+
+    current_season_days=0 (Saisonvorbereitung, Stand 2026-07-31) -> Gewicht
+    immer 0, `ph` wird dann gar nicht gebraucht (Kostengrund: würde sonst
+    einen get_player_details-Call je Spieler der gesamten Liga-Population
+    brauchen). TODO: vor Saisonstart (~7./15.8.) echte Spieltagszahl aus
+    /v4/competitions/{cid}/players (Felder day/sn/mdsn/nsn) ableiten - noch
+    nicht verifiziert, s. CLAUDE.md.
+    """
+    w = min(0.70, current_season_days / 12) if current_season_days else 0.0
+    if w == 0:
+        return ap or 0
+    recent = [e["p"] for e in (ph or []) if e.get("hp") and e.get("p") is not None][-5:]
+    recent_avg = sum(recent) / len(recent) if recent else None
+    if recent_avg is None:
+        return ap or 0
+    return w * recent_avg + (1 - w) * (ap or 0)
 
 
 def score_player(market_entry, details, fix_ease, weights=None):

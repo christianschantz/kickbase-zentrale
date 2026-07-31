@@ -68,3 +68,19 @@ WEIGHTS = {
 # Quelltext) - reicht nur gegen zufälliges Finden der URL. Leer lassen = keine
 # Sperre (z.B. für lokale Vorschau).
 PAGE_PASSWORD = _env("PAGE_PASSWORD")
+
+# B5-Liga-Bestenliste (league_board.py): zwei getrennte Gewichtssätze statt
+# einer Zahl - Qualität (preisunabhängig) vs. Deals (Preis-Leistung/Trading).
+# Summe je Satz = 1.0. Erstkalibrierung, noch nicht am echten Output geprüft.
+WEIGHTS_QUALITY = {
+    "form": 0.40,
+    "availability": 0.25,
+    "team": 0.20,
+    "fixtures": 0.15,
+}
+WEIGHTS_VALUE = {
+    "value": 0.45,
+    "momentum": 0.30,
+    "availability": 0.15,
+    "fixtures": 0.10,
+}

@@ -1,5 +1,5 @@
 """
-B5: Liga-weite Bestenliste / Transferziel-Board.
+B5: Liga-weite Bestenliste / Transferziel-Board - Zwei-Listen-Ranking.
 
 Datenbeschaffung (verifiziert, ~38 Requests pro Liga und Lauf):
 1. GET /competitions/{cid}/table -> alle 18 Team-IDs
@@ -15,19 +15,47 @@ in /me, und `onm` hat eine Whitespace-Tücke - kommt mit angehängtem
 Leerzeichen zurück), sondern robust über die ID-Menge des eigenen Kaders
 (kb.get_squad()) - eindeutig und ohne Zusatzaufwand.
 
-Scoring OHNE Zusatz-Detail-Calls: sdmvt/7 dient als Tages-Proxy für tfhmvt,
-der Rest läuft durch das bestehende, transparente scoring.score_player().
+SCORING (2026-07-31 grundlegend überarbeitet, Anlass: Pedri (Ø 158 P, 50 Mio)
+fehlte in den La-Liga-Top-10, während Campos (Ø 100 P, 1 Mio) auf Platz 1
+stand - die alten absoluten Skalen (Preis-Leistung/Form/mv_implied_form)
+waren auf die 2. Liga kalibriert und für teure Spieler strukturell
+unerreichbar). Jetzt: ALLES ligarelativ über Perzentile der kompletten
+Competition-Population (scoring.percentile_rank), Preis-Rechtfertigung über
+ein Residuum aus einer pro Liga gefitteten Log-Preiskurve
+(scoring.fit_price_curve/value_residual) statt einem linearen Punkte/Mio-
+Verhältnis. ZWEI getrennte Ranglisten lösen den Zielkonflikt "objektiv
+bester Spieler" vs. "bester Deal" auf, statt ihn in einer Zahl zu verwischen:
+
+- Liste A "Beste Spieler der Liga" (Qualität, preisunabhängig): Form,
+  Verfügbarkeit, Teamstärke, Spielplan. Kein Preis, kein Momentum.
+- Liste B "Beste Deals" (Preis-Leistung/Trading): Preis-Residuum, Momentum,
+  Verfügbarkeit, Spielplan. Kein Formanteil.
+
+Spieler, die in beiden Top-N-Listen einer Position stehen, werden markiert
+(`in_both`) - das sind die wirklich interessanten Ziele. "Liga-Bangers" =
+Top 5 in BEIDEN Listen derselben Position.
+
 Punktetyp/Fitness-Text (bräuchten get_player_details je Spieler) werden hier
 bewusst NICHT für alle ~449 Spieler gezogen - nur die Kaderplätze und der
 Tagesmarkt bekommen die volle Tiefenanalyse (main.py, bestehender Flow).
+Diese Rescale-Fixes fassen NUR die B5-Bestenliste an, nicht das Kader-/
+Tagesmarkt-Scoring (`scoring.score_player`, an dessen Skala die STAMM/
+HALTEN/BEOBACHTEN-Schwellen über viele User-Feedback-Runden kalibriert
+wurden) - der dortige Star-Power-Patch in main.py bleibt deshalb bestehen.
 """
 
 import time
 
-from scoring import score_player
+from scoring import (STATUS_PENALTY, PROB_SCORE, percentile_rank,
+                     fit_price_curve, value_residual, form_raw)
 from bid_advisor import recommend_bid, dynamic_aggressiveness
 
 POS_NAMES = {1: "TW", 2: "ABW", 3: "MF", 4: "ANG"}
+
+# Saisonvorbereitung 2026/27 (Stand 2026-07-31) - Gewicht der aktuellen Form
+# in form_raw() ist damit 0, `ph` wird nicht gebraucht. TODO: vor Saisonstart
+# (~7./15.8.) durch echte Spieltagszahl ersetzen, s. scoring.form_raw-Docstring.
+CURRENT_SEASON_DAYS = 0
 
 
 def fetch_league_universe(kb, cid, league_id, sleep=0.15):
@@ -55,71 +83,117 @@ def resolve_ownership(pid, search_by_id, own_ids):
         return "EIGEN", None
     s = search_by_id.get(pid)
     if not s:
-        return "UNBEKANNT", None  # in search fehlend (449 vs. 447 Teamprofile-Diskrepanz)
+        return "UNBEKANNT", None  # in search fehlend (Teamprofile-Diskrepanz)
     onm = (s.get("onm") or "").strip()
     if onm == "Kickbase":
         return ("MARKT", None) if s.get("iotm") else ("FREI", None)
     return "MITSPIELER", onm
 
 
-def _score_from_teamprofile(entry, ease, weights):
-    """score_player() ohne Detail-Call: sdmvt/7 als Tages-Proxy für tfhmvt."""
-    tfhmvt_proxy = (entry.get("sdmvt") or 0) / 7
-    pseudo_market_entry = {"ap": entry.get("ap", 0), "p": entry.get("ap", 0)}
-    pseudo_details = {
-        "mv": entry.get("mv", 0),
-        "tfhmvt": tfhmvt_proxy,
-        "st": entry.get("st", 0),
-        "prob": entry.get("prob", 3),
-    }
-    return score_player(pseudo_market_entry, pseudo_details, ease, weights)
+def _team_score_for(team_name, strength_map, matcher, fixture_mode):
+    if fixture_mode == "odds":
+        matched = matcher(team_name, list(strength_map.keys()))
+        return strength_map.get(matched, 0.5)
+    from fixtures import team_strength_for
+    return team_strength_for(team_name, strength_map)
 
 
-def build_league_board(kb, cid, league_id, own_ids, strength_map, upcoming,
-                       fixture_mode, matcher, weights=None, top_n=10,
-                       league_overpay=None):
+def build_league_lists(kb, cid, league_id, own_ids, strength_map, upcoming,
+                       fixture_mode, matcher, weights_quality=None,
+                       weights_value=None, top_n=10, league_overpay=None):
     """
-    {pos_name: [ranked_entries]} - die stärksten Spieler je Position über die
-    GESAMTE Competition (nicht nur Kader+Tagesmarkt), mit Besitzstatus und für
-    MARKT-Spieler einer Gebotsempfehlung.
+    {"quality": {pos: [...]}, "value": {pos: [...]}, "bangers": [...]} -
+    zwei komplett unabhängige Ranglisten je Position über die GESAMTE
+    Competition (s. Modul-Docstring), plus Schnittmenge (Top 5 in beiden).
     """
     from fixtures import fixture_ease_for_team
     from odds import fixture_ease_odds
 
+    wq = weights_quality or {"form": 0.40, "availability": 0.25, "team": 0.20, "fixtures": 0.15}
+    wv = weights_value or {"value": 0.45, "momentum": 0.30, "availability": 0.15, "fixtures": 0.10}
+
     profiles, search_by_id = fetch_league_universe(kb, cid, league_id)
 
-    ranked = {pos: [] for pos in POS_NAMES.values()}
-    for pid, entry in profiles.items():
-        pos = POS_NAMES.get(entry.get("pos"))
+    # ---- Perzentil-/Regressions-Grundlagen einmal pro Liga ----
+    curve = fit_price_curve(list(profiles.values()))
+    residuals, form_raws, momentum_raws = {}, {}, {}
+    for pid, e in profiles.items():
+        ap, mv = e.get("ap", 0) or 0, e.get("mv", 0) or 0
+        if ap > 0 and mv > 0:
+            residuals[pid] = value_residual(mv, ap, curve)
+        form_raws[pid] = form_raw(ap, None, CURRENT_SEASON_DAYS)
+        sdmvt = e.get("sdmvt") or 0
+        momentum_raws[pid] = (sdmvt / 7) / mv if mv > 0 else 0.0
+
+    sorted_residuals = sorted(residuals.values())
+    sorted_form = sorted(form_raws.values())
+    sorted_momentum = sorted(momentum_raws.values())
+
+    entries = {}
+    for pid, e in profiles.items():
+        pos = POS_NAMES.get(e.get("pos"))
         if pos is None:
             continue
-        team_name = entry.get("tn", "")
+        team_name = e.get("tn", "")
         if fixture_mode == "odds":
             ease, opponents = fixture_ease_odds(team_name, upcoming, matcher)
         else:
             ease, opponents = fixture_ease_for_team(team_name, upcoming, strength_map)
-        total, comps, meta = _score_from_teamprofile(entry, ease, weights)
+        team_score = _team_score_for(team_name, strength_map, matcher, fixture_mode)
+
+        st, prob = e.get("st", 0), e.get("prob", 3)
+        availability = STATUS_PENALTY.get(st, 0.5) * PROB_SCORE.get(prob, 0.5)
+
+        ap, mv = e.get("ap", 0) or 0, e.get("mv", 0) or 0
+        value_score = percentile_rank(residuals[pid], sorted_residuals) if pid in residuals else 0.5
+        form_score = percentile_rank(form_raws[pid], sorted_form)
+        momentum_score = percentile_rank(momentum_raws[pid], sorted_momentum)
+
+        quality_total = (wq["form"] * form_score + wq["availability"] * availability
+                         + wq["team"] * team_score + wq["fixtures"] * ease)
+        value_total = (wv["value"] * value_score + wv["momentum"] * momentum_score
+                       + wv["availability"] * availability + wv["fixtures"] * ease)
+
         status, owner = resolve_ownership(pid, search_by_id, own_ids)
 
         bid = None
         if status == "MARKT":
-            tfhmvt_proxy = (entry.get("sdmvt") or 0) / 7
-            aggr = dynamic_aggressiveness(total)
-            bid = recommend_bid(entry.get("mv", 0), tfhmvt_proxy, aggressiveness=aggr,
+            tfhmvt_proxy = (e.get("sdmvt") or 0) / 7
+            aggr = dynamic_aggressiveness(round(value_total * 100, 1))
+            bid = recommend_bid(mv, tfhmvt_proxy, aggressiveness=aggr,
                                 league_overpay=league_overpay,
-                                sporting_core=meta["sporting_core"])
+                                sporting_core=quality_total)
 
-        ranked[pos].append({
-            "id": pid, "name": entry.get("n", "?"), "pos": pos, "team": team_name,
-            "mv": entry.get("mv", 0) or 0, "ap": entry.get("ap", 0) or 0,
-            "sdmvt": entry.get("sdmvt"), "st": entry.get("st", 0),
-            "prob": entry.get("prob", 3), "score": total, "components": comps,
-            "meta": meta, "opponents": opponents, "status": status,
-            "owner": owner, "bid": bid,
-        })
+        residual = residuals.get(pid)
+        expected_ap = (ap - residual) if residual is not None else None
 
-    for pos in ranked:
-        ranked[pos].sort(key=lambda x: -x["score"])
-        ranked[pos] = ranked[pos][:top_n]
+        entries[pid] = {
+            "id": pid, "name": e.get("n", "?"), "pos": pos, "team": team_name,
+            "mv": mv, "ap": ap, "sdmvt": e.get("sdmvt"), "st": st, "prob": prob,
+            "quality_score": round(quality_total * 100, 1),
+            "value_score": round(value_total * 100, 1),
+            "residual": round(residual, 1) if residual is not None else None,
+            "expected_ap": round(expected_ap, 1) if expected_ap is not None else None,
+            "has_points": ap > 0,
+            "opponents": opponents, "status": status, "owner": owner, "bid": bid,
+        }
 
-    return ranked
+    quality_lists, value_lists = {}, {}
+    for pos in POS_NAMES.values():
+        pool = [e for e in entries.values() if e["pos"] == pos]
+        quality_lists[pos] = sorted(pool, key=lambda x: -x["quality_score"])[:top_n]
+        value_lists[pos] = sorted(pool, key=lambda x: -x["value_score"])[:top_n]
+        a_ids = {e["id"] for e in quality_lists[pos]}
+        b_ids = {e["id"] for e in value_lists[pos]}
+        for e in quality_lists[pos]:
+            e["in_both"] = e["id"] in b_ids
+        for e in value_lists[pos]:
+            e["in_both"] = e["id"] in a_ids
+
+    bangers = []
+    for pos in POS_NAMES.values():
+        top5_quality = {e["id"]: e for e in quality_lists[pos][:5]}
+        top5_value_ids = {e["id"] for e in value_lists[pos][:5]}
+        bangers.extend(e for pid, e in top5_quality.items() if pid in top5_value_ids)
+
+    return {"quality": quality_lists, "value": value_lists, "bangers": bangers}
