@@ -7,11 +7,20 @@ Kader-Analyse mit klarer Verdikt-Hierarchie:
 2. HALTEN (Trading) nur, wenn der Fall primär ein Wertpapier ist:
    sportlich (noch) kein Stamm-Argument, aber der MW steigt spürbar.
 3. BEOBACHTEN: weder klares Stamm- noch klares Trading-Argument,
-   Momentum flacht ab -> Verkaufsfenster im Blick behalten.
+   Momentum flacht NACHWEISBAR ab (echter 3-Tage-vs-3-Tage-Vergleich aus der
+   MW-Historie, s.u.) -> Verkaufsfenster im Blick behalten.
 4. VERKAUFEN: sportlich schwach UND MW-Motor aus (fällt/stagniert).
 
 Bei unvollständiger Datenlage (Neuzugang ohne Kickbase-Punkte) werden die
 Schwellen zugunsten des Spielers ausgelegt - hoher MW = hohe Erwartung.
+
+A1-Fix (2026-07-31): "flacht ab" wurde bisher aus einem einzelnen 24h-Wert
+(`tfhmvt`) geraten - das ist mathematisch keine Abflachung (zweite Ableitung),
+nur ein niedriger Tageswert. `classify_own_player` bekommt jetzt optional
+`mv_history` (aus `scoring.analyze_mv_history`, basierend auf der echten
+MW-Historie) und nutzt `accelerating is False` (echter 3-Tage-vs-3-Tage-
+Vergleich) als Bedingung. Ohne genug Historie wird das explizit ausgewiesen
+statt weiter zu raten.
 """
 
 from scoring import score_player
@@ -23,9 +32,10 @@ STAMM_CORE = 0.55       # sporting_core-Schwelle für Stamm
 STAMM_CORE_NODATA = 0.60  # ohne Punktehistorie etwas strenger (MW-Proxy)
 STRONG_RISE = 0.008     # >0.8%/Tag
 FLATTENING = 0.002
+NEAR_ATH = 0.03         # <=3% unter Allzeithoch = Überhitzungs-Hinweis
 
 
-def classify_own_player(p, details, ease, weights=None):
+def classify_own_player(p, details, ease, weights=None, mv_history=None):
     total, comps, meta = score_player(p, details, ease, weights)
     mv = details.get("mv", p.get("mv", 0)) or 0
     tfhmvt = details.get("tfhmvt", 0) or 0
@@ -36,6 +46,13 @@ def classify_own_player(p, details, ease, weights=None):
 
     reasons = []
     core_threshold = STAMM_CORE if meta["data_complete"] else STAMM_CORE_NODATA
+
+    # A1: "flacht ab" nur bei echtem Beleg aus der Mehrtages-Historie -
+    # accelerating ist None, wenn dafür zu wenig Datenpunkte (<7) vorliegen;
+    # dann NICHT raten (weder True noch False annehmen).
+    truly_flattening = (mv_history is not None
+                        and mv_history["accelerating"] is False
+                        and (mv_history["trend_3d"] or 0) > 0)
 
     # 1) STAMM zuerst - sportliche Substanz schlägt Momentum
     if core >= core_threshold and fit and likely_starter:
@@ -55,18 +72,20 @@ def classify_own_player(p, details, ease, weights=None):
         if not (fit and likely_starter):
             reasons.append("sportlich (noch) kein Stamm-Argument - reines Wert-Investment")
     # 3) Beobachten
-    elif daily_pct >= FLATTENING or (core >= 0.45 and fit):
+    elif truly_flattening or (core >= 0.45 and fit):
         verdict = "BEOBACHTEN"
-        if daily_pct >= FLATTENING:
-            reasons.append(f"MW-Anstieg flacht ab ({daily_pct:+.1%}/Tag) - "
-                           "Verkaufsfenster im Blick behalten")
+        if truly_flattening:
+            reasons.append(f"MW-Anstieg flacht nachweisbar ab (3-Tage-Ø {mv_history['trend_3d']:+,.0f}/Tag, "
+                           f"7-Tage-Ø {mv_history['trend_7d']:+,.0f}/Tag) - Verkaufsfenster im Blick behalten")
         else:
             reasons.append(f"sportlich Mittelfeld (Kern {core:.0%}), MW stagniert - "
                            "Entwicklung abwarten")
     # 4) Verkaufen
     else:
         verdict = "VERKAUFEN"
-        if tfhmvt < 0:
+        if mv_history is None:
+            reasons.append("MW stagniert/fällt (24h-Wert - keine Historie zur Bestätigung abgerufen)")
+        elif tfhmvt < 0:
             reasons.append(f"MW fällt ({tfhmvt:+,.0f} €/Tag) - Peak überschritten")
         else:
             reasons.append("MW stagniert - bindet nur Kapital")
@@ -75,10 +94,20 @@ def classify_own_player(p, details, ease, weights=None):
         if core < 0.4:
             reasons.append(f"sportlich schwach (Kern {core:.0%})")
 
+    if mv_history is not None:
+        if mv_history["accelerating"] is None and verdict in ("BEOBACHTEN", "VERKAUFEN"):
+            reasons.append(f"ℹ️ MW-Historie zu kurz für Beschleunigungs-Check "
+                           f"({mv_history['n_points']} Tage, mind. 7 nötig) - "
+                           "Abflachung nicht nachweisbar, nur vermutet")
+        dist = mv_history.get("dist_to_hmv")
+        if dist is not None and 0 <= dist <= NEAR_ATH:
+            reasons.append(f"nah am Allzeithoch ({dist:.0%} drunter) - möglicher Überhitzungs-Indikator")
+
     return {
         "id": str(p.get("i")),
         "name": f"{p.get('fn', '')} {p.get('n', '')}".strip(),
         "pos": POS_NAMES.get(p.get("pos"), "?"),
+        "tid": str(details.get("tid", p.get("tid", "")) or ""),
         "mv": mv,
         "ap": p.get("ap", 0),
         "score": total,
@@ -92,6 +121,35 @@ def classify_own_player(p, details, ease, weights=None):
 
 
 DEBT_RATIO = 0.33  # Kickbase erlaubt bis -33% des Kaderwerts
+
+# A5: Mindestbesetzung je Position über alle 8 Kickbase-Formationen
+# (3-4-3, 3-5-2, 4-3-3, 4-4-2, 4-5-1, 5-2-3, 5-3-2, 5-4-1) - Spielwissen,
+# keine API-Quelle dafür (analog zur 33%-Kreditregel).
+MIN_POS_COUNT = {"TW": 1, "ABW": 3, "MF": 2, "ANG": 1}
+
+
+def flag_formation_risk(squad_classified):
+    """
+    Eine VERKAUFEN-Empfehlung darf den Kader nicht unter die Mindestbesetzung
+    einer Position drücken, sonst ist keine gültige Kickbase-Elf mehr
+    aufstellbar. Prüft pro VERKAUFEN-Kandidat den aktuellen Positions-Bestand
+    gegen MIN_POS_COUNT und hängt bei Verstoß eine Warnung an die reasons an,
+    statt die Empfehlung stillschweigend zu geben.
+    """
+    counts = {}
+    for s in squad_classified:
+        counts[s["pos"]] = counts.get(s["pos"], 0) + 1
+
+    for s in squad_classified:
+        if s["verdict"] != "VERKAUFEN":
+            continue
+        minimum = MIN_POS_COUNT.get(s["pos"])
+        remaining = counts.get(s["pos"], 0) - 1
+        if minimum is not None and remaining < minimum:
+            s["reasons"].append(
+                f"⚠️ Formations-Risiko: nur noch {remaining}x {s['pos']} im Kader nach "
+                f"Verkauf (Minimum für eine gültige Elf: {minimum}) - vor Verkauf Ersatz holen")
+    return squad_classified
 
 # Sportlicher Vergleich: ab wann gilt ein Marktspieler als klare Verbesserung
 # gegenüber einem Kaderspieler? (sporting_core ist 0..1, ap ist Punkteschnitt)
@@ -172,7 +230,7 @@ def _punktetyp_note(m):
 
 
 def market_vs_squad(market_scored, squad_classified, budget, max_squad,
-                    league_overpay=None):
+                    league_overpay=None, club_limit=None):
     free_slots = max(0, max_squad - len(squad_classified))
     squad_value = sum(s["mv"] for s in squad_classified)
     # Kaufkraft-Regel (korrekt): Basis für die 33% ist der NETTO-Teamwert
@@ -185,13 +243,16 @@ def market_vs_squad(market_scored, squad_classified, budget, max_squad,
     results = []
 
     def _sell_and_recompute(target, bid):
-        proceeds = int(target["mv"] * 0.95)
+        # Verkauf bringt den VOLLEN MW (kein Abschlag, User-bestätigt) -> der
+        # Netto-Teamwert (Kaderwert+Budget) bleibt unverändert, die Kaufkraft
+        # steigt um exakt proceeds: cap_after = capacity + proceeds.
+        proceeds = int(target["mv"])
         b_after = budget + proceeds
         sv_after = squad_value - target["mv"]
         cap_after = DEBT_RATIO * (sv_after + b_after) + b_after
         affordable = cap_after >= bid["recommended_bid"]
         financing = (f"Kaufkraft nach Verkauf {cap_after:,.0f} "
-                     f"(Budget {budget:+,.0f} + Erlös ~{proceeds:,.0f}, "
+                     f"(Budget {budget:+,.0f} + Erlös {proceeds:,.0f} = voller MW, "
                      f"33% vom neuen Netto-Teamwert)")
         return affordable, financing
 
@@ -235,20 +296,27 @@ def market_vs_squad(market_scored, squad_classified, budget, max_squad,
                             sporting_core=m["meta"]["sporting_core"],
                             star=m.get("star", 0))
 
+        sold_target = None
+        is_purchase = False
         if free_slots > 0:
             headline = "KAUFEN (freier Kaderplatz)"
             affordable = capacity >= bid["recommended_bid"]
             financing = (f"Kaufkraft {capacity:,.0f} "
                          f"(33% von Netto-Teamwert {net_value:,.0f} = max. Schulden "
                          f"{max_debt:,.0f}, Budget {budget:+,.0f})")
+            is_purchase = True
         elif sporting["kind"] in ("same_pos_upgrade", "cross_pos_upgrade"):
             t = sporting["target"]
             headline = f"UPGRADE für {t['name']} ({t['pos']}, sportlich)"
             affordable, financing = _sell_and_recompute(t, bid)
+            sold_target = t
+            is_purchase = True
         elif trading["qualifies"] and trading["target"]:
             t = trading["target"]
             headline = f"TRADING-UPGRADE für {t['name']} ({t['daily_pct']:+.1%}/Tag)"
             affordable, financing = _sell_and_recompute(t, bid)
+            sold_target = t
+            is_purchase = True
         elif angles:
             headline = "interessant, aber kein Kaderzwang (Stamm/Trading-Holds nicht ersetzbar)"
             affordable = capacity >= bid["recommended_bid"]
@@ -257,6 +325,17 @@ def market_vs_squad(market_scored, squad_classified, budget, max_squad,
             headline = "KEIN BEDARF - weder Trading- noch sportlicher Mehrwert erkennbar"
             affordable = False
             financing = ""
+
+        # A4: Vereinslimit (tpc) - nur relevant, wenn tatsächlich ein Kauf
+        # vorgeschlagen wird. Der ggf. verkaufte Spieler zählt nicht mehr mit.
+        if is_purchase and club_limit and m.get("tid"):
+            same_club = sum(1 for s in squad_classified if s.get("tid") == m["tid"])
+            if sold_target and sold_target.get("tid") == m["tid"]:
+                same_club -= 1
+            if same_club >= club_limit:
+                headline = (f"⚠️ VEREINSLIMIT erreicht ({same_club}/{club_limit} "
+                           f"Spieler von {m.get('team', 'diesem Verein')}) - " + headline)
+                affordable = False
 
         team_verdict = headline + ((" | " + " | ".join(angles)) if angles else "")
 

@@ -19,12 +19,14 @@ from fixtures import (get_table, get_table_football_data, build_strength_map,
                       get_upcoming_by_team, get_upcoming_by_team_football_data,
                       get_table_tsdb, get_upcoming_by_team_tsdb,
                       fixture_ease_for_team)
-from scoring import score_player, explain, player_reliability_profile, punktetyp_label
+from scoring import (score_player, explain, player_reliability_profile,
+                     punktetyp_label, analyze_mv_history)
 from bid_advisor import learn_league_overpay
 from odds import load_fixture_odds, load_fixture_odds_api, fixture_ease_odds
 from fixtures import _best_match
 from squad_analysis import (classify_own_player, market_vs_squad,
-                            finalize_headline_recommendations, POS_NAMES)
+                            finalize_headline_recommendations,
+                            flag_formation_risk, POS_NAMES)
 
 
 def _match_name(name, candidates):
@@ -100,6 +102,11 @@ def run_league(kb, cfg):
     me = kb.get_me(league_id)
     budget = me.get("b", 0)
     max_squad = me.get("mppu", 20)
+    # ACHTUNG: "tpc" ist NICHT das Vereinslimit (frühere Fehlannahme in
+    # CLAUDE.md) - live geprüft, es ist eine Liste {tid, npt}, die AKTUELLE
+    # Spieleranzahl je Verein im Kader. Das eigentliche Limit steht nirgends
+    # in /me -> Check bleibt deaktiviert (None), bis der echte Wert bekannt ist.
+    club_limit = None
     strength_map, upcoming, fixture_mode = load_fixture_data(cfg)
     if not upcoming:
         print("ℹ️ Kein Spielplan verfügbar -> Spielplan-Komponente neutral.")
@@ -113,9 +120,16 @@ def run_league(kb, cfg):
               f"Budget {budget:+,.0f} €):")
         for p, d, ease, opps in enrich_players(kb, league_id, squad_players,
                                                strength_map, upcoming, fixture_mode):
-            c = classify_own_player(p, d, ease, WEIGHTS)
+            # A1: echte MW-Historie für 3/7-Tage-Trend statt nur dem 24h-Wert
+            # (repariert "BEOBACHTEN" - s. squad_analysis-Docstring).
+            hist_raw = kb.get_mv_history(cfg["competition_id"], p.get("i"), league_id)
+            time.sleep(0.25)
+            mv_history = (analyze_mv_history(hist_raw, d.get("mv", p.get("mv", 0)) or 0)
+                         if hist_raw.get("it") else None)
+            c = classify_own_player(p, d, ease, WEIGHTS, mv_history=mv_history)
             c["opponents"] = opps
             squad_classified.append(c)
+        flag_formation_risk(squad_classified)
 
         order = {"VERKAUFEN": 0, "BEOBACHTEN": 1, "STAMM": 2, "HALTEN (Trading)": 3}
         for c in sorted(squad_classified, key=lambda x: order.get(x["verdict"], 9)):
@@ -143,6 +157,7 @@ def run_league(kb, cfg):
             "id": str(p.get("i")),
             "name": f"{p.get('fn', '')} {p.get('n', '')}".strip(),
             "pos": POS_NAMES.get(p.get("pos"), "?"),
+            "tid": str(d.get("tid", p.get("tid", "")) or ""),
             "mv": d.get("mv", p.get("mv", 0)),
             "ap": p.get("ap", 0),
             "tfhmvt": d.get("tfhmvt", 0) or 0,
@@ -159,8 +174,13 @@ def run_league(kb, cfg):
         })
 
     # --- Star-Power: Topspieler von Topteams dürfen nicht untergehen ---
-    # mv_pct: wo steht der Spieler preislich im aktuellen Markt-Set?
-    mvs = sorted(x["mv"] for x in market_scored) or [1]
+    # mv_pct: wo steht der Spieler preislich in Kader+Markt zusammen? (A2-Fix:
+    # gegen das reine Tages-Markt-Set von ~16 Spielern normiert war zu klein/
+    # volatil - ein zufällig teurer Markt-Tag machte jeden zum "Star". Kader+
+    # Markt zusammen ist breiter und tagesstabiler. Volle Liga-Sicht (alle
+    # Mitspielerkader) bräuchte die noch nicht gebaute Mitspieler-Analyse.)
+    mv_universe = [s["mv"] for s in squad_classified] + [x["mv"] for x in market_scored]
+    mvs = sorted(mv_universe) or [1]
     for x in market_scored:
         mv_pct = mvs.index(x["mv"]) / max(1, len(mvs) - 1)
         star = 0.55 * mv_pct + 0.45 * x["team_strength"]
@@ -173,7 +193,8 @@ def run_league(kb, cfg):
     league_overpay = learn_league_overpay(kb.get_activities(league_id))
     compared, free_slots = market_vs_squad(market_scored, squad_classified,
                                            budget, max_squad,
-                                           league_overpay=league_overpay)
+                                           league_overpay=league_overpay,
+                                           club_limit=club_limit)
     compared = finalize_headline_recommendations(compared)
     if free_slots:
         print(f"   ({free_slots} freie Kaderplätze!)")

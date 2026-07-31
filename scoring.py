@@ -82,6 +82,58 @@ def score_player(market_entry, details, fix_ease, weights=None):
     }
 
 
+def analyze_mv_history(history_response, current_mv):
+    """
+    Echter Mehrtages-Trend statt Ein-Tages-Heuristik (A1). Quelle:
+    kickbase_api.get_mv_history() - liefert bis zu 92 Tage MW-Historie
+    ({"it": [{"dt": Tagesnummer, "mv": float}], "hmv": Allzeithoch}).
+    Führende mv=0.0-Einträge (vor Tracking-Beginn) werden gefiltert.
+
+    Liefert IMMER ein Dict (nie None), damit Aufrufer bei zu wenig Historie
+    das explizit ausweisen können statt zu raten:
+    - trend_3d/trend_7d: Ø-MW-Änderung/Tag über die letzten 3/7 Tage
+    - accelerating: True = 3-Tage-Rate >= die 3 Tage davor (noch beschleunigend/
+      stabil), False = echte Abflachung, None = zu wenig Punkte (< 7) für den
+      Vergleich - dann NICHT raten
+    - dist_to_hmv: Abstand zum Allzeithoch in % (Überhitzungs-Indikator)
+    """
+    items = [it for it in (history_response.get("it") or []) if (it.get("mv") or 0) > 0]
+    items = sorted(items, key=lambda x: x.get("dt", 0))
+    mvs = [it["mv"] for it in items]
+    n = len(mvs)
+
+    def _avg_daily_change(window):
+        if n < 2:
+            return None
+        pts = mvs[-(window + 1):] if n > window else mvs
+        if len(pts) < 2:
+            return None
+        return (pts[-1] - pts[0]) / (len(pts) - 1)
+
+    trend_3d = _avg_daily_change(3)
+    trend_7d = _avg_daily_change(7)
+
+    accelerating = None
+    if n >= 7:
+        recent, prior = mvs[-4:], mvs[-7:-3]
+        recent_rate = (recent[-1] - recent[0]) / (len(recent) - 1)
+        prior_rate = (prior[-1] - prior[0]) / (len(prior) - 1)
+        accelerating = recent_rate >= prior_rate
+
+    hmv = history_response.get("hmv") or (max(mvs) if mvs else None)
+    dist_to_hmv = ((hmv - current_mv) / hmv) if hmv else None
+
+    return {
+        "n_points": n,
+        "insufficient": n < 3,
+        "trend_3d": trend_3d,
+        "trend_7d": trend_7d,
+        "accelerating": accelerating,
+        "hmv": hmv,
+        "dist_to_hmv": dist_to_hmv,
+    }
+
+
 def player_reliability_profile(details):
     """
     "Punktetyp": punktet der Spieler zuverlässig unabhängig vom Spielausgang
