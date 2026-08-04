@@ -140,11 +140,11 @@ def _board_row(e, score_key):
     cls = "board-row eigen" if status == "EIGEN" else "board-row"
     both_badge = " <span class='both-badge'>⭐ auch in anderer Liste</span>" if e.get("in_both") else ""
     residual_html = ""
-    if e.get("residual") is not None:
-        sign = "+" if e["residual"] >= 0 else ""
+    if e.get("residual_pct") is not None:
+        sign = "+" if e["residual_abs"] >= 0 else ""
         residual_html = (f"<div class='board-residual'>Ø {e['ap']} P - für {_mio(e['mv'])} "
-                         f"erwartbar wären {e['expected_ap']:.0f} P - {sign}{e['residual']:.0f} P "
-                         f"ggü. Preiserwartung</div>")
+                         f"erwartbar wären {e['expected_ap']:.0f} P - {sign}{e['residual_abs']:.0f} P "
+                         f"({sign}{e['residual_pct']:.0f}%) ggü. Preiserwartung</div>")
     bid_html = ""
     if e.get("bid"):
         b = e["bid"]
@@ -160,14 +160,18 @@ def _board_row(e, score_key):
 </div>"""
 
 
-def _climber_row(e):
+def _climber_row(rank, e):
+    """Einzeilig, ohne Positionsgruppierung (Spec 5.2 - Top 5 gesamt statt
+    4x10 große Karten)."""
     status = e.get("status", "UNBEKANNT")
     icon = STATUS_ICON.get(status, "❓")
+    owner = f" {_esc(e['owner'])}" if e.get("owner") else ""
     sdmvt = e.get("sdmvt") or 0
-    return f"""<div class="board-row">
-  <span class="board-status">{icon} {STATUS_LABEL.get(status, status)}</span>
+    return f"""<div class="climber-row">
+  <span class="climber-rank">{rank}.</span>
   <span class="board-name">{_esc(e['name'])} <span class="pos">({_esc(e['team'])})</span></span>
-  <span class="board-stats">{sdmvt:+,.0f} €/7 Tage · MW {_mio(e['mv'])}</span>
+  <span class="climber-delta">{sdmvt:+,.0f} €/7T</span>
+  <span class="board-status">{icon}{owner}</span>
 </div>"""
 
 
@@ -260,14 +264,8 @@ def _squad_action_section(items):
 def _climbers_block(climbers):
     if not climbers:
         return "<p class='empty'>Noch keine Daten.</p>"
-    groups = []
-    for pos in ("TW", "ABW", "MF", "ANG"):
-        entries = (climbers.get(pos) or [])[:3]
-        if not entries:
-            continue
-        rows = "".join(_climber_row(e) for e in entries)
-        groups.append(f"<div class='board-group'><h4>{pos}</h4>{rows}</div>")
-    return "".join(groups) or "<p class='empty'>Noch keine Daten.</p>"
+    rows = "".join(_climber_row(i + 1, e) for i, e in enumerate(climbers[:5]))
+    return f"<div class='climber-list'>{rows}</div>"
 
 
 def _changes_block(changes):
@@ -303,11 +301,91 @@ def _llm_block(insights):
             for f in flags
         )
         flags_html = f"<div class='llm-flags'>{rows}</div>"
+    outlook_html = ""
+    outlook = insights.get("matchday_outlook") or []
+    if outlook:
+        rows = "".join(
+            f"<div class='flag-row'><span class='flag-name'>{_esc(o['match'])}</span> "
+            f"<span class='flag-tag'>{_esc('/'.join(o.get('beneficiary_positions', [])))}</span>"
+            f"<div class='flag-note'>{_esc(o['expected_script'])} - {_esc(o['reason'])}</div></div>"
+            for o in outlook
+        )
+        outlook_html = f"<div class='llm-flags'>{rows}</div>"
     return f"""<div class="llm-block">
   <div class="llm-label">🤖 KI-Einordnung</div>
   <div class="llm-report">{_esc(insights.get('report', ''))}</div>
   {flags_html}
+  {outlook_html}
 </div>"""
+
+
+def _mitspieler_appendix(entries):
+    """Kompakter Anhang zum Transfermarkt-Modul (Spec 5.1) - 3-4 beste
+    erreichbare Spieler aus fremden Kadern, statt der grossen positionsweisen
+    Transferziel-Liste auf der Startseite."""
+    if not entries:
+        return ""
+    rows = "".join(_board_row(e, "quality_score") for e in entries)
+    return f"<div class='mitspieler-appendix'><h4 class='board-sub'>🤝 Bei Mitspielern</h4>{rows}</div>"
+
+
+def _transfermarkt_section(report):
+    """
+    Ein Modul "Transfermarkt" statt zwei getrennter (Spec 5.1): Tagesmarkt
+    ist der Hauptteil (alle aktuell verfügbaren Spieler mit Verdikt,
+    Gebotskorridor, Restlaufzeit - jetzt direkt sichtbar statt in <details>
+    versteckt), "Bei Mitspielern" ein kompakter Anhang. Die grosse
+    positionsweise Transferziel-Liste (build_targets) wandert in die
+    Vertiefung, s. _league_panel.
+    """
+    market = report.get("market", [])
+    market_html = ("".join(_market_card(m) for m in market)
+                  or "<p class='empty'>Kein Marktangebot.</p>")
+    bangers_html = ""
+    if report.get("bangers"):
+        cards = "".join(_market_card(m, highlight=True) for m in report["bangers"][:3])
+        bangers_html = f"<h4 class='board-sub'>💎 Banger-Ziele</h4><div class='grid'>{cards}</div>"
+    free_slots = report.get("free_slots", 0)
+    free_slots_note = f"<p class='note'>🟢 {free_slots} freie Kaderplätze</p>" if free_slots else ""
+    appendix_html = _mitspieler_appendix(report.get("mitspieler_appendix") or [])
+    return f"""{free_slots_note}
+{bangers_html}
+<div class="grid">{market_html}</div>
+{appendix_html}"""
+
+
+def _lineup_row(p):
+    f = p.get("ep_factors", {})
+    stats = (f"{p['expected_points']} P (Basis {f.get('basis')} × Einsatz "
+            f"{f.get('einsatzfaktor')} × Gegner {f.get('gegnerfaktor')} × "
+            f"Verlauf {f.get('spielverlaufsfaktor')})")
+    return f"""<div class="board-row">
+  <span class="board-status">{_esc(p['pos'])}</span>
+  <span class="board-name">{_esc(p['name'])}</span>
+  <span class="board-stats">{_esc(stats)}</span>
+</div>"""
+
+
+def _lineup_block(lineup):
+    """
+    Aufstellungsempfehlung (Punkt 6, Grundgerüst) - beste Elf nach erwarteten
+    Punkten je Formation. Kein Abgleich mit der echten gesetzten Aufstellung
+    möglich (kein verifizierter Endpoint, s. coach.py-Docstring).
+    """
+    if not lineup or not lineup.get("best"):
+        return "<p class='empty'>Kein Kader für eine Aufstellungsempfehlung geladen.</p>"
+    best = lineup["formations"][lineup["best"]]
+    rows = "".join(_lineup_row(p) for p in sorted(best["xi"], key=lambda x: -x["expected_points"]))
+    alts = sorted(((n, r["total_points"]) for n, r in lineup["formations"].items()
+                  if n != lineup["best"]), key=lambda x: -x[1])[:3]
+    alts_txt = ", ".join(f"{n} ({t - lineup['best_total']:+.1f})" for n, t in alts)
+    alts_html = f"<p class='note'>Alternativen: {_esc(alts_txt)}</p>" if alts_txt else ""
+    return f"""<p class="note"><strong>{_esc(lineup['best'])}</strong> - {lineup['best_total']} erwartete
+Punkte · Deadline 20:29 Uhr</p>
+<div class="board">{rows}</div>
+{alts_html}
+<p class="note warn">⚠️ Kein Abgleich mit der aktuell im Spiel gesetzten Aufstellung möglich
+(kein verifizierter Endpoint dafür) - das ist die rechnerisch beste Elf aus dem Kader.</p>"""
 
 
 def _league_panel(report, panel_id):
@@ -324,12 +402,6 @@ def _league_panel(report, panel_id):
                           key=lambda x: SQUAD_ORDER.get(x["verdict"], 9))
     full_squad_html = ("".join(_squad_card(c) for c in squad_sorted)
                        or "<p class='empty'>Kein Kader geladen.</p>")
-    full_market_html = ("".join(_market_card(m) for m in report.get("market", []))
-                        or "<p class='empty'>Kein Marktangebot.</p>")
-    bangers_html = ""
-    if report.get("bangers"):
-        cards = "".join(_market_card(m, highlight=True) for m in report["bangers"][:3])
-        bangers_html = f"<h4 class='board-sub'>💎 Banger-Ziele (Tagesmarkt)</h4><div class='grid'>{cards}</div>"
 
     fixture_note = ("" if report.get("has_fixtures")
                     else "<p class='note warn'>⚠️ Kein Spielplan verfügbar - "
@@ -348,8 +420,11 @@ def _league_panel(report, panel_id):
 
   {_risk_banner(report.get("risks", []))}
 
-  <h3 class="section-h">🎯 Transferziele</h3>
-  {_watchlist(report.get("targets", {}))}
+  <h3 class="section-h">🧠 Aufstellungsempfehlung</h3>
+  {_lineup_block(report.get("lineup"))}
+
+  <h3 class="section-h">🛒 Transfermarkt</h3>
+  {_transfermarkt_section(report)}
 
   <h3 class="section-h">👥 Kader-Handlungsbedarf</h3>
   {_squad_action_section(report.get("squad_action_items", []))}
@@ -357,7 +432,7 @@ def _league_panel(report, panel_id):
   <h3 class="section-h">📈 Stärkste MW-Steiger der Liga</h3>
   <p class="note">In der Saisonvorbereitung die einzige echte Bewegung im Spiel -
   ab Saisonstart durch echte Formwerte ersetzt.</p>
-  {_climbers_block(board.get("climbers") or {})}
+  {_climbers_block(board.get("climbers") or [])}
 
   <details class="deep">
     <summary>🔄 Was hat sich seit gestern geändert?</summary>
@@ -365,14 +440,11 @@ def _league_panel(report, panel_id):
   </details>
   <details class="deep">
     <summary>👥 Kompletter Kader ({len(report.get('squad_classified', []))} Spieler)</summary>
-    <div class="deep-body">
-      {bangers_html}
-      <div class="grid">{full_squad_html}</div>
-    </div>
+    <div class="deep-body"><div class="grid">{full_squad_html}</div></div>
   </details>
   <details class="deep">
-    <summary>🛒 Kompletter Tagesmarkt ({len(report.get('market', []))} Spieler)</summary>
-    <div class="deep-body"><div class="grid">{full_market_html}</div></div>
+    <summary>🎯 Weitere Transferziele (liga-weit, nach Position)</summary>
+    <div class="deep-body">{_watchlist(report.get("targets", {}))}</div>
   </details>
   <details class="deep">
     <summary>🏆 Liga-Bestenlisten (Qualität &amp; Deals, gesamte Competition)</summary>
@@ -457,6 +529,13 @@ main { max-width: 640px; margin: 0 auto; padding: 0.75rem; }
 .board-row .board-bid { flex-basis: 100%; font-size: 0.8rem; }
 .board-row .board-residual { flex-basis: 100%; font-size: 0.78rem; color: var(--text-dim); }
 .board-sub { font-size: 0.85rem; margin: 0.8rem 0 0.4rem; color: var(--text-dim); }
+.climber-list { display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.6rem; }
+.climber-row {
+  display: flex; align-items: baseline; gap: 0.5rem; padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--card-bg); font-size: 0.85rem;
+}
+.climber-rank { color: var(--text-dim); width: 1.2rem; }
+.climber-delta { color: #2e9e50; font-weight: 600; margin-left: auto; }
 .both-badge { font-size: 0.72rem; color: #caa23a; font-weight: 600; }
 .kpi-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; margin-top: 0.8rem; }
 @media (min-width: 480px) { .kpi-grid { grid-template-columns: repeat(3, 1fr); } }

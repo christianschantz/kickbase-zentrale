@@ -16,6 +16,25 @@ team_context je Spieler + hartes Herausfiltern nicht finanzierbarer Ziele.
 Läuft nur, wenn config.GEMINI_API_KEY gesetzt ist - sonst wird die Schicht
 übersprungen, die restliche Pipeline läuft unverändert weiter (kein
 Hard-Dependency, kein Absturzrisiko für main.py).
+
+Neuausrichtung (2026-07-31, SPEC_forecast_coach_scoring.md Punkt 2): der
+vorherige Report referierte nur Zahlen, die im Dashboard ohnehin stehen -
+Folge der vorigen Kontext-Anreicherung (zu viel Zahlenkontext -> das Modell
+fasst zusammen statt beizutragen). Jetzt ausdrücklich umgekehrt: das Modell
+bekommt die Zahlen nur als Hintergrund, darf sie aber nicht referieren,
+sondern soll NUR externe Information beitragen (Verletzungen, Aufstellungen,
+Spielverlaufs-Einordnung).
+**Wichtige Einschränkung, live geprüft:** Gemini unterstützt Google-Search-
+Grounding (`tools: [{"google_search": {}}]`) für echte Web-Recherche, aber
+ein Testcall mit dem aktuellen (Free-Tier-)API-Key lieferte sofort
+`429 RESOURCE_EXHAUSTED`, während derselbe Call ohne Grounding-Tool normal
+funktioniert - Grounding hat offenbar ein eigenes, auf diesem Key nicht
+freigeschaltetes Kontingent (vermutlich Billing-pflichtig). Deshalb OHNE
+Grounding gebaut: das Modell arbeitet nur mit seinem Trainingsstand, nicht
+mit Live-Daten. Für echte Aktualität (Verletzungsnews von heute) bräuchte es
+entweder Billing auf dem Key (dann `tools` ergänzen) oder eigenes Abrufen
+bekannter Quellen (Aufstellungsportale etc., größerer Umbau, nicht in dieser
+Änderung enthalten).
 """
 
 import json
@@ -71,21 +90,38 @@ VERHALTENSREGELN:
 - Ein einzelner niedriger Tageswert bei einem sonst stark steigenden Spieler ist ein Beobachtungs-, kein Alarmsignal - relativiere das im Report.
 - Erwähne Marktziele, die als "nicht finanzierbar" markiert sind, NUR wenn explizit danach gefragt wird. Sonst weglassen (sie wurden hier bereits herausgefiltert).
 - Bewerte die Budgetlage IMMER im Kontext des täglichen Kader-Ertrags und der Tage bis zum Saisonstart, nicht als isolierten Kontostand.
-- Wenn nichts Neues/Externes zu sagen ist, sag das kurz - keine Zahlenwiederholung als Füllmaterial."""
+- Wiederhole KEINE Zahlen, Verdikte oder Kennzahlen aus dem Input - der Nutzer sieht sie bereits im Dashboard. Erwähne eine Zahl nur, wenn deine externe Erkenntnis ihr widerspricht.
+- Wenn du zu einem Spieler nichts Externes/Neues zu sagen hast, lass ihn komplett weg. Ein kurzer Report mit drei belegten Erkenntnissen ist besser als zehn Sätze allgemeiner Einordnung."""
 
-TASK_INSTRUCTIONS = """Du bekommst den fertigen Kickbase-Report meines Analyse-Skripts als JSON. Die
-Berechnungen (Verdikte, Scores, Finanzkennzahlen) sind bereits erledigt und
-korrekt - übernimm sie als Fakten.
+TASK_INSTRUCTIONS = """Du bekommst den fertigen Kickbase-Report meines Analyse-Skripts als JSON - NUR
+als Hintergrund, nicht zum Referieren. Die Zahlen, Verdikte und die
+Finanzlage zeigt das Dashboard dem Nutzer bereits deterministisch an. Dein
+Beitrag ist das GEGENTEIL davon: alles, was NICHT in den Zahlen steht.
+
+Drei Analysestränge (bearbeite, was mit deinem Wissensstand möglich ist -
+KEINE Live-Web-Recherche verfügbar, verlasse dich auf deinen Trainingsstand
+und kennzeichne Unsicherheit statt zu erfinden):
+A. Pro Spieler (Kader + finanzierbare Ziele): Aufstellungsprognosen,
+   Verletzungen/Sperren, Trainerwechsel/Systemumstellung, Wechselgerüchte,
+   auffällige Leistungsbewertungen - nur wenn dir dazu etwas bekannt ist.
+B. Spieltagseinordnung: für Partien mit eigenen Spielern - nicht "wer
+   gewinnt" (das zeigen die Quoten bereits), sondern WIE: dominante
+   Ballbesitzmannschaft, tiefstehender Konter unter Druck, offener
+   Schlagabtausch. Das entscheidet, welche Positionen eher punkten.
+C. Kader-/Aufstellungsbewertung: wo widerspricht die Berichtslage den
+   Kickbase-Zahlen (falls bekannt)?
 
 Deine Aufgabe:
-1. Prüfe gegen aktuelle Berichte, ob es EXTERNE Informationen gibt, die die
-   Einschätzungen ändern würden (Verletzung, Trainerwechsel, Aufstellung,
-   Formkrise/-hoch) - nur zu Spielern aus Kader und Transferzielen.
-2. Schreibe einen Kurzreport (max. 150 Wörter): was ist HEUTE das wirklich
-   relevante Thema, unter Berücksichtigung der Finanzlage im Zeitverlauf
-   (nicht nur der Momentaufnahme) und der Zeit bis zum Saisonstart.
+1. Trage NUR bei, was du zusätzlich zum JSON-Kontext weißt oder ableiten
+   kannst - keine Zusammenfassung des Inputs.
+2. Schreibe einen Kurzreport (max. 150 Wörter, gerne kürzer wenn wenig
+   Substanz vorliegt).
 3. Wenn eine Einschätzung aus deiner Sicht falsch ist, sag es klar und mit
    Begründung/Quelle - aber widersprich nicht ohne externen Anlass.
+4. Fülle player_flags NUR mit Spielern, zu denen du etwas Externes beiträgst.
+5. Fülle matchday_outlook NUR, wenn du zum erwarteten Spielverlauf einer
+   Partie mit eigenen Spielern etwas Konkretes beitragen kannst - sonst leer
+   lassen, nicht raten.
 
 Ignoriere Marktziele, die als nicht finanzierbar markiert sind, komplett
 (sie sind hier bereits nicht enthalten).
@@ -129,8 +165,27 @@ FLAG_SCHEMA = {
                 "required": ["player_name", "flag", "confidence", "note"],
             },
         },
+        "matchday_outlook": {
+            "type": "array",
+            "description": ("NUR befüllen, wenn zum erwarteten Spielverlauf (nicht zum "
+                            "Sieger - das zeigen die Quoten bereits) etwas Konkretes "
+                            "bekannt ist. Sonst leeres Array, nicht raten."),
+            "items": {
+                "type": "object",
+                "properties": {
+                    "match": {"type": "string"},
+                    "expected_script": {"type": "string"},
+                    "beneficiary_positions": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": ["TW", "ABW", "MF", "ANG"]},
+                    },
+                    "reason": {"type": "string"},
+                },
+                "required": ["match", "expected_script", "beneficiary_positions", "reason"],
+            },
+        },
     },
-    "required": ["report", "player_flags"],
+    "required": ["report", "player_flags", "matchday_outlook"],
 }
 
 
@@ -245,9 +300,13 @@ def _pick_model(available):
 def _call_gemini(prompt, api_key, model, retries=1):
     """
     Ein Retry bei 5xx (Live-Test zeigte wiederholte, transiente 503 Service
-    Unavailable - Google-seitig, kein Fehler in unserer Anfrage). 4xx wird
-    NICHT wiederholt (z.B. falscher Key/Schema-Fehler - würde beim Retry
-    genauso scheitern).
+    Unavailable - Google-seitig, kein Fehler in unserer Anfrage) UND bei 400
+    (im Testlauf mehrfach beobachtet: derselbe Payload scheitert mal mit
+    "Request contains an invalid argument" und geht beim nächsten Versuch
+    unverändert durch - offenbar ebenfalls transient Google-seitig, keine
+    erkennbare Payload-Ursache). Andere 4xx (401/403/404 etc.) werden NICHT
+    wiederholt - das sind echte Konfigurationsfehler, die beim Retry genauso
+    scheitern würden.
     """
     import time as _time
     url = f"{BASE}/models/{model}:generateContent"
@@ -261,9 +320,13 @@ def _call_gemini(prompt, api_key, model, retries=1):
     }
     for attempt in range(retries + 1):
         r = requests.post(url, headers={"X-goog-api-key": api_key}, json=payload, timeout=60)
-        if r.status_code >= 500 and attempt < retries:
+        if r.status_code in (400, 500, 502, 503, 504) and attempt < retries:
             _time.sleep(2)
             continue
+        if r.status_code >= 400:
+            # Antworttext mitloggen - reines HTTPError zeigt nur Status+URL,
+            # nicht den Grund (falsches Schema, Content-Filter, etc.).
+            print(f"   ⚠️ Gemini {r.status_code}: {r.text[:500]}")
         r.raise_for_status()
         text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
         return json.loads(text)
@@ -285,6 +348,7 @@ def generate_insights(report, strength_map, fixture_mode, matcher, generated_at,
             return None
         context = build_context(report, strength_map, fixture_mode, matcher, generated_at)
         prompt = build_prompt(context)
+        print(f"   (Prompt: {len(prompt):,} Zeichen, Modell {model})")
         result = _call_gemini(prompt, api_key, model)
         if "report" not in result or "player_flags" not in result:
             print("   ⚠️ KI-Schicht: unerwartete Antwortstruktur - übersprungen.")

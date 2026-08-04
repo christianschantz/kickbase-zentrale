@@ -24,6 +24,7 @@ from fixtures import (get_table, get_table_football_data, build_strength_map,
                       fixture_ease_for_team)
 from scoring import score_player, explain, player_reliability_profile, punktetyp_label
 from bid_advisor import learn_league_overpay
+from mv_forecast import clean_mv_series
 from odds import load_fixture_odds, load_fixture_odds_api, fixture_ease_odds
 from fixtures import _best_match
 from squad_analysis import (classify_own_player, market_vs_squad,
@@ -31,9 +32,10 @@ from squad_analysis import (classify_own_player, market_vs_squad,
                             flag_formation_risk, POS_NAMES, DEBT_RATIO)
 from league_board import build_league_lists
 from report_builder import (compute_kpis, build_actions, build_squad_action_items,
-                            build_targets, build_risks, season_phase,
-                            save_report, load_previous_snapshot, diff_reports)
+                            build_targets, build_mitspieler_appendix, build_risks,
+                            season_phase, save_report, load_previous_snapshot, diff_reports)
 from llm_insights import generate_insights
+import coach
 
 LEAGUE_BOARD_TOP_N = 10  # Top N je Position in der Liga-Bestenliste (B5)
 
@@ -136,6 +138,15 @@ def run_league(kb, cfg, run_timestamp):
             # "BEOBACHTEN" - s. squad_analysis-Docstring).
             c = classify_own_player(p, d, ease, WEIGHTS, sdmvt=p.get("sdmvt"))
             c["opponents"] = opps
+            # Punkt 6 (Grundgerüst): erwartete Punkte für die Aufstellungs-
+            # optimierung (coach.py) - `ease` (Sieg-WK-Näherung) und `ph`
+            # (letzte Spieltage) liegen aus diesem Loop-Durchlauf schon vor,
+            # kein Zusatz-Call nötig.
+            ep, ep_factors = coach.expected_points(
+                c["pos"], p.get("ap", 0), d.get("ph"), d.get("st", 0),
+                d.get("prob", 3), ease, team_name=d.get("tn", ""), mv=c["mv"])
+            c["expected_points"] = ep
+            c["ep_factors"] = ep_factors
             squad_classified.append(c)
         flag_formation_risk(squad_classified)
 
@@ -153,6 +164,26 @@ def run_league(kb, cfg, run_timestamp):
               "HTTP Toolkit aufnehmen, dann verifiziere ich den Pfad.")
     squad_slots = len(squad_players)
 
+    # ---------- 1b) AUFSTELLUNG (Punkt 6, Grundgerüst) ----------
+    lineup = coach.optimize_lineup(squad_classified) if squad_classified else None
+    if lineup and lineup["best"]:
+        best = lineup["formations"][lineup["best"]]
+        print(f"\n🧠 AUFSTELLUNGSEMPFEHLUNG: {lineup['best']} "
+              f"({lineup['best_total']} erwartete Punkte) · Deadline 20:29 Uhr")
+        for p in sorted(best["xi"], key=lambda x: -x["expected_points"]):
+            print(f"   {p['pos']:<4} {p['name']:<20} {p['expected_points']:>5.1f} P "
+                  f"(Basis {p['ep_factors']['basis']} × Einsatz {p['ep_factors']['einsatzfaktor']} "
+                  f"× Gegner {p['ep_factors']['gegnerfaktor']} × Verlauf {p['ep_factors']['spielverlaufsfaktor']})")
+        alternatives = sorted(
+            ((n, r["total_points"]) for n, r in lineup["formations"].items() if n != lineup["best"]),
+            key=lambda x: -x[1])
+        if alternatives:
+            alt_txt = ", ".join(f"{n} ({t:+.1f})" for n, t in
+                                [(n, t - lineup["best_total"]) for n, t in alternatives[:3]])
+            print(f"   Alternativen: {alt_txt}")
+        print("   ⚠️ Kein Abgleich mit der aktuell im Spiel gesetzten Aufstellung möglich "
+             "(kein verifizierter Endpoint dafür) - das ist die rechnerisch beste Elf.")
+
     # Kaufkraft-Kennzahlen fürs Dashboard (identische Formel wie in
     # squad_analysis.market_vs_squad, dort nicht nach außen gereicht).
     squad_value = sum(s["mv"] for s in squad_classified)
@@ -168,6 +199,13 @@ def run_league(kb, cfg, run_timestamp):
         total, comps, meta = score_player(p, d, ease, WEIGHTS)
         profile = player_reliability_profile(d)
         reliable_type, punktetyp_text = punktetyp_label(profile)
+        # Regime-basierte MW-Prognose (Punkt 1) braucht die volle Historie,
+        # nicht nur tfhmvt - nur für den Tagesmarkt geladen (bounded ~20-40
+        # Spieler/Liga), nicht für die 449-Spieler-Liga-Bestenliste (B5
+        # bleibt dort bewusst auf der günstigeren sdmvt-Näherung).
+        hist_raw = kb.get_mv_history(cid, p.get("i"), league_id)
+        time.sleep(0.25)
+        mv_history = clean_mv_series(hist_raw)
         market_scored.append({
             "id": str(p.get("i")),
             "name": f"{p.get('fn', '')} {p.get('n', '')}".strip(),
@@ -176,6 +214,7 @@ def run_league(kb, cfg, run_timestamp):
             "mv": d.get("mv", p.get("mv", 0)),
             "ap": p.get("ap", 0),
             "tfhmvt": d.get("tfhmvt", 0) or 0,
+            "mv_history": mv_history,
             "score": total, "components": comps, "meta": meta, "opponents": opps,
             "fitness": d.get("stxt", ""), "expiry_s": p.get("exs", 0),
             "team": d.get("tn", ""), "st": d.get("st", 0),
@@ -261,6 +300,17 @@ def run_league(kb, cfg, run_timestamp):
                                weights_value=WEIGHTS_VALUE,
                                top_n=LEAGUE_BOARD_TOP_N,
                                league_overpay=league_overpay)
+
+    # Pflicht-Selbstprüfung der Preiskurve (Spec 3.5): Anteil "über Erwartung"
+    # muss nahe 50% liegen, sonst ist der Fit verzerrt.
+    diag = board.get("price_curve") or {}
+    if diag.get("curve"):
+        curve_txt = "   ".join(f"{mv/1e6:.1f} Mio -> {ap:.0f} P" for mv, ap in diag["curve"][::2])
+        plausible_txt = "PLAUSIBEL" if diag["plausible"] else "⚠️ VERZERRT"
+        print(f"\n📐 Preis-Referenzkurve ({diag['n']} bewertete Spieler):")
+        print(f"   {curve_txt}")
+        print(f"   Über Erwartung: {diag['over_pct']:.0%} der Spieler   [{plausible_txt}]")
+
     status_icon = {"EIGEN": "🟢", "MITSPIELER": "👤", "MARKT": "🛒", "FREI": "⚪",
                   "UNBEKANNT": "❓"}
 
@@ -270,10 +320,11 @@ def run_league(kb, cfg, run_timestamp):
         both = " ⭐ (auch in der anderen Liste)" if e.get("in_both") else ""
         print(f"  {icon} {e['name']} ({e['team']}) Score {e[score_key]} | "
               f"MW {e['mv']:,.0f} | Ø {e['ap']} P | {e['status']}{owner_txt}{both}")
-        if e.get("residual") is not None:
-            sign = "+" if e["residual"] >= 0 else ""
+        if e.get("residual_pct") is not None:
+            sign = "+" if e["residual_abs"] >= 0 else ""
             print(f"      Ø {e['ap']} P - für {e['mv']/1e6:.0f} Mio erwartbar wären "
-                  f"{e['expected_ap']:.0f} P - {sign}{e['residual']:.0f} P ggü. Preiserwartung")
+                  f"{e['expected_ap']:.0f} P - {sign}{e['residual_abs']:.0f} P "
+                  f"({sign}{e['residual_pct']:.0f}%) ggü. Preiserwartung")
         if e["bid"]:
             tick_note = e["bid"].get("projection_note")
             print(f"      💶 Gebot {e['bid']['recommended_bid']:,.0f} € "
@@ -310,6 +361,7 @@ def run_league(kb, cfg, run_timestamp):
     actions = build_actions(compared, squad_classified)
     squad_action_items = build_squad_action_items(squad_classified)
     targets = build_targets(board)
+    mitspieler_appendix = build_mitspieler_appendix(board)
     risks = build_risks(capacity, net_value, budget, compared, bool(upcoming))
 
     report = {
@@ -326,6 +378,8 @@ def run_league(kb, cfg, run_timestamp):
         "has_fixtures": bool(upcoming),
         "league_board": board,
         "targets": targets,
+        "mitspieler_appendix": mitspieler_appendix,
+        "lineup": lineup,
         "risks": risks,
         "meta": {"season_phase": season_phase(kpis)},
         # Rückwärtskompatible Top-Level-Felder (html_report.py-Detailblöcke):
@@ -348,6 +402,9 @@ def run_league(kb, cfg, run_timestamp):
         print(f"   {insights['report']}")
         for f in insights.get("player_flags", []):
             print(f"   ⚑ {f['player_name']}: {f['flag']} ({f['confidence']}) - {f['note']}")
+        for o in insights.get("matchday_outlook", []):
+            print(f"   ⚽ {o['match']}: {o['expected_script']} "
+                  f"(begünstigt {'/'.join(o.get('beneficiary_positions', []))}) - {o['reason']}")
 
     return report
 

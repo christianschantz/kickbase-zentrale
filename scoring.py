@@ -53,44 +53,107 @@ def percentile_rank(value, sorted_values):
     return bisect_left(sorted_values, value) / len(sorted_values)
 
 
+def _median(sorted_values):
+    n = len(sorted_values)
+    mid = n // 2
+    if n % 2:
+        return sorted_values[mid]
+    return (sorted_values[mid - 1] + sorted_values[mid]) / 2
+
+
 def fit_price_curve(players):
     """
-    Lineare Regression ap = a + b·ln(mv) über alle Spieler einer Competition
-    mit ap>0 und mv>0 - Grundlage für value_residual() (s.u.). Marktwert und
-    Punkte hängen nicht linear zusammen (für die letzten Punkte zahlt man
-    exponentiell mehr), daher der Log-Fit statt eines linearen Preis/Punkte-
-    Verhältnisses (das alte `ap/(mv/1e6)` machte teure Spieler strukturell
-    unerreichbar: Pedri mit 158 P/50 Mio bekam 1.3% statt einer fairen
-    Bewertung). None bei zu wenig Datenpunkten (<20).
+    Referenzkurve über Preis-Dezile (Median-MW/Median-Punkte je Dezil) statt
+    einer globalen Log-Regression (Spec-Fix 2026-07-31, SPEC_forecast_coach_
+    scoring.md Abschnitt 3: die Regression lag am teuren Ende systematisch zu
+    tief - fast jeder teure Spieler stand "über Erwartung", statistisch
+    unmöglich bei korrektem Fit. Ursache: der Ausschluss von ap=0-Spielern
+    verengte die Stichprobe im oberen Preissegment auf reine Leistungsträger,
+    da dort viele Neuzugänge ohne Kickbase-Historie liegen - die Kurve wurde
+    von einer nach oben verzerrten Stichprobe gelernt).
+
+    `players` MUSS bereits gefiltert sein: nur Spieler mit ap>0 ODER
+    bestätigter echter Nullleistung (Historie vorhanden, aber 0 Punkte -
+    s. league_board._resolve_zero_ap_history). Reine Ligawechsler ohne
+    Historie dürfen hier NICHT rein (das war der Bug).
+
+    Vorteil ggü. Regression: robust gegen Ausreißer, kein Modellrisiko, direkt
+    als Tabelle darstellbar ("für 12 Mio bringt der Durchschnittsspieler
+    92 Punkte" - wörtlich das Dezil-Ergebnis). Liefert eine sortierte Liste
+    von 10 (median_mv, median_ap)-Stützpunkten oder None bei <30 Punkten
+    (Mindestgröße für 10 einigermaßen tragfähige Dezile).
     """
-    import math
-    pts = [(math.log(p["mv"]), p["ap"]) for p in players
-           if p.get("mv", 0) > 0 and p.get("ap", 0) > 0]
-    if len(pts) < 20:
-        return None
+    pts = sorted(((p["mv"], p["ap"]) for p in players if p.get("mv", 0) > 0),
+                key=lambda x: x[0])
     n = len(pts)
-    mx = sum(x for x, _ in pts) / n
-    my = sum(y for _, y in pts) / n
-    var = sum((x - mx) ** 2 for x, _ in pts)
-    if var == 0:
+    if n < 30:
         return None
-    b = sum((x - mx) * (y - my) for x, y in pts) / var
-    a = my - b * mx
-    return a, b
+    deciles = 10
+    size = n / deciles
+    curve = []
+    for i in range(deciles):
+        chunk = pts[int(i * size):int((i + 1) * size)] or [pts[-1]]
+        curve.append((_median(sorted(x[0] for x in chunk)),
+                      _median(sorted(x[1] for x in chunk))))
+    return curve
+
+
+def expected_points(mv, curve):
+    """
+    Erwartete Punkte für einen Marktwert laut Dezil-Kurve - linear zwischen
+    den Stützpunkten interpoliert. Außerhalb der Randdezile wird NICHT
+    extrapoliert, sondern der Randwert übernommen (Spec 3.2 Schritt 5).
+    """
+    if not curve or mv <= 0:
+        return None
+    if mv <= curve[0][0]:
+        return curve[0][1]
+    if mv >= curve[-1][0]:
+        return curve[-1][1]
+    for (mv_lo, ap_lo), (mv_hi, ap_hi) in zip(curve, curve[1:]):
+        if mv_lo <= mv <= mv_hi:
+            if mv_hi == mv_lo:
+                return ap_lo
+            t = (mv - mv_lo) / (mv_hi - mv_lo)
+            return ap_lo + t * (ap_hi - ap_lo)
+    return curve[-1][1]
 
 
 def value_residual(mv, ap, curve):
     """
-    Punkte über/unter der Preiserwartung laut fit_price_curve() - positiv =
-    Schnäppchen (liefert mehr als der Preis erwarten lässt), negativ =
-    überteuert. None wenn keine Kurve/Punktehistorie vorliegt.
+    RELATIVES Residuum ggü. der Preiserwartung (Spec-Fix 3.4):
+    (ap - erwartung) / erwartung statt absolut - +10 Punkte sind bei einem
+    2-Mio-Spieler (Erwartung ~40) stark, bei einem 30-Mio-Spieler (Erwartung
+    ~110) marginal. `ap` darf explizit 0 sein (bestätigte Nullleistung mit
+    Historie) - nur `ap=None` (keine Historie, nicht bewertbar) liefert None.
+    Liefert (relatives_residuum, erwartete_punkte) - (None, None) ohne Kurve/
+    Bewertbarkeit.
     """
-    import math
-    if not curve or mv <= 0 or not ap:
-        return None
-    a, b = curve
-    expected = a + b * math.log(mv)
-    return ap - expected
+    if not curve or mv <= 0 or ap is None:
+        return None, None
+    expected = expected_points(mv, curve)
+    if not expected:
+        return None, None
+    return (ap - expected) / expected, expected
+
+
+def price_curve_diagnostics(curve, scored_residuals):
+    """
+    Selbstprüfung (Spec 3.5, Pflicht): bei korrektem Fit sollten ~50% der
+    bewerteten Spieler über der Preiserwartung liegen. Deutliche Abweichung
+    (außerhalb 40-60%) heißt: Fit ist verzerrt, Warnung statt stillschweigend
+    weiterrechnen.
+    """
+    if not curve or not scored_residuals:
+        return {"curve": curve or [], "over_pct": None, "n": 0, "plausible": None}
+    over = sum(1 for r in scored_residuals if r > 0)
+    over_pct = over / len(scored_residuals)
+    return {
+        "curve": curve,
+        "over_pct": over_pct,
+        "n": len(scored_residuals),
+        "plausible": 0.40 <= over_pct <= 0.60,
+    }
 
 
 def form_raw(ap, ph, current_season_days):

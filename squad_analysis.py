@@ -302,7 +302,8 @@ def market_vs_squad(market_scored, squad_classified, budget, max_squad,
         bid = recommend_bid(m["mv"], m["tfhmvt"], aggressiveness=aggr,
                             league_overpay=league_overpay,
                             sporting_core=m["meta"]["sporting_core"],
-                            star=m.get("star", 0))
+                            star=m.get("star", 0),
+                            mv_history=m.get("mv_history"))
 
         sold_target = None
         is_purchase = False

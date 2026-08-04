@@ -161,6 +161,25 @@ def build_targets(board, max_per_group=5):
     return groups
 
 
+def build_mitspieler_appendix(board, max_items=4):
+    """
+    Transfermodul-Umbau (Spec 5.1): EIN Modul "Transfermarkt" statt zwei
+    getrennter - Tagesmarkt (main.py/compared) ist der Hauptteil auf der
+    Startseite, die große positionsweise Transferziel-Liste (build_targets)
+    entfällt dort und wandert in die Vertiefung. Nur ein kompakter Anhang
+    bleibt vorne: die 3-4 besten ERREICHBAREN Spieler aus fremden Kadern
+    (Top nach Qualitäts-Score, unabhängig von Position, ohne EIGEN/Duplikate).
+    """
+    seen, candidates = set(), []
+    for entries in board.get("quality", {}).values():
+        for e in entries:
+            if e["status"] == "MITSPIELER" and e["id"] not in seen:
+                seen.add(e["id"])
+                candidates.append(e)
+    candidates.sort(key=lambda x: -x["quality_score"])
+    return candidates[:max_items]
+
+
 # ---------- Risiko-Banner ----------
 
 def build_risks(capacity, net_value, budget, compared, has_fixtures):

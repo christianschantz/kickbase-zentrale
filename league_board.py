@@ -47,7 +47,8 @@ wurden) - der dortige Star-Power-Patch in main.py bleibt deshalb bestehen.
 import time
 
 from scoring import (STATUS_PENALTY, PROB_SCORE, percentile_rank,
-                     fit_price_curve, value_residual, form_raw)
+                     fit_price_curve, value_residual, form_raw,
+                     price_curve_diagnostics)
 from bid_advisor import recommend_bid, dynamic_aggressiveness
 
 POS_NAMES = {1: "TW", 2: "ABW", 3: "MF", 4: "ANG"}
@@ -56,6 +57,13 @@ POS_NAMES = {1: "TW", 2: "ABW", 3: "MF", 4: "ANG"}
 # in form_raw() ist damit 0, `ph` wird nicht gebraucht. TODO: vor Saisonstart
 # (~7./15.8.) durch echte Spieltagszahl ersetzen, s. scoring.form_raw-Docstring.
 CURRENT_SEASON_DAYS = 0
+
+# Für die Preiskurve (Spec 3.3): ap=0-Spieler nur im teuren Segment per
+# get_player_details auf echte Historie prüfen - live gemessen (2026-07-31):
+# 28-46% aller Ligaspieler haben ap=0, das für ALLE zu prüfen wäre zu teuer
+# (~450 Zusatz-Calls/Liga). Im oberen Preisdrittel sind es nur 30-55 Spieler -
+# genau dort, wo die Kurve laut Diagnose verzerrt war.
+ZERO_AP_CHECK_PERCENTILE = 0.66
 
 
 def fetch_league_universe(kb, cid, league_id, sleep=0.15):
@@ -90,6 +98,29 @@ def resolve_ownership(pid, search_by_id, own_ids):
     return "MITSPIELER", onm
 
 
+def _resolve_zero_ap_history(kb, league_id, profiles, sleep=0.2):
+    """
+    Für ap=0-Spieler im teuren Preissegment (>= ZERO_AP_CHECK_PERCENTILE):
+    get_player_details prüfen, ob `ph` echte Einsätze zeigt (hp=true) ->
+    dann ECHTE Nullleistung (gehört in den Preiskurven-Fit, s. scoring.
+    fit_price_curve-Docstring). Ohne jeden Eintrag -> Ligawechsler ohne
+    Historie, bleibt unbewertet (Residuum None, nicht "positiv").
+    """
+    mvs = sorted((p.get("mv") or 0) for p in profiles.values())
+    if not mvs:
+        return set()
+    threshold = mvs[int(len(mvs) * ZERO_AP_CHECK_PERCENTILE)]
+    candidates = [pid for pid, e in profiles.items()
+                 if (e.get("ap") or 0) == 0 and (e.get("mv") or 0) >= threshold]
+    confirmed = set()
+    for pid in candidates:
+        d = kb.get_player_details(league_id, pid)
+        time.sleep(sleep)
+        if any(entry.get("hp") for entry in (d.get("ph") or [])):
+            confirmed.add(pid)
+    return confirmed
+
+
 def _team_score_for(team_name, strength_map, matcher, fixture_mode):
     if fixture_mode == "odds":
         matched = matcher(team_name, list(strength_map.keys()))
@@ -114,20 +145,42 @@ def build_league_lists(kb, cid, league_id, own_ids, strength_map, upcoming,
 
     profiles, search_by_id = fetch_league_universe(kb, cid, league_id)
 
-    # ---- Perzentil-/Regressions-Grundlagen einmal pro Liga ----
-    curve = fit_price_curve(list(profiles.values()))
-    residuals, form_raws, momentum_raws = {}, {}, {}
+    # ---- Preiskurve: ap=0 im teuren Segment auf echte Historie prüfen ----
+    # (Spec 3.3 - reine Ligawechsler dürfen NICHT in den Fit, bestätigte
+    # Nullleistungen MÜSSEN rein, sonst bleibt die Kurve am teuren Ende
+    # verzerrt, s. scoring.fit_price_curve-Docstring).
+    confirmed_zero_ap = _resolve_zero_ap_history(kb, league_id, profiles)
+
+    fit_players = []
     for pid, e in profiles.items():
         ap, mv = e.get("ap", 0) or 0, e.get("mv", 0) or 0
-        if ap > 0 and mv > 0:
-            residuals[pid] = value_residual(mv, ap, curve)
-        form_raws[pid] = form_raw(ap, None, CURRENT_SEASON_DAYS)
+        if mv <= 0:
+            continue
+        if ap > 0:
+            fit_players.append({"mv": mv, "ap": ap})
+        elif pid in confirmed_zero_ap:
+            fit_players.append({"mv": mv, "ap": 0})
+    curve = fit_price_curve(fit_players)
+
+    # ---- Perzentil-Grundlagen einmal pro Liga ----
+    residuals, expected_pts, form_raws, momentum_raws = {}, {}, {}, {}
+    for pid, e in profiles.items():
+        ap_raw, mv = e.get("ap", 0) or 0, e.get("mv", 0) or 0
+        # ap=None (statt 0) für nicht bewertbare Ligawechsler -> value_residual
+        # liefert bewusst None ("unbekannt"), nicht "positiv" (Spec 3.3).
+        scoreable_ap = ap_raw if (ap_raw > 0 or pid in confirmed_zero_ap) else None
+        residual, expected = value_residual(mv, scoreable_ap, curve)
+        if residual is not None:
+            residuals[pid] = residual
+            expected_pts[pid] = expected
+        form_raws[pid] = form_raw(ap_raw, None, CURRENT_SEASON_DAYS)
         sdmvt = e.get("sdmvt") or 0
         momentum_raws[pid] = (sdmvt / 7) / mv if mv > 0 else 0.0
 
     sorted_residuals = sorted(residuals.values())
     sorted_form = sorted(form_raws.values())
     sorted_momentum = sorted(momentum_raws.values())
+    price_diag = price_curve_diagnostics(curve, list(residuals.values()))
 
     entries = {}
     for pid, e in profiles.items():
@@ -165,16 +218,21 @@ def build_league_lists(kb, cid, league_id, own_ids, strength_map, upcoming,
                                 sporting_core=quality_total)
 
         residual = residuals.get(pid)
-        expected_ap = (ap - residual) if residual is not None else None
+        expected_ap = expected_pts.get(pid)
+        # Absolute Punktedifferenz zusätzlich zum relativen Residuum (Spec 3.4
+        # scort relativ, aber die absolute Zahl bleibt für den Report intuitiv
+        # lesbar: "+44 P (+39%) ggü. Preiserwartung").
+        abs_diff = (ap - expected_ap) if expected_ap is not None else None
 
         entries[pid] = {
             "id": pid, "name": e.get("n", "?"), "pos": pos, "team": team_name,
             "mv": mv, "ap": ap, "sdmvt": e.get("sdmvt"), "st": st, "prob": prob,
             "quality_score": round(quality_total * 100, 1),
             "value_score": round(value_total * 100, 1),
-            "residual": round(residual, 1) if residual is not None else None,
+            "residual_pct": round(residual * 100, 1) if residual is not None else None,
+            "residual_abs": round(abs_diff, 1) if abs_diff is not None else None,
             "expected_ap": round(expected_ap, 1) if expected_ap is not None else None,
-            "has_points": ap > 0,
+            "has_points": ap > 0 or pid in confirmed_zero_ap,
             "opponents": opponents, "status": status, "owner": owner, "bid": bid,
         }
 
@@ -196,14 +254,12 @@ def build_league_lists(kb, cid, league_id, own_ids, strength_map, upcoming,
         top5_value_ids = {e["id"] for e in value_lists[pos][:5]}
         bangers.extend(e for pid, e in top5_quality.items() if pid in top5_value_ids)
 
-    # Stärkste MW-Steiger der Liga (Dashboard-Spec 2026-07-31): in der
-    # Saisonvorbereitung ist die Formkomponente 0-gewichtet (kein Spieltag),
-    # MW-Bewegung ist dann die einzige echte Signalquelle - dient als
-    # Platzhalter-Block bis Saisonstart, danach durch echte Form ablösbar.
-    climbers = {}
-    for pos in POS_NAMES.values():
-        pool = [e for e in entries.values() if e["pos"] == pos]
-        climbers[pos] = sorted(pool, key=lambda x: -(x["sdmvt"] or 0))[:top_n]
+    # Stärkste MW-Steiger der Liga (Dashboard-Spec 2026-07-31, Abschnitt 5.2
+    # verkleinert 2026-07-31: nur noch Top 5 GESAMT statt je Position - in
+    # der Saisonvorbereitung ist die Formkomponente 0-gewichtet, MW-Bewegung
+    # die einzige echte Signalquelle, aber 4x10 Karten sind für die
+    # Startseite zu viel. Einzeilige Liste statt großer Karten.
+    climbers = sorted(entries.values(), key=lambda x: -(x["sdmvt"] or 0))[:5]
 
     return {"quality": quality_lists, "value": value_lists, "bangers": bangers,
-           "climbers": climbers}
+           "climbers": climbers, "price_curve": price_diag}

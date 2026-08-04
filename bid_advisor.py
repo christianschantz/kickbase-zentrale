@@ -38,22 +38,96 @@ def dynamic_aggressiveness(score):
 
 
 def recommend_bid(mv, tfhmvt, aggressiveness=1.0, league_overpay=None,
-                  sporting_core=None, star=0.0):
+                  sporting_core=None, star=0.0, mv_history=None):
     """
     mv:       aktueller Marktwert
-    tfhmvt:   24h-MW-Änderung (aus Spieler-Detail)
+    tfhmvt:   24h-MW-Änderung (aus Spieler-Detail) - Fallback-Basis, wenn
+              keine mv_history vorliegt
     aggressiveness: 0.5 = defensiv, 1.0 = normal, 1.5 = unbedingt haben wollen
     league_overpay: gelernter Ø-Overpay der Liga in % (optional, aus Feed)
     sporting_core: sportlicher Kern (0..1, momentum-frei) - dämpft die
                    Projektions-Anhebung bei sportlich schwachen Spielern
+                   (nur im Legacy-Pfad ohne mv_history relevant)
     star: Star-Power (0..1, aus main.py) - schaltet die Star-Ausnahme-Info frei
+    mv_history: optionale chronologische MW-Historie (mv_forecast.
+                clean_mv_series()) - wenn vorhanden, läuft die Gebotslogik
+                über das regime-basierte Prognosemodell (SPEC_forecast_
+                coach_scoring.md Abschnitt 1.5, Punkt 1 der Sofort-Fixes:
+                die alte lineare Fortschreibung erzeugte bei Neueinsteigern
+                absurde Gebote - ein 3,7-Mio-Spieler mit riesigem Einstiegs-
+                sprung bekam eine ~14-Mio-Empfehlung). Ohne Historie (z.B.
+                league_board.py/B5, wo 449 Spieler/Liga eine 92-Tage-Historie
+                pro Spieler zu teuer machen) fällt es auf die alte lineare
+                Näherung zurück - dort ist das Gebot ohnehin nur Zusatzinfo,
+                die primäre Kaufentscheidung läuft über main.py/Tagesmarkt,
+                wo die Historie geladen wird.
     """
+    if mv_history is not None:
+        return _recommend_bid_forecast(mv, mv_history, aggressiveness, league_overpay, star)
+    return _recommend_bid_legacy(mv, tfhmvt, aggressiveness, league_overpay, sporting_core, star)
+
+
+def _recommend_bid_forecast(mv, mv_history, aggressiveness, league_overpay, star):
+    from mv_forecast import forecast, INITIALISIERUNG
+
+    f = forecast(mv_history)
+    regime = f["regime"]
+    upper_bound = None
+
+    if regime == INITIALISIERUNG or not f["projections"]:
+        # Spec 1.2: keine Trendprojektion - Gebot = aktueller MW + kleiner
+        # Fixaufschlag (der reguläre Puffer unten reicht dafür).
+        expected_mv = mv
+        jump_txt = f", Tagessprung {f['last_jump_pct']:+.0%}" if f.get("last_jump_pct") else ""
+        projection_note = (f"Regime INITIALISIERUNG ({f['n_points']} Datenpunkte{jump_txt}) - "
+                           "keine Trendprojektion (Neueinsteiger/Ausreißertag), "
+                           "Gebot nah am aktuellen MW")
+    else:
+        expected_mv = f["projections"][1]["basis"]
+        horizon = max(f["projections"])
+        upper_bound = f["projections"][horizon]["optimistisch"]
+        projection_note = (f"Regime {regime} ({f['n_points']} Datenpunkte, "
+                           f"Dämpfung {f['damping']}) - Basis-Prognose morgen 22:00 "
+                           f"{expected_mv:,.0f} €, Obergrenze in {horizon} Tagen "
+                           f"{upper_bound:,.0f} €")
+
+    buffer = DEFAULT_BUFFER * aggressiveness
+    if league_overpay is not None:
+        buffer = max(buffer, league_overpay * aggressiveness)
+
+    bid = int(expected_mv * (1 + buffer))
+    if upper_bound is not None:
+        # Akzeptanzkriterium: nie über der optimistischen Prognose des
+        # Halte-Horizonts bieten.
+        bid = min(bid, int(upper_bound))
+
+    margin = (bid - expected_mv) / expected_mv if expected_mv else 0
+    ref = league_overpay if league_overpay is not None else DEFAULT_BUFFER
+    win_prob = 0.05 if margin <= 0 else max(0.15, min(0.95, 0.5 + (margin - ref) * 8))
+
+    star_ceiling = None
+    if star and star >= STAR_THRESHOLD:
+        candidate = int(mv + STAR_OVERPAY_CEILING)
+        if candidate > bid:
+            star_ceiling = candidate
+
+    return {
+        "expected_mv_22h": int(expected_mv),
+        "recommended_bid": bid,
+        "buffer_pct": round(buffer * 100, 1),
+        "win_probability": round(win_prob, 2),
+        "projection_note": projection_note,
+        "star_ceiling": star_ceiling,
+        "regime": regime,
+    }
+
+
+def _recommend_bid_legacy(mv, tfhmvt, aggressiveness, league_overpay, sporting_core, star):
+    """Alte lineare Fortschreibung - nur noch für Aufrufer ohne mv_history
+    (aktuell league_board.py/B5, s. recommend_bid-Docstring)."""
     daily_pct = (tfhmvt / mv) if mv > 0 else 0
     expected_mv_22h = mv + max(tfhmvt, 0)  # fallender MW: kein Aufschlag nötig
 
-    # Projektions-Floor: bei stark & nachhaltig steigenden Spielern bieten
-    # erfahrungsgemäß alle auf die absehbare Entwicklung der nächsten Tage,
-    # nicht nur auf morgen - AUSSER der Spieler punktet sportlich schlecht.
     expected_mv = expected_mv_22h
     projection_note = None
     if daily_pct >= STRONG_RISE_PCT:
@@ -69,14 +143,10 @@ def recommend_bid(mv, tfhmvt, aggressiveness=1.0, league_overpay=None,
 
     buffer = DEFAULT_BUFFER * aggressiveness
     if league_overpay is not None:
-        # Liga zahlt im Schnitt mehr? Dann müssen wir mindestens mithalten.
         buffer = max(buffer, league_overpay * aggressiveness)
 
     bid = int(expected_mv * (1 + buffer))
 
-    # Wahrscheinlichkeits-Heuristik (grob, transparent):
-    # - Gebot unter erwarteter Basis -> praktisch chancenlos
-    # - je mehr Puffer über Liga-Overpay, desto sicherer
     margin = (bid - expected_mv) / expected_mv if expected_mv else 0
     ref = league_overpay if league_overpay is not None else DEFAULT_BUFFER
     if margin <= 0:
