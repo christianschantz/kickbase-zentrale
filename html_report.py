@@ -107,7 +107,6 @@ def _market_card(m, highlight=False):
     angles = parts[1:]
     angle_html = "".join(f"<li>{_esc(a)}</li>" for a in angles)
     bid = m.get("bid") or {}
-    tick = "✅" if m.get("affordable") else "❌"
     bid_html = ""
     if bid and "KEIN BEDARF" not in headline:
         extra = ""
@@ -116,24 +115,42 @@ def _market_card(m, highlight=False):
         if bid.get("star_ceiling"):
             extra += (f"<div class='meta'>↳ Star-Ausnahme: in Einzelfällen bis "
                       f"{_mio(bid['star_ceiling'])} belegt (nicht die Regel)</div>")
-        bid_html = (f"<div class='bid'>💶 Gebot {_mio(bid.get('recommended_bid', 0))} "
-                    f"(22h-MW ~{_mio(bid.get('expected_mv_22h', 0))}, "
-                    f"Puffer {bid.get('buffer_pct', 0)}%, "
-                    f"WK ~{bid.get('win_probability', 0):.0%}) {tick} "
-                    f"{_esc(m.get('financing', ''))}</div>{extra}")
+        if bid.get("verdict") == "nicht_bieten":
+            bid_html = (f"<div class='bid nicht-bieten'>🚫 NICHT BIETEN - "
+                        f"{_esc(bid.get('verdict_reason', 'zu teuer'))}</div>{extra}")
+        else:
+            tick = "✅" if m.get("affordable") else "❌"
+            bid_html = (f"<div class='bid'>💶 Gebot {_mio(bid.get('recommended_bid', 0))} "
+                        f"(22h-MW ~{_mio(bid.get('expected_mv_22h', 0))}, "
+                        f"Puffer {bid.get('buffer_pct', 0)}%, "
+                        f"WK ~{bid.get('win_probability', 0):.0%}) {tick} "
+                        f"{_esc(m.get('financing', ''))}</div>{extra}")
+    fair_value_html = ""
+    if m.get("fair_value") is not None and m.get("mv"):
+        diff_pct = (m["fair_value"] - m["mv"]) / m["mv"]
+        urteil = ("unterbewertet" if diff_pct > 0.05 else
+                  "überbewertet" if diff_pct < -0.05 else "fair bewertet")
+        fv_cls = "up" if diff_pct > 0.05 else ("down" if diff_pct < -0.05 else "")
+        fair_value_html = (f"<div class='fair-value {fv_cls}'>💰 Fair Value {_mio(m['fair_value'])} "
+                           f"({diff_pct:+.0%}) - {urteil}</div>")
     opponents = (f"<div class='meta'>Nächste Gegner: {_esc(', '.join(m['opponents']))}</div>"
                  if m.get("opponents") else "")
     fitness = f"<div class='meta warn'>⚠️ {_esc(m['fitness'])}</div>" if m.get("fitness") else ""
     star_badge = (f"<span class='star'>💎 Star {m['star']:.0%}</span>"
                   if m.get("banger") else "")
+    kb_color = m.get("kickbase_color")
+    color_dot = (f"<span class='kb-dot kb-{_esc(kb_color)}' "
+                f"title='Kickbase-Status: {_esc(kb_color)}'></span>" if kb_color else "")
     cls = "card market-card banger" if highlight else "card market-card"
     comps = explain(m.get("components", {}), m.get("meta")) if m.get("components") else ""
     return f"""<div class="{cls}">
   <div class="card-head">
+    {color_dot}
     <span class="name">{_esc(m['name'])} <span class="pos">({_esc(m['pos'])}, {_esc(m.get('team', ''))})</span></span>
     {star_badge}
   </div>
   <div class="stats">Score {m['score']} · MW {_mio(m['mv'])} ({m['tfhmvt']:+,.0f} €/Tag) · Ø {m['ap']} P · ⏳ {m.get('expiry_s', 0)/3600:.0f}h</div>
+  {fair_value_html}
   <div class="components">{_esc(comps)}</div>
   {opponents}
   {fitness}
@@ -295,11 +312,20 @@ def _changes_block(changes):
     return "".join(parts) or "<p class='note'>Keine nennenswerten Änderungen seit gestern.</p>"
 
 
-def _llm_block(insights):
-    """KI-Kurzreport + Flags (llm_insights.py) - läuft nur mit gesetztem
-    GEMINI_API_KEY, sonst None und der Block entfällt ganz."""
+def _llm_block(insights, status="ok"):
+    """
+    KI-Kurzreport + Flags (llm_insights.py). Spec-Fix 2026-08-05 Punkt 2.1:
+    stilles Verschwinden ist der schlechteste Fall - bei fehlendem Key ein
+    dezenter Hinweis, bei einem Fehltag (Kontingent/API-Fehler) ein
+    deutlicher Warnhinweis statt gar nichts anzuzeigen.
+    """
     if not insights:
-        return ""
+        if status == "no_key":
+            return ("<div class='llm-block llm-off'><div class='llm-label'>🤖 KI-Einordnung</div>"
+                    "<p class='note'>Nicht konfiguriert (kein GEMINI_API_KEY).</p></div>")
+        return ("<div class='llm-block llm-warn'><div class='llm-label'>🤖 KI-Einordnung</div>"
+                "<p class='note warn'>⚠️ Heute nicht verfügbar (Kontingent oder API-Fehler) - "
+                "morgen wieder versucht.</p></div>")
     flags_html = ""
     flags = insights.get("player_flags") or []
     if flags:
@@ -419,6 +445,39 @@ Punkte · Deadline 20:29 Uhr</p>
 {status_html}"""
 
 
+def _league_teams_table(teams, my_uid):
+    """
+    Modul 3 (SPEC_gebote_ki_team_KOMPLETT.md) - "das wichtigste Modul laut
+    Nutzer": Übersicht aller Liga-Manager, Prognose beruht auf der ECHTEN
+    gesetzten Aufstellung (GET managers/{uid}/squad, verifiziert), keine
+    Bestmöglich-Annahme mehr.
+    """
+    if not teams:
+        return "<p class='empty'>Keine Manager-Daten geladen.</p>"
+    rows = []
+    for i, m in enumerate(teams, 1):
+        is_me = str(m["uid"]) == str(my_uid)
+        cls = "team-row me" if is_me else "team-row"
+        rng = f"({m['prognose_range'][0]:.0f}-{m['prognose_range'][1]:.0f})"
+        eff = f"{m['effizienz']:.0f}%" if m["effizienz"] is not None else "?"
+        ks = f"{m['kaderstaerke']:.0f}" if m["kaderstaerke"] is not None else "?"
+        warn = ""
+        if m["empty_slots"]:
+            warn += f"<span class='team-warn'>⚠️ {m['empty_slots']} Slot(s) frei</span>"
+        if m["klumpenrisiko"] and m["klumpenrisiko"] >= 30:
+            warn += f"<span class='team-warn'>⚠️ {m['klumpenrisiko']:.0f}% aus {_esc(m['top_team'])}</span>"
+        rows.append(f"""<div class="{cls}">
+  <span class="team-rank">{i}</span>
+  <span class="team-name">{_esc(m['name'])}{' ⭐' if is_me else ''}</span>
+  <span class="team-stat">{m['prognose']:.0f} P <span class="team-sub">{rng}</span></span>
+  <span class="team-stat">{ks} <span class="team-sub">Kaderstärke</span></span>
+  <span class="team-stat">{eff} <span class="team-sub">Effizienz</span></span>
+  <span class="team-stat">{_esc(m['formation'] or '?')}</span>
+  {warn}
+</div>""")
+    return "<div class='team-table'>" + "".join(rows) + "</div>"
+
+
 def _league_panel(report, panel_id):
     name = _esc(report.get("name", "?"))
     if report.get("error"):
@@ -445,7 +504,7 @@ def _league_panel(report, panel_id):
   <h3 class="section-h">📋 Heute zu erledigen</h3>
   {_action_list(report.get("actions", []))}
 
-  {_llm_block(report.get("llm_insights"))}
+  {_llm_block(report.get("llm_insights"), report.get("llm_status", "ok"))}
 
   {_kpi_grid(kpis)}
 
@@ -454,6 +513,11 @@ def _league_panel(report, panel_id):
   <h3 class="section-h">🧠 Aufstellungsempfehlung</h3>
   {_lineup_block(report.get("lineup"), report.get("lineup_status"),
                 report.get("lineup_swaps"), report.get("lineup_missing"))}
+
+  <h3 class="section-h">👥 Spieltagsprognose - alle Manager</h3>
+  <p class="note">Beruht auf der ECHTEN gesetzten Aufstellung jedes Managers
+  (nicht auf einer Bestmöglich-Annahme).</p>
+  {_league_teams_table(report.get("league_teams") or [], report.get("my_uid"))}
 
   <h3 class="section-h">🛒 Transfermarkt</h3>
   {_transfermarkt_section(report)}
@@ -547,6 +611,22 @@ main { max-width: 640px; margin: 0 auto; padding: 0.75rem; }
 .meta.warn { color: #c94b4b; }
 .verdict { font-size: 0.85rem; font-weight: 600; margin-top: 0.5rem; }
 .bid { font-size: 0.82rem; margin-top: 0.3rem; }
+.bid.nicht-bieten { color: #c94b4b; font-weight: 600; }
+.fair-value { font-size: 0.82rem; margin-top: 0.3rem; font-weight: 600; }
+.fair-value.up { color: #2e9e50; }
+.fair-value.down { color: #c94b4b; }
+.team-table { display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.5rem; }
+.team-row {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.6rem;
+  padding: 0.5rem 0.7rem; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--card-bg); font-size: 0.85rem;
+}
+.team-row.me { border-left: 3px solid var(--accent); }
+.team-rank { color: var(--text-dim); width: 1.3rem; }
+.team-name { font-weight: 600; }
+.team-stat { color: var(--text); }
+.team-sub { color: var(--text-dim); font-size: 0.72rem; }
+.team-warn { flex-basis: 100%; font-size: 0.78rem; color: #c17a00; }
 .empty { color: var(--text-dim); font-size: 0.85rem; }
 #gate { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1rem; }
 .gate-box { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; width: 100%; max-width: 320px; text-align: center; }
@@ -617,6 +697,8 @@ details.deep[open] summary::after { content: "▾"; }
   background: linear-gradient(135deg, #6d5bd022, #1f6fd622);
   border: 1px solid var(--accent);
 }
+.llm-block.llm-off { background: none; border-color: var(--border); opacity: 0.7; }
+.llm-block.llm-warn { background: #f7d97a22; border-color: #c17a00; }
 .llm-label { font-size: 0.75rem; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.03em; }
 .llm-report { font-size: 0.88rem; margin-top: 0.35rem; }
 .llm-flags { margin-top: 0.6rem; display: flex; flex-direction: column; gap: 0.35rem; }

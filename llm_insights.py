@@ -85,6 +85,9 @@ momentum_ratio = (tfhmvt * 7) / sdmvt: >1 beschleunigt, 0,6-0,9 lässt nach, <0,
 sporting_core: Score-Anteil OHNE Momentum - reine sportliche Einschätzung
 team_score: Klassestärke des Vereins aus Wettquoten
 kickbase_color: die OFFIZIELLE Kickbase-Einsatzampel (blau=gesetzt, grün=wahrscheinlich Startelf, gelb=fraglich, rot=eher nicht, grau=keine Einschätzung/fällt aus). Beantwortet NUR "spielt er?", nicht "was tue ich mit ihm?" - das ist weiterhin das Verdikt. kickbase_color_conflict ist gesetzt, wenn beide auseinanderlaufen (z.B. grün, aber Verdikt VERKAUFEN) - das IMMER kommentieren, wenn vorhanden.
+self_play_conflicts: bereits ALGORITHMISCH erkannte Fälle, in denen zwei eigene Spieler direkt gegeneinander antreten (Team A vs. Team B, beide im eigenen Kader) - nicht selbst suchen, nur einordnen/kommentieren, wenn das Array nicht leer ist.
+lineup_gaps: unbesetzte Aufstellungsslots vor der 20:29-Deadline - das Dashboard zeigt das bereits als Warnung, hier nur relevant wenn du einen externen Grund/Vorschlag beisteuern kannst.
+league_comparison: eigener Rang + Prognose-Abstand zum Spitzenreiter der Liga fürs kommende Wochenende (Modul 3, bereits berechnet) - kommentiere diese Zahlen, erfinde keine eigenen.
 
 VERHALTENSREGELN:
 - Verwende die gelieferten Verdikte und Begründungen als gesetzt. Deine Aufgabe ist NICHT, sie neu zu berechnen, sondern zu prüfen, ob externe Informationen (Verletzung, Trainerwechsel, Bericht) etwas ändern.
@@ -99,34 +102,58 @@ als Hintergrund, nicht zum Referieren. Die Zahlen, Verdikte und die
 Finanzlage zeigt das Dashboard dem Nutzer bereits deterministisch an. Dein
 Beitrag ist das GEGENTEIL davon: alles, was NICHT in den Zahlen steht.
 
-Drei Analysestränge (bearbeite, was mit deinem Wissensstand möglich ist -
-KEINE Live-Web-Recherche verfügbar, verlasse dich auf deinen Trainingsstand
-und kennzeichne Unsicherheit statt zu erfinden):
-A. Pro Spieler (Kader + finanzierbare Ziele): Aufstellungsprognosen,
-   Verletzungen/Sperren, Trainerwechsel/Systemumstellung, Wechselgerüchte,
-   auffällige Leistungsbewertungen - nur wenn dir dazu etwas bekannt ist.
-B. Spieltagseinordnung: für Partien mit eigenen Spielern - nicht "wer
-   gewinnt" (das zeigen die Quoten bereits), sondern WIE: dominante
-   Ballbesitzmannschaft, tiefstehender Konter unter Druck, offener
-   Schlagabtausch. Das entscheidet, welche Positionen eher punkten.
-C. Kader-/Aufstellungsbewertung: wo widerspricht die Berichtslage den
-   Kickbase-Zahlen (falls bekannt)? Prüfe dabei auch explizit jeden Spieler
-   mit gesetztem kickbase_color_conflict - das ist ein bereits erkannter
-   Widerspruch zwischen der offiziellen Kickbase-Einsatzampel und unserem
-   Verdikt, den IMMER kurz einordnen (welche Seite ist wahrscheinlicher
-   richtig, falls einschätzbar).
+Feste Gliederung (SPEC_gebote_ki_team_KOMPLETT.md Punkt 2.2 - damit nichts
+wegfällt). Bearbeite jeden Punkt, für den du mit deinem Wissensstand etwas
+beitragen kannst - KEINE Live-Web-Recherche verfügbar, verlasse dich auf
+deinen Trainingsstand und kennzeichne Unsicherheit statt zu erfinden. Ein
+Punkt ohne Substanz entfällt im Report ersatzlos, statt ihn mit Zahlen aus
+dem Input zu füllen:
+
+1. SPIELTAGSBILD: Welche Partien mit eigenen Spielern stehen an, welche
+   Begegnungen sind für den eigenen Kader entscheidend? Nicht "wer gewinnt"
+   (das zeigen die Quoten bereits), sondern WIE: dominante Ballbesitz-
+   mannschaft, tiefstehender Konter unter Druck, offener Schlagabtausch -
+   das entscheidet, welche Positionen eher punkten (-> matchday_outlook).
+2. BAUSTELLEN IM EIGENEN KADER:
+   - Spieler mit wenig erwarteter Spielzeit (kickbase_color gelb/rot/grau)
+   - self_play_conflicts IMMER kommentieren, wenn das Array nicht leer ist:
+     zwei eigene Spieler spielen direkt gegeneinander, das ist bereits
+     algorithmisch erkannt (nicht selbst suchen) - ordne ein, wem der
+     Vorzug gebührt, falls dir dazu etwas Externes bekannt ist.
+   - lineup_gaps (unbesetzte Aufstellungsslots) nur erwähnen, wenn du dazu
+     einen konkreten externen Grund/Vorschlag hast (die Lücke selbst zeigt
+     das Dashboard bereits als Warnung).
+3. VERLETZUNGEN UND SPERREN: mit Rückkehr-Perspektive, wenn bekannt (wann
+   voraussichtlich wieder einsatzbereit) - sonst weglassen statt zu raten.
+4. TRANSFERLAGE: was an den market_targets heute wirklich relevant ist
+   (externe Gründe FÜR/GEGEN einen Kauf), was nur Rauschen wäre.
+5. MARKTDYNAMIK INSGESAMT: steigt oder fällt der Markt/die Liga insgesamt
+   gerade breit, bilden sich irgendwo Blasen (auffällig viele stark
+   steigende Spieler eines Teams/einer Position im Input)? Nur wenn aus dem
+   JSON-Kontext ein Muster erkennbar ist oder dir dazu externes Wissen
+   vorliegt - nicht spekulieren.
+6. KONKURRENZVERGLEICH: league_comparison zeigt eigenen Rang und Prognose-
+   Abstand zum Spitzenreiter der Liga fürs kommende Wochenende (Modul 3,
+   bereits berechnet) - kommentiere DIESE Zahlen (z.B. woran der Rückstand
+   liegen könnte, falls aus Kader/Flags ableitbar), erfinde keine eigenen.
+   Diese Brücke zu Modul 3 ersetzt keine eigene Berechnung.
 
 Deine Aufgabe:
 1. Trage NUR bei, was du zusätzlich zum JSON-Kontext weißt oder ableiten
    kannst - keine Zusammenfassung des Inputs.
 2. Schreibe einen Kurzreport (max. 150 Wörter, gerne kürzer wenn wenig
-   Substanz vorliegt).
+   Substanz vorliegt) - grob entlang der sechs Punkte, aber ohne
+   Pflicht-Überschriften und ohne Punkte ohne Substanz aufzufüllen.
 3. Wenn eine Einschätzung aus deiner Sicht falsch ist, sag es klar und mit
    Begründung/Quelle - aber widersprich nicht ohne externen Anlass.
 4. Fülle player_flags NUR mit Spielern, zu denen du etwas Externes beiträgst.
 5. Fülle matchday_outlook NUR, wenn du zum erwarteten Spielverlauf einer
    Partie mit eigenen Spielern etwas Konkretes beitragen kannst - sonst leer
    lassen, nicht raten.
+6. Prüfe explizit jeden Spieler mit gesetztem kickbase_color_conflict -
+   ein bereits erkannter Widerspruch zwischen offizieller Kickbase-
+   Einsatzampel und unserem Verdikt, den IMMER kurz einordnen (welche
+   Seite ist wahrscheinlicher richtig, falls einschätzbar).
 
 Ignoriere Marktziele, die als nicht finanzierbar markiert sind, komplett
 (sie sind hier bereits nicht enthalten).
@@ -284,10 +311,44 @@ def build_context(report, strength_map, fixture_mode, matcher, generated_at, sea
     ]
     market_targets.sort(key=lambda x: -x["score"])
 
+    # Punkt 2.2 Thema 2: bereits algorithmisch erkannt (coach.
+    # detect_self_play_conflicts in main.py), hier nur durchgereicht - die KI
+    # soll es einordnen, nicht selbst suchen.
+    self_play_conflicts = report.get("self_play_conflicts") or []
+
+    lineup_status = report.get("lineup_status") or {}
+    lineup_gaps = {
+        "empty_slots": lineup_status.get("empty_slots", 0),
+        "missing_positions": report.get("lineup_missing") or {},
+    } if lineup_status.get("empty_slots") else None
+
+    # Punkt 2.2 Thema 6: Brücke zu Modul 3 (league_teams, bereits sortiert
+    # nach Prognose) - eigener Rang + Abstand zum Spitzenreiter, damit die KI
+    # etwas Konkretes zum Kommentieren hat statt selbst zu rechnen.
+    league_comparison = None
+    league_teams = report.get("league_teams") or []
+    my_uid = report.get("my_uid")
+    if league_teams and my_uid is not None:
+        my_entry = next((t for t in league_teams if str(t.get("uid")) == str(my_uid)), None)
+        if my_entry:
+            my_rank = league_teams.index(my_entry) + 1
+            top_entry = league_teams[0]
+            league_comparison = {
+                "my_rank": my_rank,
+                "of_managers": len(league_teams),
+                "my_prognose": my_entry["prognose"],
+                "top_manager": top_entry["name"],
+                "top_prognose": top_entry["prognose"],
+                "gap_to_top": round(top_entry["prognose"] - my_entry["prognose"], 1),
+            }
+
     return {
         "team_financials": team_financials,
         "squad": squad_ctx,
         "market_targets": market_targets[:10],
+        "self_play_conflicts": self_play_conflicts,
+        "lineup_gaps": lineup_gaps,
+        "league_comparison": league_comparison,
     }
 
 

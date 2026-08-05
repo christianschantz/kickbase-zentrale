@@ -133,6 +133,36 @@ def expected_points(mv, curve):
     return curve[-1][1]
 
 
+def invert_price_curve(target_points, curve):
+    """
+    Inverse von expected_points() (SPEC_gebote_ki_team_KOMPLETT.md Punkt 1.2,
+    "Fair Value"): für eine bereinigte Punkteerwartung, welcher Marktwert ist
+    in dieser Liga dafür üblich? "Ein Spieler, der so viel liefert, kostet
+    hier normalerweise X." Dieselbe Dezil-Kurve, nur mv/Punkte-Achsen
+    vertauscht - piecewise-linear, an den Rändern abgeflacht statt
+    extrapoliert. Die Kurve ist als Median je Preis-Dezil nicht zwingend
+    streng monoton in ap - bei einem lokalen Ausreißer-Dezil wird trotzdem
+    der erste passende Abschnitt genommen (stabil genug für die Dezil-
+    Granularität). None ohne Kurve.
+    """
+    if not curve:
+        return None
+    aps = [p for _, p in curve]
+    lo_ap, hi_ap = min(aps), max(aps)
+    if target_points <= lo_ap:
+        return curve[aps.index(lo_ap)][0]
+    if target_points >= hi_ap:
+        return curve[aps.index(hi_ap)][0]
+    for (mv_lo, ap_lo), (mv_hi, ap_hi) in zip(curve, curve[1:]):
+        seg_lo, seg_hi = min(ap_lo, ap_hi), max(ap_lo, ap_hi)
+        if seg_lo <= target_points <= seg_hi:
+            if ap_hi == ap_lo:
+                return mv_lo
+            t = (target_points - ap_lo) / (ap_hi - ap_lo)
+            return mv_lo + t * (mv_hi - mv_lo)
+    return curve[-1][0]
+
+
 def value_residual(mv, ap, curve):
     """
     RELATIVES Residuum ggü. der Preiserwartung (Spec-Fix 3.4):

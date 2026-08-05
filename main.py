@@ -36,6 +36,7 @@ from report_builder import (compute_kpis, build_actions, build_squad_action_item
                             season_phase, save_report, load_previous_snapshot, diff_reports)
 from llm_insights import generate_insights
 import coach
+from league_teams import build_league_teams
 
 LEAGUE_BOARD_TOP_N = 10  # Top N je Position in der Liga-Bestenliste (B5)
 
@@ -143,6 +144,7 @@ def run_league(kb, cfg, run_timestamp):
     lineup_raw = kb.get_lineup(league_id)
     lineup_by_id = {str(p.get("i")): p for p in (lineup_raw.get("it", []) or [])}
     squad_classified = []
+    self_play_conflicts = []
     if squad_players:
         print(f"\n👥 KADER-STATUS ({len(squad_players)}/{max_squad} Plätze, "
               f"Budget {budget:+,.0f} €):")
@@ -172,6 +174,14 @@ def run_league(kb, cfg, run_timestamp):
             c["ep_factors"] = ep_factors
             squad_classified.append(c)
         flag_formation_risk(squad_classified)
+        # Punkt 2.2 (SPEC_gebote_ki_team_KOMPLETT.md): "eigene Spieler, die
+        # gegeneinander spielen" ist algorithmisch erkennbar - gehört der KI
+        # ausdrücklich benannt vorgesetzt statt selbst erraten.
+        self_play_conflicts = coach.detect_self_play_conflicts(squad_classified, _match_name)
+        if self_play_conflicts:
+            print("\n⚔️ EIGENE SPIELER GEGENEINANDER:")
+            for txt in self_play_conflicts:
+                print(f"   {txt}")
 
         order = {"VERKAUFEN": 0, "BEOBACHTEN": 1, "STAMM": 2, "HALTEN (Trading)": 3}
         for c in sorted(squad_classified, key=lambda x: order.get(x["verdict"], 9)):
@@ -230,6 +240,20 @@ def run_league(kb, cfg, run_timestamp):
     max_debt = DEBT_RATIO * net_value
     capacity = max_debt + budget
 
+    # Liga-Bestenliste (B5) und Overpay-Lernen VORGEZOGEN (Spec-Fix 2026-08-05
+    # Punkt 1.2): der Tagesmarkt-Loop unten braucht die volle Liga-Preiskurve
+    # für Fair Value - das Drucken der B5-Sektionen bleibt an seiner alten
+    # Stelle weiter unten, hier wird nur berechnet.
+    league_overpay = learn_league_overpay(kb.get_activities(league_id))
+    own_ids = {c["id"] for c in squad_classified}
+    board = build_league_lists(kb, cid, league_id, own_ids, strength_map,
+                               upcoming, fixture_mode, _match_name,
+                               weights_quality=WEIGHTS_QUALITY,
+                               weights_value=WEIGHTS_VALUE,
+                               top_n=LEAGUE_BOARD_TOP_N,
+                               league_overpay=league_overpay)
+    price_curve = (board.get("price_curve") or {}).get("curve")
+
     # ---------- 2) MARKT IM TEAM-KONTEXT ----------
     market = kb.get_transfer_market(league_id)
     print(f"\n🛒 TRANSFERMARKT ({len(market)} freie Spieler) - im Kader-Kontext:")
@@ -245,12 +269,22 @@ def run_league(kb, cfg, run_timestamp):
         hist_raw = kb.get_mv_history(cid, p.get("i"), league_id)
         time.sleep(0.25)
         mv_history = clean_mv_series(hist_raw)
+        team_strength = (team_strength_for(d.get("tn", ""), strength_map)
+                         if fixture_mode != "odds"
+                         else strength_map.get(_match_name(d.get("tn", ""), list(strength_map.keys())), 0.5))
+        mv_now = d.get("mv", p.get("mv", 0))
+        # Fair Value (Punkt 1.2): "was ist er sportlich wert" statt "was
+        # wird er kosten" - über die Liga-Preiskurve (price_curve, oben
+        # vorgezogen) aus Form × Einsatz × Gegner × Teamstärke.
+        fair_value_mv, bereinigte_erwartung = coach.fair_value(
+            POS_NAMES.get(p.get("pos"), "?"), mv_now, p.get("ap", 0), d.get("ph"),
+            d.get("st", 0), d.get("prob", 3), ease, team_strength, price_curve)
         market_scored.append({
             "id": str(p.get("i")),
             "name": f"{p.get('fn', '')} {p.get('n', '')}".strip(),
             "pos": POS_NAMES.get(p.get("pos"), "?"),
             "tid": str(d.get("tid", p.get("tid", "")) or ""),
-            "mv": d.get("mv", p.get("mv", 0)),
+            "mv": mv_now,
             "ap": p.get("ap", 0),
             "tfhmvt": d.get("tfhmvt", 0) or 0,
             "mv_history": mv_history,
@@ -258,9 +292,10 @@ def run_league(kb, cfg, run_timestamp):
             "fitness": d.get("stxt", ""), "expiry_s": p.get("exs", 0),
             "team": d.get("tn", ""), "st": d.get("st", 0),
             "prob": d.get("prob", 3),
-            "team_strength": team_strength_for(d.get("tn", ""), strength_map)
-                if fixture_mode != "odds"
-                else strength_map.get(_match_name(d.get("tn", ""), list(strength_map.keys())), 0.5),
+            "kickbase_color": kickbase_color(d.get("prob", 3)),
+            "team_strength": team_strength,
+            "fair_value": fair_value_mv,
+            "fair_value_bereinigt": bereinigte_erwartung,
             "reliability": profile,
             "reliable_type": reliable_type,
             "punktetyp_text": punktetyp_text,
@@ -283,7 +318,7 @@ def run_league(kb, cfg, run_timestamp):
         if star > 0.5:
             x["score"] = round(min(100, x["score"] + (star - 0.5) * 20), 1)
 
-    league_overpay = learn_league_overpay(kb.get_activities(league_id))
+    # league_overpay bereits oben berechnet (für die vorgezogene B5-Preiskurve).
     compared, free_slots = market_vs_squad(market_scored, squad_classified,
                                            budget, max_squad,
                                            league_overpay=league_overpay,
@@ -314,9 +349,14 @@ def run_league(kb, cfg, run_timestamp):
             _print_bid_extra(b)
 
     for m in compared[:6]:
-        print(f"\n• {m['name']} ({m['pos']}) Score {m['score']} "
+        color_txt = f" [{m['kickbase_color']}]" if m.get("kickbase_color") else ""
+        print(f"\n• {m['name']} ({m['pos']}){color_txt} Score {m['score']} "
               f"| MW {m['mv']:,.0f} ({m['tfhmvt']:+,.0f}/Tag) | Ø {m['ap']} P "
               f"| ⏳ {m['expiry_s']/3600:.0f}h")
+        if m.get("fair_value") is not None:
+            diff_pct = (m["fair_value"] - m["mv"]) / m["mv"] if m["mv"] else 0
+            urteil = "unterbewertet" if diff_pct > 0.05 else ("überbewertet" if diff_pct < -0.05 else "fair bewertet")
+            print(f"  💰 Fair Value {m['fair_value']:,.0f} € ({diff_pct:+.0%}) - {urteil}")
         print(f"  {explain(m['components'], m.get('meta'))}")
         if m["opponents"]:
             print(f"  Nächste Gegner: {', '.join(m['opponents'])}")
@@ -325,20 +365,17 @@ def run_league(kb, cfg, run_timestamp):
         print(f"  🎯 {m['team_verdict']}")
         if "KEIN BEDARF" not in m["team_verdict"]:
             b = m["bid"]
-            tick = "✅" if m["affordable"] else "❌ nicht finanzierbar"
-            print(f"  💶 Gebot {b['recommended_bid']:,.0f} € "
-                  f"(22h-MW ~{b['expected_mv_22h']:,.0f}, Puffer {b['buffer_pct']}%, "
-                  f"WK ~{b['win_probability']:.0%}) {tick} {m['financing']}")
+            if b.get("verdict") == "nicht_bieten":
+                print(f"  🚫 NICHT BIETEN - {b.get('verdict_reason', 'zu teuer')}")
+            else:
+                tick = "✅" if m["affordable"] else "❌ nicht finanzierbar"
+                print(f"  💶 Gebot {b['recommended_bid']:,.0f} € "
+                      f"(22h-MW ~{b['expected_mv_22h']:,.0f}, Puffer {b['buffer_pct']}%, "
+                      f"WK ~{b['win_probability']:.0%}) {tick} {m['financing']}")
             _print_bid_extra(b)
 
     # ---------- 3) BESTE SPIELER DER LIGA (B5, Zwei-Listen-Ranking) ----------
-    own_ids = {c["id"] for c in squad_classified}
-    board = build_league_lists(kb, cid, league_id, own_ids, strength_map,
-                               upcoming, fixture_mode, _match_name,
-                               weights_quality=WEIGHTS_QUALITY,
-                               weights_value=WEIGHTS_VALUE,
-                               top_n=LEAGUE_BOARD_TOP_N,
-                               league_overpay=league_overpay)
+    # board bereits oben berechnet (für die vorgezogene Preiskurve/Fair Value).
 
     # Pflicht-Selbstprüfung der Preiskurve (Spec 3.5): Anteil "über Erwartung"
     # muss nahe 50% liegen, sonst ist der Fit verzerrt.
@@ -397,6 +434,26 @@ def run_league(kb, cfg, run_timestamp):
     ranking = kb.get_ranking(league_id)
     kpis = compute_kpis(budget, squad_classified, max_squad, squad_slots,
                         capacity, net_value, max_debt, ranking, kb.user_id)
+
+    # ---------- Modul 3: Team-Analyse aller Liga-Manager ----------
+    league_teams = build_league_teams(kb, cid, league_id, ranking, strength_map,
+                                      upcoming, fixture_mode, _match_name)
+    print(f"\n👥 SPIELTAGSPROGNOSE - alle {len(league_teams)} Manager "
+          f"(echte gesetzte Elf, keine Bestmöglich-Annahme):")
+    print(f"   {'#':>2} {'Manager':<18} {'Prognose':>18} {'Kaderstärke':>12} "
+          f"{'Effizienz':>10} {'Formation':>10} {'Slots':>6}")
+    for i, m in enumerate(league_teams, 1):
+        marker = " ⭐ (ich)" if str(m["uid"]) == str(kb.user_id) else ""
+        rng = f"({m['prognose_range'][0]:.0f}-{m['prognose_range'][1]:.0f})"
+        eff = f"{m['effizienz']:.0f}%" if m["effizienz"] is not None else "?"
+        ks = f"{m['kaderstaerke']:.0f}" if m["kaderstaerke"] is not None else "?"
+        slot_txt = f"{11 - m['empty_slots']}/11"
+        print(f"   {i:>2} {m['name']:<18} {m['prognose']:>7.1f} {rng:>10} "
+              f"{ks:>12} {eff:>10} {(m['formation'] or '?'):>10} {slot_txt:>6}{marker}")
+        if m["empty_slots"]:
+            print(f"      ⚠️ {m['empty_slots']} unbesetzte Slot(s)")
+        if m["klumpenrisiko"] and m["klumpenrisiko"] >= 30:
+            print(f"      ⚠️ Klumpenrisiko: {m['klumpenrisiko']:.0f}% der Prognose aus {m['top_team']}")
     actions = build_actions(compared, squad_classified)
     squad_action_items = build_squad_action_items(squad_classified)
     targets = build_targets(board)
@@ -435,9 +492,12 @@ def run_league(kb, cfg, run_timestamp):
         "targets": targets,
         "mitspieler_appendix": mitspieler_appendix,
         "lineup": lineup_opt,
+        "league_teams": league_teams,
+        "my_uid": kb.user_id,
         "lineup_status": lineup_status,
         "lineup_swaps": swaps,
         "lineup_missing": missing_pos,
+        "self_play_conflicts": self_play_conflicts,
         "risks": risks,
         "meta": {"season_phase": season_phase(kpis)},
         # Rückwärtskompatible Top-Level-Felder (html_report.py-Detailblöcke):
@@ -457,6 +517,11 @@ def run_league(kb, cfg, run_timestamp):
                                  run_timestamp, GEMINI_API_KEY,
                                  season_start_date=season_start_date)
     report["llm_insights"] = insights
+    # Punkt 2.1 (Spec-Fix 2026-08-05): stilles Verschwinden ist der
+    # schlechteste Fall - der Report muss unterscheiden, OB die KI-Schicht
+    # gar nicht konfiguriert ist (kein Key) oder heute nur fehlgeschlagen
+    # ist (Kontingent/Fehler), statt beides gleich "nichts anzeigen".
+    report["llm_status"] = "ok" if insights else ("no_key" if not GEMINI_API_KEY else "failed")
     if insights:
         print(f"   {insights['report']}")
         for f in insights.get("player_flags", []):

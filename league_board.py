@@ -50,6 +50,7 @@ from scoring import (STATUS_PENALTY, PROB_SCORE, percentile_rank,
                      fit_price_curve, value_residual, form_raw,
                      price_curve_diagnostics)
 from bid_advisor import recommend_bid, dynamic_aggressiveness
+from coach import fair_value
 
 POS_NAMES = {1: "TW", 2: "ABW", 3: "MF", 4: "ANG"}
 
@@ -209,13 +210,20 @@ def build_league_lists(kb, cid, league_id, own_ids, strength_map, upcoming,
 
         status, owner = resolve_ownership(pid, search_by_id, own_ids)
 
+        # Fair Value (Punkt 1.2) für alle Spieler - dieselbe Liga-Preiskurve
+        # wie überall in diesem Modul, kein Zusatz-Call nötig. `ph` liegt für
+        # die volle 449-Population nicht vor (Kostengrund) - fair_value()
+        # fällt dann auf die MW-Schätzung zurück wie schon expected_points().
+        fv_mv, _ = fair_value(pos, mv, ap, None, st, prob, ease, team_score, curve)
+
         bid = None
         if status == "MARKT":
             tfhmvt_proxy = (e.get("sdmvt") or 0) / 7
             aggr = dynamic_aggressiveness(round(value_total * 100, 1))
             bid = recommend_bid(mv, tfhmvt_proxy, aggressiveness=aggr,
                                 league_overpay=league_overpay,
-                                sporting_core=quality_total)
+                                sporting_core=quality_total,
+                                fair_value_mv=fv_mv)
 
         residual = residuals.get(pid)
         expected_ap = expected_pts.get(pid)
@@ -233,6 +241,7 @@ def build_league_lists(kb, cid, league_id, own_ids, strength_map, upcoming,
             "residual_abs": round(abs_diff, 1) if abs_diff is not None else None,
             "expected_ap": round(expected_ap, 1) if expected_ap is not None else None,
             "has_points": ap > 0 or pid in confirmed_zero_ap,
+            "fair_value": fv_mv,
             "opponents": opponents, "status": status, "owner": owner, "bid": bid,
         }
 

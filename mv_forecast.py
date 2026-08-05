@@ -33,16 +33,29 @@ INSTABIL_SWING_PCT = 0.08  # Streuung (Stdabw.) der Tagesraten über dem Wert ->
 D_MIN, D_MAX = 0.55, 1.00
 
 # Szenario-Bandbreite - EMPIRISCH kalibriert per backtest_mv_forecast.py
-# (2026-07-31, 74 Spielerhistorien / 10.624 Prognose-Ist-Vergleiche über
-# beide Ligen). Die in der Spec vorgeschlagenen Werte (pess=d*0.7,
-# opt=min(1.0, d*1.15)) trafen den echten Wert nur in ~40-44% der Fälle -
-# deutlich zu eng für einen brauchbaren Korridor. pess=d*0.0 (Stillstand als
-# Pessimismus-Grenze, keine Umkehr ins Negative) + opt=min(1.5, d*2.5) trifft
-# ~78-81% - guter Kompromiss zwischen Aussagekraft und Abdeckung. Ergebnis-
-# Tabelle bei Bedarf per erneutem Backtest-Lauf reproduzierbar.
+# (2026-07-31), am 2026-08-05 KORRIGIERT (SPEC_gebote_ki_team_KOMPLETT.md
+# Punkt 1.1 - Live-Bugreport: Allgeier bekam eine 8,77-Mio-Obergrenze statt
+# der rechnerisch korrekten ~6,9 Mio).
+#
+# URSACHE (selbst verursacht): die erste Nachkalibrierung hatte OPT_CAP=1.5
+# gesetzt, um die Korridor-Trefferquote von ~40% auf ~78% zu heben. Das war
+# falsch - d ist ein DÄMPFUNGSfaktor, der über mv_{t+k} = mv_t * Π(1 + g0*d^i)
+# eingeht. Für d ≤ 1.0 fällt d^i mit wachsendem i monoton (Dämpfung wirkt wie
+# vorgesehen). Für d > 1.0 wächst d^i dagegen EXPONENTIELL mit dem Horizont -
+# aus einer täglichen +3%-Rate wurde bei 5 Tagen Horizont keine gedämpfte,
+# sondern eine sich selbst verstärkende Kurve. Das erklärt exakt den
+# gemeldeten Fehler (8,1%/Tag implizit statt der echten 3%/Tag).
+#
+# FIX: OPT_CAP zurück auf 1.0 (wie ursprünglich in der Spec) - keine
+# Szenario-Dämpfung darf 1.0 übersteigen, sonst ist die Formel für mehrtägige
+# Horizonte nicht mehr wohldefiniert. Ehrliche Trefferquote nach dem Fix
+# (backtest_mv_forecast.py, 2026-08-05, 11.134 Vergleiche): 57-64% statt der
+# vorherigen (fehlerhaften) 78-81% - schmaler, aber nie mehr explosiv. Allgeier-
+# Gegenprobe bestanden: Obergrenze in 5 Tagen jetzt 6,72 Mio (Spec-Erwartung
+# ~6,88 Mio), vorher 8,77 Mio.
 PESS_MULT = 0.0
 OPT_MULT = 2.5
-OPT_CAP = 1.5
+OPT_CAP = 1.0
 
 
 def clean_mv_series(history_response):
@@ -126,6 +139,37 @@ def _project(mv_t, g0, d, days):
     return out
 
 
+PLAUSIBILITY_FACTOR = 1.5  # Spec 1.1: Prognose verwerfen/kappen, wenn die
+                           # implizite Tagesrate mehr als das 1.5-fache der
+                           # aktuellen Tagesrate (g0) beträgt.
+
+
+def _implied_daily_rate(mv_t, mv_future, days):
+    if mv_t <= 0 or days <= 0:
+        return None
+    ratio = mv_future / mv_t
+    if ratio <= 0:
+        return None
+    return ratio ** (1 / days) - 1
+
+
+def _plausibility_clamp(mv_t, mv_future, days, g0):
+    """
+    Plausibilitätstest (Spec 1.1, zusätzlich zum OPT_CAP-Fix): fängt
+    Ausreißer ab, die trotz gedeckelter Dämpfung durch eine ungewöhnliche
+    g0-Schätzung entstehen. Kappt die implizite Tagesrate auf das
+    1.5-fache von g0 und meldet das über den zweiten Rückgabewert.
+    """
+    implied = _implied_daily_rate(mv_t, mv_future, days)
+    if implied is None or g0 == 0:
+        return mv_future, False
+    limit = abs(g0) * PLAUSIBILITY_FACTOR
+    if abs(implied) <= limit:
+        return mv_future, False
+    capped_rate = limit if implied > 0 else -limit
+    return mv_t * ((1 + capped_rate) ** days), True
+
+
 def forecast(mvs, horizon_days=None):
     """
     mvs: clean_mv_series()-Ausgabe. Liefert ein Dict mit Regime, Datenpunkt-
@@ -159,10 +203,14 @@ def forecast(mvs, horizon_days=None):
                 "optimistisch": min(OPT_CAP, d * OPT_MULT)}
     proj_by_scenario = {name: _project(mv_t, g0, dd, horizon) for name, dd in scenarios.items()}
 
+    clamped_any = False
     for day in range(1, horizon + 1):
-        basis = round(proj_by_scenario["basis"][day - 1])
-        bound_a = round(proj_by_scenario["pessimistisch"][day - 1])
-        bound_b = round(proj_by_scenario["optimistisch"][day - 1])
+        basis_raw, clamped = _plausibility_clamp(mv_t, proj_by_scenario["basis"][day - 1], day, g0)
+        clamped_any = clamped_any or clamped
+        bound_a_raw, c1 = _plausibility_clamp(mv_t, proj_by_scenario["pessimistisch"][day - 1], day, g0)
+        bound_b_raw, c2 = _plausibility_clamp(mv_t, proj_by_scenario["optimistisch"][day - 1], day, g0)
+        clamped_any = clamped_any or c1 or c2
+        basis, bound_a, bound_b = round(basis_raw), round(bound_a_raw), round(bound_b_raw)
         # Bei negativem g0 (fallender Trend) wirkt dieselbe Dämpfung auf
         # beide Szenarien in umgekehrter Richtung - "pessimistisch" kann dann
         # rechnerisch ÜBER "optimistisch" liegen. Sortieren stellt sicher,
@@ -173,6 +221,7 @@ def forecast(mvs, horizon_days=None):
         result["projections"][day] = {
             "pessimistisch": lo, "optimistisch": hi, "basis": basis,
         }
+    result["plausibility_clamped"] = clamped_any
     return result
 
 

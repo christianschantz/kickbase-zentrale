@@ -188,6 +188,33 @@ class KickbaseAPI:
         """
         return self._get(f"/v4/leagues/{league_id}/lineup") or {}
 
+    # ---------- Mitspieler (B1/Modul 3, verifiziert 2026-08-05) ----------
+    def get_manager_squad(self, league_id, uid):
+        """
+        Kompletter Kader EINES Mitspielers inklusive seiner gesetzten
+        Aufstellung. Top-Level: u, unm (Managername), uim, st, nps, it.
+        Felder je Spieler (17): pi, pn (Name - ACHTUNG nicht `n` wie sonst!),
+        tid, pos, lo (Startelf-Slot 0-10, fehlt=Bank), lst, st, stl, p, ap,
+        mv, mvt, tfhmvt, sdmvt, mvgl, iotm, pim. `tfhmvt`/`sdmvt` liegen
+        direkt bei - keine Einzel-Spielerabrufe für fremde Kader nötig.
+        """
+        return self._get(f"/v4/leagues/{league_id}/managers/{uid}/squad") or {}
+
+    def get_manager_dashboard(self, league_id, uid):
+        """
+        u, unm, st, ap, mdw (Spieltagssiege), pl (Platz), tv (Teamwert),
+        prft (Gewinn seit Start), not, ph, mds, fp, nd. `ph`/`mds`/`fp`
+        können in der Saisonvorbereitung leer/anders befüllt sein als ab
+        Spieltag 1 - Bedeutung noch nicht abschließend geklärt.
+        """
+        return self._get(f"/v4/leagues/{league_id}/managers/{uid}/dashboard") or {}
+
+    def get_manager_team_value_history(self, league_id, uid, time_frame=92):
+        """{"it": [{"ts": Tagesnummer, "tv": Teamwert}, ...]} - Teamwert-Verlauf
+        eines Mitspielers, analog zur eigenen marketValue-Historie."""
+        return self._get(f"/v4/leagues/{league_id}/managers/{uid}/teamvaluehistory",
+                         params={"timeFrame": time_frame}) or {}
+
     # ---------- Aktivitäten (für Overpay-Statistik) ----------
     def get_activities(self, league_id, max_items=200):
         """UNVERIFIZIERT: Activity-Feed mit abgeschlossenen Transfers.

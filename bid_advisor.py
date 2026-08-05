@@ -38,7 +38,7 @@ def dynamic_aggressiveness(score):
 
 
 def recommend_bid(mv, tfhmvt, aggressiveness=1.0, league_overpay=None,
-                  sporting_core=None, star=0.0, mv_history=None):
+                  sporting_core=None, star=0.0, mv_history=None, fair_value_mv=None):
     """
     mv:       aktueller Marktwert
     tfhmvt:   24h-MW-Änderung (aus Spieler-Detail) - Fallback-Basis, wenn
@@ -51,57 +51,73 @@ def recommend_bid(mv, tfhmvt, aggressiveness=1.0, league_overpay=None,
     star: Star-Power (0..1, aus main.py) - schaltet die Star-Ausnahme-Info frei
     mv_history: optionale chronologische MW-Historie (mv_forecast.
                 clean_mv_series()) - wenn vorhanden, läuft die Gebotslogik
-                über das regime-basierte Prognosemodell (SPEC_forecast_
-                coach_scoring.md Abschnitt 1.5, Punkt 1 der Sofort-Fixes:
-                die alte lineare Fortschreibung erzeugte bei Neueinsteigern
-                absurde Gebote - ein 3,7-Mio-Spieler mit riesigem Einstiegs-
-                sprung bekam eine ~14-Mio-Empfehlung). Ohne Historie (z.B.
+                über das regime-basierte Prognosemodell. Ohne Historie (z.B.
                 league_board.py/B5, wo 449 Spieler/Liga eine 92-Tage-Historie
                 pro Spieler zu teuer machen) fällt es auf die alte lineare
-                Näherung zurück - dort ist das Gebot ohnehin nur Zusatzinfo,
-                die primäre Kaufentscheidung läuft über main.py/Tagesmarkt,
-                wo die Historie geladen wird.
+                Näherung zurück.
+    fair_value_mv: optional (coach.fair_value()) - "was ist er sportlich
+                  wert". Zusammen mit der Trading-Obergrenze die zweite
+                  Bremse gegen Überzahlung (SPEC_gebote_ki_team_KOMPLETT.md
+                  Punkt 1.2 - vorher entstand das Gebot fast nur aus der
+                  MW-Prognose, die Bewertungstiefe floss nur indirekt über
+                  den Score-Aufschlag ein).
     """
     if mv_history is not None:
-        return _recommend_bid_forecast(mv, mv_history, aggressiveness, league_overpay, star)
+        return _recommend_bid_forecast(mv, mv_history, aggressiveness, league_overpay,
+                                       star, fair_value_mv)
     return _recommend_bid_legacy(mv, tfhmvt, aggressiveness, league_overpay, sporting_core, star)
 
 
-def _recommend_bid_forecast(mv, mv_history, aggressiveness, league_overpay, star):
+def _recommend_bid_forecast(mv, mv_history, aggressiveness, league_overpay, star, fair_value_mv=None):
     from mv_forecast import forecast, INITIALISIERUNG
 
     f = forecast(mv_history)
     regime = f["regime"]
-    upper_bound = None
 
     if regime == INITIALISIERUNG or not f["projections"]:
         # Spec 1.2: keine Trendprojektion - Gebot = aktueller MW + kleiner
         # Fixaufschlag (der reguläre Puffer unten reicht dafür).
-        expected_mv = mv
+        untergrenze = mv
+        trading_decke = mv
         jump_txt = f", Tagessprung {f['last_jump_pct']:+.0%}" if f.get("last_jump_pct") else ""
         projection_note = (f"Regime INITIALISIERUNG ({f['n_points']} Datenpunkte{jump_txt}) - "
                            "keine Trendprojektion (Neueinsteiger/Ausreißertag), "
                            "Gebot nah am aktuellen MW")
     else:
-        expected_mv = f["projections"][1]["basis"]
+        untergrenze = f["projections"][1]["basis"]
         horizon = max(f["projections"])
-        upper_bound = f["projections"][horizon]["optimistisch"]
+        # Spec-Fix 1.1/1.2: die Obergrenze beruht auf dem BASIS-, nicht dem
+        # optimistischen Szenario - sonst rechtfertigt ein hohes Gebot sich
+        # über den besten Fall selbst.
+        trading_decke = f["projections"][horizon]["basis"]
         projection_note = (f"Regime {regime} ({f['n_points']} Datenpunkte, "
                            f"Dämpfung {f['damping']}) - Basis-Prognose morgen 22:00 "
-                           f"{expected_mv:,.0f} €, Obergrenze in {horizon} Tagen "
-                           f"{upper_bound:,.0f} €")
+                           f"{untergrenze:,.0f} €, Trading-Obergrenze in {horizon} Tagen "
+                           f"{trading_decke:,.0f} €")
 
     buffer = DEFAULT_BUFFER * aggressiveness
     if league_overpay is not None:
         buffer = max(buffer, league_overpay * aggressiveness)
 
-    bid = int(expected_mv * (1 + buffer))
-    if upper_bound is not None:
-        # Akzeptanzkriterium: nie über der optimistischen Prognose des
-        # Halte-Horizonts bieten.
-        bid = min(bid, int(upper_bound))
+    wunsch = untergrenze * (1 + buffer)
+    # max_gebot = max(wert_decke, trading_decke) - Punkt 1.2c: entweder die
+    # sportliche Rechtfertigung (Fair Value) oder der Wiederverkaufswert
+    # (Trading) reicht, um ein Gebot zu tragen.
+    max_gebot = max(trading_decke, fair_value_mv) if fair_value_mv is not None else trading_decke
 
-    margin = (bid - expected_mv) / expected_mv if expected_mv else 0
+    verdict = "bieten"
+    reason = None
+    if wunsch > max_gebot:
+        verdict = "nicht_bieten"
+        parts = [f"Trading-Obergrenze {trading_decke:,.0f} €"]
+        if fair_value_mv is not None:
+            parts.append(f"Fair Value {fair_value_mv:,.0f} €")
+        reason = f"Wunschgebot {wunsch:,.0f} € übersteigt " + " UND ".join(parts)
+        bid = int(max_gebot)
+    else:
+        bid = int(wunsch)
+
+    margin = (bid - untergrenze) / untergrenze if untergrenze else 0
     ref = league_overpay if league_overpay is not None else DEFAULT_BUFFER
     win_prob = 0.05 if margin <= 0 else max(0.15, min(0.95, 0.5 + (margin - ref) * 8))
 
@@ -112,13 +128,17 @@ def _recommend_bid_forecast(mv, mv_history, aggressiveness, league_overpay, star
             star_ceiling = candidate
 
     return {
-        "expected_mv_22h": int(expected_mv),
+        "expected_mv_22h": int(untergrenze),
         "recommended_bid": bid,
         "buffer_pct": round(buffer * 100, 1),
         "win_probability": round(win_prob, 2),
         "projection_note": projection_note,
         "star_ceiling": star_ceiling,
         "regime": regime,
+        "verdict": verdict,
+        "verdict_reason": reason,
+        "trading_ceiling": int(trading_decke),
+        "fair_value": int(fair_value_mv) if fair_value_mv is not None else None,
     }
 
 

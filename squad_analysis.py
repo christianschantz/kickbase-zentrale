@@ -169,6 +169,27 @@ MIN_AP_GAP = 8.0
 BIG_UPSIDE_CORE = 0.65
 BIG_UPSIDE_AP_GAP = 15.0
 
+# Farbrang für den sportlichen Vergleich (Spec-Fix 2026-08-05, Punkt 1.3):
+# blau/grün = sportlich relevant (wahrscheinlich Startelf), unabhängig vom
+# Trading-Verdikt. Die alte Logik verglich nur sporting_core und ließ
+# "kein sportlicher Zwang" auch bei grünen (!) Spielern erscheinen, obwohl
+# deren Farbe bereits "wahrscheinlich Startelf" bedeutet.
+COLOR_RANK = {"blau": 4, "grün": 3, "gelb": 2, "rot": 1, "grau": 0}
+
+
+def _sportlich_vergleich(m_core, m_color, m_ap, t_core, t_color, t_ap):
+    """Dreistufiger Vergleich (Spec 1.3) - Farbe UND sporting_core/ap
+    zusammen, nicht das Trading-Verdikt. Liefert "staerker"/"vergleichbar"/
+    "schwaecher"."""
+    m_rank, t_rank = COLOR_RANK.get(m_color, 2), COLOR_RANK.get(t_color, 2)
+    better = (m_core - t_core >= MIN_CORE_GAP) or (m_ap - t_ap >= MIN_AP_GAP)
+    worse = (t_core - m_core >= MIN_CORE_GAP) or (t_ap - m_ap >= MIN_AP_GAP)
+    if m_rank >= t_rank and better:
+        return "staerker"
+    if m_rank <= t_rank and worse:
+        return "schwaecher"
+    return "vergleichbar"
+
 
 def _trading_assessment(m, squad_classified):
     """
@@ -190,27 +211,35 @@ def _trading_assessment(m, squad_classified):
 def _sporting_assessment(m, squad_classified):
     """
     Sportlicher Vergleich für einen potenziellen Startelf-Spieler: primär
-    gegen den Kader auf DERSELBEN Position (sportlicher Kern + Punkteschnitt),
-    positionsübergreifend nur bei großem Punkte-Mehrwert. Stamm- und
-    Trading-Hold-Spieler sind nicht ersetzbar, tauchen aber als "kein Zwang"
-    auf, wenn der Marktspieler trotzdem stärker wäre.
+    gegen den Kader auf DERSELBEN Position, über `_sportlich_vergleich()`
+    (Farbe + sporting_core/ap zusammen, Spec-Fix 1.3), positionsübergreifend
+    nur bei großem Punkte-Mehrwert. Stamm- und Trading-Hold-Spieler sind
+    nicht ersetzbar, tauchen aber weiterhin auf, wenn der Marktspieler
+    stärker/vergleichbar wäre - mit dreistufiger, farbaware Einordnung statt
+    binärem "kein Zwang" (das durfte bei blau/grün-Spielern nie erscheinen).
     """
     same_pos = [s for s in squad_classified if s["pos"] == m["pos"]]
     replaceable = [s for s in same_pos if s["verdict"] in ("VERKAUFEN", "BEOBACHTEN")]
     m_core = m["meta"]["sporting_core"]
+    m_color = m.get("kickbase_color")
     m_ap = m["ap"]
 
-    def is_upgrade(target):
-        return (m_core - target["meta"]["sporting_core"] >= MIN_CORE_GAP
-                or m_ap - target["ap"] >= MIN_AP_GAP)
+    def tier(target):
+        return _sportlich_vergleich(m_core, m_color, m_ap, target["meta"]["sporting_core"],
+                                    target.get("kickbase_color"), target["ap"])
 
     weakest = min(replaceable, key=lambda s: s["meta"]["sporting_core"]) if replaceable else None
-    if weakest and is_upgrade(weakest):
+    if weakest and tier(weakest) == "staerker":
         return {"kind": "same_pos_upgrade", "target": weakest}
 
     weakest_any = min(same_pos, key=lambda s: s["meta"]["sporting_core"]) if same_pos else None
-    if weakest_any and is_upgrade(weakest_any):
-        return {"kind": "same_pos_blocked", "target": weakest_any}
+    if weakest_any:
+        t = tier(weakest_any)
+        if t == "staerker":
+            return {"kind": "same_pos_blocked", "target": weakest_any}
+        if t == "vergleichbar":
+            return {"kind": "same_pos_comparable", "target": weakest_any}
+        # "schwaecher" -> gar nicht als Ersatz vorschlagen (Spec-Regel 1.3)
 
     if m_core >= BIG_UPSIDE_CORE and squad_classified:
         weakest_overall = min(squad_classified, key=lambda s: s["meta"]["sporting_core"])
@@ -278,21 +307,36 @@ def market_vs_squad(market_scored, squad_classified, budget, max_squad,
                 angles.append(f"📈 TRADING: MW-Momentum {trading['daily_pct']:+.1%}/Tag - "
                               "kein Trading-Hold im Kader zum Vergleich, Standardschwelle übertroffen")
 
+        m_color = m.get("kickbase_color")
+        color_txt = f" [{m_color}]" if m_color else ""
         if sporting["kind"] == "same_pos_upgrade":
             t = sporting["target"]
-            angles.append(f"⚽ SPORTLICH: Ø {m['ap']:.0f} vs {t['ap']:.0f} Punkte, "
+            t_color_txt = f" [{t.get('kickbase_color')}]" if t.get("kickbase_color") else ""
+            angles.append(f"⚽ Echtes Upgrade für {t['name']}{t_color_txt} ({t['pos']}): "
+                          f"Ø {m['ap']:.0f} vs {t['ap']:.0f} Punkte{color_txt}, "
                           f"sportlicher Kern {m['meta']['sporting_core']:.0%} vs "
-                          f"{t['meta']['sporting_core']:.0%} ggü. {t['name']} ({t['pos']}), "
-                          f"Team-Stärke {m['team_strength']:.0%}")
+                          f"{t['meta']['sporting_core']:.0%}, Team-Stärke {m['team_strength']:.0%}")
         elif sporting["kind"] == "cross_pos_upgrade":
             t = sporting["target"]
             angles.append(f"⚽ SPORTLICH (positionsübergreifend, großer Mehrwert): "
                           f"Ø {m['ap']:.0f} vs {t['ap']:.0f} Punkte ggü. schwächstem "
                           f"Kaderspieler {t['name']} ({t['pos']}), Team-Stärke {m['team_strength']:.0%}")
         elif sporting["kind"] == "same_pos_blocked":
+            # Spec-Fix 1.3: "kein sportlicher Zwang" darf bei blau/grün NIE
+            # erscheinen - die Farbe bedeutet bereits "sportlich relevant",
+            # unabhängig vom Trading-Verdikt.
             t = sporting["target"]
-            angles.append(f"⚽ stärker als {t['name']} ({t['pos']}), der ist aber "
-                          f"{t['verdict']} -> kein sportlicher Zwang")
+            t_color = t.get("kickbase_color")
+            if t_color in ("blau", "grün"):
+                angles.append(f"⚽ stärker als {t['name']} ({t['pos']}, {t_color} - selbst "
+                              f"sportlich relevant) - kein Ersatzbedarf, {t['name']} ist gesetzt")
+            else:
+                angles.append(f"⚽ stärker als {t['name']} ({t['pos']}), der ist aber "
+                              f"{t['verdict']} -> kein sportlicher Zwang")
+        elif sporting["kind"] == "same_pos_comparable":
+            t = sporting["target"]
+            angles.append(f"⚽ sportlich gleichwertig zu {t['name']} ({t['pos']}) - "
+                          "Kauf nur bei freiem Kaderplatz sinnvoll")
 
         note = _punktetyp_note(m)
         if note:
@@ -303,7 +347,8 @@ def market_vs_squad(market_scored, squad_classified, budget, max_squad,
                             league_overpay=league_overpay,
                             sporting_core=m["meta"]["sporting_core"],
                             star=m.get("star", 0),
-                            mv_history=m.get("mv_history"))
+                            mv_history=m.get("mv_history"),
+                            fair_value_mv=m.get("fair_value"))
 
         sold_target = None
         is_purchase = False

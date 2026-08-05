@@ -76,31 +76,41 @@ def matchday_factor(pos, team_name, matchday_outlook):
     return 1.0, None
 
 
-def expected_points(pos, ap, ph, st, prob, win_prob, team_name=None,
-                    matchday_outlook=None, current_season_days=0, mv=0):
-    """
-    Liefert (erwartete_punkte, {faktoren-aufschlüsselung}).
+# Teamfaktor-Spannweite (Spec-Ergänzung 2026-08-05, Fair Value Punkt 1.2) -
+# bewusst enger als der Gegnerfaktor: Klassestärke ist ein längerfristiges
+# Signal, soll nicht so stark ausschlagen wie die Sieg-WK der nächsten Partie.
+TEAM_FACTOR_RANGE = (0.80, 1.20)
 
-    mv: Marktwert - Basisniveau-Fallback für Spieler OHNE Kickbase-
-    Punktehistorie (ap=0 und keine ph-Einträge). Ohne diesen Fallback bekämen
-    z.B. gesetzte Stammspieler ohne Historie (Ligawechsler) "Basis 0" und
-    würden von der Aufstellungsoptimierung systematisch unterbewertet -
-    verstößt gegen den Projekt-Grundsatz "fehlende Daten ≠ schlechter
-    Spieler" (CLAUDE.md). Nutzt dieselbe MW-Schätzung wie scoring.py
-    (mv_implied_form, 0..0.7), auf eine Punkte-Größenordnung skaliert
-    (Faktor 130 ≈ Punkteschnitt eines starken Stammspielers).
+
+def _punktebasis(ap, ph, mv, current_season_days=0):
+    """
+    Gemeinsame Basisniveau-Logik für expected_points() und fair_value():
+    Form/Saisonschnitt, mit MW-Schätzung als Fallback für Spieler OHNE
+    Kickbase-Punktehistorie (ap=0 und keine ph-Einträge mit hp=true) - sonst
+    bekämen gesetzte Stammspieler ohne Historie (Ligawechsler) "Basis 0" und
+    würden systematisch unterbewertet, verstößt gegen den Projekt-Grundsatz
+    "fehlende Daten ≠ schlechter Spieler" (CLAUDE.md). Nutzt dieselbe
+    MW-Schätzung wie scoring.py (mv_implied_form, 0..0.7), auf eine
+    Punkte-Größenordnung skaliert (Faktor 130 ≈ Punkteschnitt eines starken
+    Stammspielers). Liefert (basis, has_data).
     """
     from scoring import mv_implied_form
-
-    # bool(ph) allein reicht nicht - ph kann nur zukünftige, noch nicht
-    # gespielte Spieltage enthalten (hp=false); erst ein Eintrag mit hp=true
-    # ist ein echter Beleg gespielter Historie.
     has_data = bool(ap) or any(e.get("hp") and e.get("p") is not None for e in (ph or []))
     if has_data:
-        basis = form_raw(ap or 0, ph, current_season_days)
-    else:
-        basis = mv_implied_form(mv or 0) * 130
+        return form_raw(ap or 0, ph, current_season_days), True
+    return mv_implied_form(mv or 0) * 130, False
 
+
+def team_factor(team_strength):
+    lo, hi = TEAM_FACTOR_RANGE
+    team_strength = 0.5 if team_strength is None else max(0.0, min(1.0, team_strength))
+    return lo + (hi - lo) * team_strength
+
+
+def expected_points(pos, ap, ph, st, prob, win_prob, team_name=None,
+                    matchday_outlook=None, current_season_days=0, mv=0):
+    """Liefert (erwartete_punkte, {faktoren-aufschlüsselung})."""
+    basis, has_data = _punktebasis(ap, ph, mv, current_season_days)
     einsatz = STATUS_PENALTY.get(st, 0.5) * PROB_SCORE.get(prob, 0.5)
     gegner = opponent_factor(pos, win_prob)
     verlauf, verlauf_grund = matchday_factor(pos, team_name, matchday_outlook)
@@ -112,6 +122,56 @@ def expected_points(pos, ap, ph, st, prob, win_prob, team_name=None,
         "gegnerfaktor": round(gegner, 2), "spielverlaufsfaktor": round(verlauf, 2),
         "spielverlauf_grund": verlauf_grund,
     }
+
+
+def fair_value(pos, mv, ap, ph, st, prob, win_prob, team_strength, curve,
+               current_season_days=0):
+    """
+    "Was ist der Spieler wert" statt "was wird er kosten" (SPEC_gebote_ki_
+    team_KOMPLETT.md Punkt 1.2 - die bisherige Gebotslogik leitete den Preis
+    fast nur aus der MW-Prognose ab, die ganze Bewertungstiefe floss nur
+    indirekt über den Score in den Aufschlag ein).
+
+    **Bugfix (2026-08-05, beim ersten echten Testlauf gefunden)**: die erste
+    Fassung multiplizierte Einsatz/Gegner/Team VOR der Kurven-Inversion auf
+    die Punktebasis - das vermischt zwei verschiedene Skalen. Die Preiskurve
+    (scoring.fit_price_curve) ist auf den ROHEN Saisonschnitt `ap` kalibriert
+    (Median-MW je Punkte-Dezil über die ganze Liga-Population). Der
+    Einsatzfaktor (STATUS_PENALTY x PROB_SCORE) ist aber ein reiner
+    Abwärts-Malus OHNE Gegenstück >1.0 (selbst ein fitter "blau"-Spieler
+    erreicht bestenfalls 1.0) - im Schnitt über die Population liegt er klar
+    unter 1.0. Wurde er VOR der Inversion mit reingerechnet, landete die
+    Punktebasis fast immer unterhalb der niedrigsten Dezil-Stützstelle und
+    lief in den Kurven-Boden - live beobachtet: ein Spieler mit Ø 89 Punkten
+    und 100% Preis-Leistung bekam denselben Fair-Value-Bodenwert wie zwei
+    Ligawechsler ohne jede Punktehistorie. Fix: die Kurve wird auf der
+    ROHEN Punktebasis invertiert (dieselbe Skala, auf der sie gefittet wurde
+    - "was kostet ein Spieler mit diesem Saisonschnitt üblicherweise"), erst
+    DANACH wird der resultierende Marktwert mit Einsatz x Gegner x Team
+    skaliert (linear auf den MW-Betrag statt nonlinear durch die Kurve
+    verstärkt/verzerrt zu werden). Gegner/Team sind bei win_prob=0.5 bzw.
+    team_strength=0.5 symmetrisch auf 1.0 zentriert (s. opponent_factor/
+    team_factor) - nur der Einsatzfaktor bleibt bewusst ein reiner Malus,
+    das ist inhaltlich richtig (ein angeschlagener Spieler ist gerade JETZT
+    weniger wert als sein Saisonschnitt nahelegt).
+
+    Liefert (fair_value_mv, punktebasis_vor_kontextanpassung) - (None, None)
+    ohne Kurve oder ohne Kurventreffer.
+    """
+    if not curve:
+        return None, None
+    basis, _ = _punktebasis(ap, ph, mv, current_season_days)
+
+    from scoring import invert_price_curve
+    base_fv = invert_price_curve(basis, curve)
+    if base_fv is None:
+        return None, None
+
+    einsatz = STATUS_PENALTY.get(st, 0.5) * PROB_SCORE.get(prob, 0.5)
+    gegner = opponent_factor(pos, win_prob)
+    team = team_factor(team_strength)
+    fv = base_fv * einsatz * gegner * team
+    return round(fv), round(basis, 1)
 
 
 def _best_eleven_for_formation(players_by_pos, formation):
@@ -209,6 +269,45 @@ def suggest_swaps(status, max_suggestions=3):
                                "in": best, "diff": round(diff, 1)})
     suggestions.sort(key=lambda s: -s["diff"])
     return suggestions[:max_suggestions]
+
+
+def detect_self_play_conflicts(squad, matcher):
+    """
+    SPEC_gebote_ki_team_KOMPLETT.md Punkt 2.2: "eigene Spieler, die
+    gegeneinander spielen" - hier ist eine Aufstellungsentscheidung nötig,
+    weil sich die Ergebnisse gegenseitig ausschließen, und das ist laut Spec
+    "algorithmisch erkennbar" statt der KI überlassen zu werden. Vergleicht
+    den nächsten Gegner jedes Kaderspielers (aus der bereits vorhandenen
+    Fixture-/Quoten-Zuordnung `opponents`, mit demselben Fuzzy-Matcher, der
+    im Projekt überall sonst für Teamnamen-Abgleich genutzt wird) gegen die
+    eigenen Teamnamen der übrigen Kaderspieler - kein neuer API-Call nötig.
+    Heuristik: die Fixture-Quelle liefert Anzeige-Strings ("Team (58% Sieg-
+    WK)"), der Teamname selbst kommt aus einer anderen Quelle (Kickbase
+    players/{id}.tn) - beide können leicht abweichen, deshalb Fuzzy-Match
+    statt exaktem Stringvergleich.
+    """
+    teams = {s["team"]: s for s in squad if s.get("team")}
+    team_names = list(teams.keys())
+    seen, conflicts = set(), []
+    for s in squad:
+        if not s.get("team") or not s.get("opponents"):
+            continue
+        opp_clean = s["opponents"][0].split(" (")[0].strip()
+        matched = matcher(opp_clean, team_names)
+        if not matched or matched == s["team"]:
+            continue
+        other = teams.get(matched)
+        if not other or other["name"] == s["name"]:
+            continue
+        pair = tuple(sorted((s["name"], other["name"])))
+        if pair in seen:
+            continue
+        seen.add(pair)
+        conflicts.append(
+            f"{s['name']} ({s['team']}) trifft direkt auf {other['name']} ({other['team']}) "
+            f"- beide eigene Spieler, nur einer kann von einem Sieg profitieren"
+        )
+    return conflicts
 
 
 def missing_positions(status, lineup_result):
