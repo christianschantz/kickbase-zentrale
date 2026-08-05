@@ -304,8 +304,10 @@ def build_league_lists(kb, cid, league_id, own_ids, strength_map, upcoming,
     quality_lists, value_lists = {}, {}
     for pos in POS_NAMES.values():
         pool = [e for e in entries.values() if e["pos"] == pos]
-        quality_lists[pos] = sorted(pool, key=lambda x: -x["quality_score"])[:top_n]
-        value_lists[pos] = sorted(pool, key=lambda x: -x["value_score"])[:top_n]
+        # SPEC_lernzyklus.md 5.2c: eindeutiger Zweitschlüssel (Spieler-ID) bei
+        # Punktgleichheit - sonst ist die Reihenfolge zufällig.
+        quality_lists[pos] = sorted(pool, key=lambda x: (-x["quality_score"], x["id"]))[:top_n]
+        value_lists[pos] = sorted(pool, key=lambda x: (-x["value_score"], x["id"]))[:top_n]
         a_ids = {e["id"] for e in quality_lists[pos]}
         b_ids = {e["id"] for e in value_lists[pos]}
         for e in quality_lists[pos]:
@@ -324,7 +326,7 @@ def build_league_lists(kb, cid, league_id, own_ids, strength_map, upcoming,
     # der Saisonvorbereitung ist die Formkomponente 0-gewichtet, MW-Bewegung
     # die einzige echte Signalquelle, aber 4x10 Karten sind für die
     # Startseite zu viel. Einzeilige Liste statt großer Karten.
-    climbers = sorted(entries.values(), key=lambda x: -(x["sdmvt"] or 0))[:5]
+    climbers = sorted(entries.values(), key=lambda x: (-(x["sdmvt"] or 0), x["id"]))[:5]
 
     return {"quality": quality_lists, "value": value_lists, "bangers": bangers,
            "climbers": climbers, "price_curve": price_diag,

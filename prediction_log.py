@@ -27,11 +27,33 @@ briefing.yml`, das `data/` inkl. dieser neuen Unterordner zurückcommittet):
   (Modellgüte, Korridor-Trefferquote) bereits vollständig ab.
 """
 
+import glob
 import json
 import os
+import re
 
 PRED_DIR = os.path.join("data", "predictions")
 ACTUALS_DIR = os.path.join("data", "actuals")
+WEIGHTS_DIR = os.path.join("data", "weights")
+
+
+def active_weights_version():
+    """
+    SPEC_lernzyklus.md 1.1: "ohne Versionierung lässt sich später nicht
+    unterscheiden, ob eine Verbesserung von der Anpassung kam oder vom
+    Zufall" - jede Prognosedatei referenziert die zum Zeitpunkt aktive
+    Gewichtsversion (höchste `data/weights/v<N>.json`). `coach.py` lädt
+    diese Werte noch NICHT dynamisch (v1 ist 1:1 identisch zu den
+    hartkodierten Modulkonstanten, s. `data/weights/v1.json`) - das lohnt
+    sich erst, sobald Stufe 2 (Regression ab Spieltag 5) eine echte v2
+    liefert. Liefert 0, wenn keine Datei existiert (kein Absturz).
+    """
+    versions = []
+    for path in glob.glob(os.path.join(WEIGHTS_DIR, "v*.json")):
+        m = re.match(r"v(\d+)\.json$", os.path.basename(path))
+        if m:
+            versions.append(int(m.group(1)))
+    return max(versions) if versions else 0
 
 
 def _slug(league_name):
@@ -69,6 +91,7 @@ def save_matchday_prediction(league_name, matchday, kickoff_first, league_teams,
         "kickoff_first": kickoff_first.isoformat(),
         "generated_at": generated_at.isoformat(),
         "anchor_expected": anchor_expected,
+        "weights_version": active_weights_version(),
         "managers": managers,
     }
     with open(path, "w", encoding="utf-8") as f:
@@ -131,6 +154,95 @@ def save_matchday_actuals(league_name, matchday, ranking, generated_at):
     return path
 
 
+def _biggest_factor_change(prev_lineup, curr_xi, total_delta):
+    """
+    SPEC_lernzyklus.md 5.3: sucht je Manager die Ursache mit dem größten
+    Anteil am Prognose-Delta - liefert einen Klartext-Grund ("Sieg-WK-Faktor
+    0.44 → 0.52 bei Robin04 (+5.2 P)") statt nur die Differenz zu zeigen.
+
+    **Arbeitet auf PUNKT-Deltas je Spieler, nicht auf rohen Faktorwerten**
+    (Bugfix, live beim ersten echten Testlauf gefunden): die erste Fassung
+    suchte die größte FAKTOR-Wert-Änderung unabhängig von ihrem tatsächlichen
+    Punkte-Einfluss - live beobachtet, PaulBowas Team fiel um 40 Punkte,
+    gemeldete "Ursache" war eine Faktoränderung, die den Punktwert des
+    betroffenen Spielers nur um ~2 veränderte. Jetzt: pro Spieler der echte
+    Punkte-Delta (`expected_points` neu − alt), dominiert kein einzelner
+    Spieler mindestens die Hälfte des Team-Deltas, wird das EHRLICH als
+    "verteilt, keine dominante Einzelursache" gemeldet statt eine
+    irreführend kleine Teilursache als DIE Erklärung auszugeben.
+    """
+    prev_by_pid = {p["pid"]: p for p in prev_lineup}
+    curr_by_id = {p["id"]: p for p in curr_xi}
+    left = [prev_by_pid[pid]["name"] for pid in prev_by_pid if pid not in curr_by_id]
+    joined = [p["name"] for p in curr_xi if p["id"] not in prev_by_pid]
+    if left or joined:
+        parts = [f"{n} neu in der Startelf" for n in joined] + \
+                [f"{n} nicht mehr in der Startelf" for n in left]
+        return parts[0] if len(parts) == 1 else f"{len(parts)} Startelf-Wechsel ({parts[0]}, ...)"
+
+    labels = {"gegnerfaktor": "Sieg-WK-Faktor", "einsatzfaktor": "Statusfarbe",
+             "basis": "Punktebasis", "formfaktor": "Form"}
+    player_deltas = []
+    for p in curr_xi:
+        prev = prev_by_pid.get(p["id"])
+        if not prev:
+            continue
+        pts_delta = p["expected_points"] - prev.get("expected", p["expected_points"])
+        if abs(pts_delta) < 0.5:
+            continue
+        pf, cf = prev.get("factors", {}), p.get("ep_factors", {})
+        biggest = None
+        for key, label in labels.items():
+            pv, cv = pf.get(key), cf.get(key)
+            if pv is None or cv is None or pv == cv:
+                continue
+            d = abs(cv - pv)
+            if biggest is None or d > biggest[0]:
+                biggest = (d, f"{label} {pv} → {cv}")
+        player_deltas.append((pts_delta, p["name"], biggest[1] if biggest else "Faktor unklar"))
+
+    if not player_deltas:
+        return None
+    player_deltas.sort(key=lambda x: -abs(x[0]))
+    top_pts, top_name, top_factor = player_deltas[0]
+    if total_delta and abs(top_pts) >= 0.5 * abs(total_delta):
+        return f"{top_factor} bei {top_name} ({top_pts:+.1f} P)"
+    return f"verteilt auf {len(player_deltas)} Spieler, keine dominante Einzelursache"
+
+
+def diff_predictions(previous, current_league_teams, threshold=5):
+    """
+    SPEC_lernzyklus.md 5.3 "Änderungsnachweis statt Vertrauen": vergleicht
+    die aktuellen Manager-Prognosen gegen die zuletzt gespeicherten (VOR dem
+    Überschreiben durch `save_matchday_prediction()` geladen, s. main.py).
+    Änderungen unter `threshold` Punkten gelten als Rauschen und werden
+    nicht einzeln aufgeführt. Für jede nennenswerte Änderung wird versucht,
+    die dominante Ursache zu benennen (`_biggest_factor_change`) - bleibt
+    keine dominante Ursache auffindbar, wird das EXPLIZIT gemeldet statt die
+    Instabilität zu verstecken. None ohne Vorlauf (erster Lauf des Tages/
+    der Saison, kein Fehler).
+    """
+    if not previous:
+        return None
+    prev_by_uid = {str(m["uid"]): m for m in previous.get("managers", [])}
+    changes, unexplained = [], []
+    for m in current_league_teams:
+        prev = prev_by_uid.get(str(m["uid"]))
+        if not prev:
+            continue
+        delta = m["prognose"] - prev["predicted"]
+        if abs(delta) < threshold:
+            continue
+        cause = _biggest_factor_change(prev.get("lineup", []), m["xi"], delta)
+        changes.append({"name": m["name"], "from": prev["predicted"],
+                        "to": m["prognose"], "delta": round(delta, 1), "cause": cause})
+        if not cause or "keine dominante" in cause:
+            unexplained.append(m["name"])
+    if not changes:
+        return {"changes": [], "unexplained": []}
+    return {"changes": changes, "unexplained": unexplained}
+
+
 def deviation_report(league_name, matchday):
     """
     SPEC 4.4 Auswertung - vergleicht Datei A (Prognose) gegen Datei B (Ist)
@@ -162,8 +274,40 @@ def deviation_report(league_name, matchday):
                     "actual": actual, "diff": round(diff, 1)})
     if not rows:
         return None
+    rows, anomalies = detect_anomalies(rows)
     return {
         "matchday": matchday, "rows": rows,
         "mean_error_pct": round(sum(errors) / len(errors) * 100, 1) if errors else None,
         "in_corridor": in_corridor, "n": len(rows),
+        "anomalies": anomalies,
     }
+
+
+def detect_anomalies(rows):
+    """
+    SPEC_lernzyklus.md Abschnitt 3, Stufe A (statistisch, keine KI nötig):
+    eine Beobachtung gilt als Ausreißer, wenn ihr Fehler mehr als das
+    DREIFACHE des typischen Fehlers beträgt - robust über den Median
+    (nicht das Mittel, das selbst von Ausreißern verzerrt würde). Markiert
+    NUR (`row["anomaly"] = True`), löscht nichts - Stufe B (KI-Klassifikation
+    einmalig/systematisch/unklar, s. SPEC Abschnitt 3) ist bewusst NICHT
+    hier gebaut: sie bräuchte reale, klassifizierbare Abweichungsfälle, die
+    es vor dem ersten echten Spieltag naturgemäß nicht gibt. **Scope-
+    Hinweis**: arbeitet auf der Manager-Ebene (s. Modul-Docstring) - eine
+    Spieler-Ebene-Erkennung (wie im Spec-Beispiel "pid 4034") bräuchte die
+    hier bewusst nicht gebaute Player-Level-Ist-Erfassung.
+    """
+    errors = sorted(abs(r["diff"]) for r in rows)
+    n = len(errors)
+    if n < 3:
+        for r in rows:
+            r["anomaly"] = False
+        return rows, []
+    median_error = errors[n // 2] if n % 2 else (errors[n // 2 - 1] + errors[n // 2]) / 2
+    threshold = 3 * median_error if median_error else None
+    anomalies = []
+    for r in rows:
+        r["anomaly"] = bool(threshold and abs(r["diff"]) > threshold)
+        if r["anomaly"]:
+            anomalies.append(r)
+    return rows, anomalies

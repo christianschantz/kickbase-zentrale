@@ -41,7 +41,8 @@ from report_builder import (compute_kpis, build_actions, build_squad_action_item
 from llm_insights import generate_insights
 import coach
 from league_teams import build_league_teams
-from prediction_log import save_matchday_prediction, save_daily_bids, save_matchday_actuals, deviation_report
+from prediction_log import (save_matchday_prediction, save_daily_bids, save_matchday_actuals,
+                            deviation_report, load_matchday_prediction, diff_predictions)
 
 LEAGUE_BOARD_TOP_N = 10  # Top N je Position in der Liga-Bestenliste (B5)
 
@@ -233,7 +234,7 @@ def run_league(kb, cfg, run_timestamp):
         flag_formation_risk(squad_classified)
 
         order = {"VERKAUFEN": 0, "BEOBACHTEN": 1, "STAMM": 2, "HALTEN (Trading)": 3}
-        for c in sorted(squad_classified, key=lambda x: order.get(x["verdict"], 9)):
+        for c in sorted(squad_classified, key=lambda x: (order.get(x["verdict"], 9), x["id"])):
             icon = {"VERKAUFEN": "🔻", "BEOBACHTEN": "👀",
                     "STAMM": "⭐", "HALTEN (Trading)": "📈"}[c["verdict"]]
             color_txt = f" [{c['kickbase_color']}]" if c["kickbase_color"] else ""
@@ -667,11 +668,20 @@ def run_league(kb, cfg, run_timestamp):
     # echten zweiten Spieltag).
     matchday = 1
     kickoff_first = season_start_date  # None für La Liga (kein Datumsfeld verfügbar)
+    # SPEC_lernzyklus.md 5.3: die VORHERIGE Prognose vor dem Überschreiben
+    # laden - Grundlage für den Änderungsnachweis unten.
+    previous_pred = load_matchday_prediction(name, matchday)
     pred_path = save_matchday_prediction(name, matchday, kickoff_first, league_teams,
                                          calibration["anchor"] if calibration else None,
                                          run_timestamp)
     if pred_path:
         print(f"\n💾 Spieltagsprognose protokolliert: {pred_path}")
+    pred_diff = diff_predictions(previous_pred, league_teams)
+    if pred_diff and (pred_diff["changes"] or pred_diff["unexplained"]):
+        print(f"\n📈 PROGNOSE-ÄNDERUNGEN seit letztem Lauf:")
+        for c in pred_diff["changes"]:
+            print(f"   {c['name']}: {c['from']:.0f} → {c['to']:.0f} ({c['delta']:+.0f})")
+            print(f"      Ursache: {c['cause'] or '⚠️ nicht erklärbar'}")
     bid_entries = [
         {"player": m["name"], "pos": m["pos"], "team": m.get("team"),
          "mv_now": m.get("mv"), "recommended_bid": m["bid"].get("recommended_bid"),
@@ -688,9 +698,10 @@ def run_league(kb, cfg, run_timestamp):
         print(f"\n📊 ABWEICHUNGSZERLEGUNG · Spieltag {matchday}: "
               f"Ø Fehler {deviation['mean_error_pct']}% · "
               f"{deviation['in_corridor']}/{deviation['n']} Manager im Prognosekorridor")
-        for r in sorted(deviation["rows"], key=lambda x: -abs(x["diff"]))[:5]:
+        for r in sorted(deviation["rows"], key=lambda x: (-abs(x["diff"]), x["uid"]))[:5]:
+            flag = " ⚠️ Ausreißer (>3× Median-Fehler)" if r.get("anomaly") else ""
             print(f"   {r['name']}: Prognose {r['predicted']:.0f} · tatsächlich "
-                  f"{r['actual']:.0f} · Differenz {r['diff']:+.0f}")
+                  f"{r['actual']:.0f} · Differenz {r['diff']:+.0f}{flag}")
 
     actions = build_actions(compared, squad_classified)
     squad_action_items = build_squad_action_items(squad_classified)
@@ -741,6 +752,7 @@ def run_league(kb, cfg, run_timestamp):
         "self_play_conflicts": self_play_conflicts,
         "calibration": calibration,
         "deviation_report": deviation,
+        "prediction_diff": pred_diff,
         "fair_value_ok": fair_value_ok,
         "risks": risks,
         "meta": {"season_phase": season_phase(kpis)},
@@ -757,15 +769,19 @@ def run_league(kb, cfg, run_timestamp):
     # ---------- 5) KI-EINORDNUNG (optional, überspringt sich selbst ohne Key) ----------
     if GEMINI_API_KEY:
         print("\n🤖 KI-Einordnung (Gemini)...")
-    insights = generate_insights(report, strength_map, fixture_mode, _match_name,
-                                 run_timestamp, GEMINI_API_KEY,
-                                 season_start_date=season_start_date)
+    insights, llm_diag = generate_insights(report, strength_map, fixture_mode, _match_name,
+                                           run_timestamp, GEMINI_API_KEY,
+                                           season_start_date=season_start_date)
     report["llm_insights"] = insights
     # Punkt 2.1 (Spec-Fix 2026-08-05): stilles Verschwinden ist der
     # schlechteste Fall - der Report muss unterscheiden, OB die KI-Schicht
     # gar nicht konfiguriert ist (kein Key) oder heute nur fehlgeschlagen
     # ist (Kontingent/Fehler), statt beides gleich "nichts anzeigen".
-    report["llm_status"] = "ok" if insights else ("no_key" if not GEMINI_API_KEY else "failed")
+    # SPEC_lernzyklus.md 6.1/6.4: llm_diag trägt jetzt IMMER die konkrete
+    # Ursache (Statuscode, Fehlertext, quota_kind, Modell/Token) statt eines
+    # pauschalen "failed".
+    report["llm_status"] = "ok" if insights else llm_diag.get("status", "failed")
+    report["llm_diag"] = llm_diag
     if insights:
         print(f"   {insights['report']}")
         for f in insights.get("player_flags", []):

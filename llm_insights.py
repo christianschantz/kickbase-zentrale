@@ -38,6 +38,7 @@ bekannter Quellen (Aufstellungsportale etc., größerer Umbau, nicht in dieser
 """
 
 import json
+import os
 from datetime import date, timezone
 
 import requests
@@ -372,31 +373,108 @@ def _list_models(api_key):
     return out
 
 
+# Nicht-Chat-Modelle, die "flash" im Namen tragen können und die generische
+# Fallback-Suche unten sonst fälschlich träfen (SPEC_lernzyklus.md 6.2 -
+# live beobachtet: das Modellangebot enthält inzwischen TTS-, Bild-, Robotik-
+# und Recherche-Varianten, die alle "-preview" tragen und schon über den
+# EXCLUDE_MARKERS-Check rausfallen, hier zusätzlich als Verteidigungslinie).
+EXCLUDE_MARKERS = ("preview", "-tts", "-image", "computer-use", "robotics",
+                  "lyria", "nano-banana", "deep-research", "antigravity")
+
+
 def _pick_model(available):
-    # Preview-Modelle explizit ausschließen (SPEC v2 Abschnitt 7).
-    stable = [n for n in available if "preview" not in n.lower()]
+    """
+    SPEC_lernzyklus.md 6.2: der Verdacht war ein automatisch gewähltes
+    Vorschaumodell (`gemini-3-flash-preview`) mit engerem Kontingent als die
+    stabilen Produktivmodelle. Live gegengeprüft (2026-08-05, echte
+    Modell-Liste mit 42 Einträgen inkl. gemini-3.x/3.5/3.6-Generationen):
+    `_pick_model()` wählt korrekt `gemini-flash-latest` (kein Preview-Name),
+    der Bug reproduzierte sich mit dem aktuellen Code NICHT - trotzdem
+    zusätzliche Härtung, weil das Modellangebot sich sichtbar schnell
+    weiterentwickelt (neue Generationen, neue Nicht-Chat-Varianten).
+    """
+    stable = [n for n in available if not any(x in n.lower() for x in EXCLUDE_MARKERS)]
     for want in PREFERRED:
         for name in stable:
             if name.startswith(want):
                 return name
     for name in stable:
-        if "flash" in name and "image" not in name:
+        if "flash" in name:
             return name
     return stable[0] if stable else None
 
 
-def _call_gemini(prompt, api_key, model, retries=1):
+QUOTA_STATE_PATH = os.path.join("data", "llm_factors", "quota_state.json")
+
+# Modul-globaler Merker (SPEC_lernzyklus.md 6.3 "Tageslimit merken") - beide
+# Ligen laufen im selben main.py-Prozess nacheinander; wird RPD bei Liga 1
+# erkannt, braucht Liga 2 es gar nicht erst zu versuchen (spart Kontingent,
+# das laut Spec beim Reset ohnehin erst um ~09:00 MESZ wieder verfügbar ist).
+_rpd_exhausted_today = False
+
+
+def _classify_429(error_text):
     """
-    Ein Retry bei 5xx (Live-Test zeigte wiederholte, transiente 503 Service
-    Unavailable - Google-seitig, kein Fehler in unserer Anfrage) UND bei 400
-    (im Testlauf mehrfach beobachtet: derselbe Payload scheitert mal mit
-    "Request contains an invalid argument" und geht beim nächsten Versuch
-    unverändert durch - offenbar ebenfalls transient Google-seitig, keine
-    erkennbare Payload-Ursache). Andere 4xx (401/403/404 etc.) werden NICHT
-    wiederholt - das sind echte Konfigurationsfehler, die beim Retry genauso
-    scheitern würden.
+    SPEC 6.2: 429 hat drei grundverschiedene Auslöser mit grundverschiedener
+    Behandlung - der Fehlertext aus dem Antwortkörper muss ausgewertet
+    werden, der Statuscode allein reicht nicht.
     """
+    t = (error_text or "").lower()
+    if "quota" in t and ("day" in t or "daily" in t or "perday" in t):
+        return "rpd"
+    if "token" in t:
+        return "tpm"
+    if "rate limit" in t or "per minute" in t or "requests" in t:
+        return "rpm"
+    return "unknown"
+
+
+def _check_daily_quota_marker():
+    """Persistierter Tagesmerker (SPEC 6.3) - überlebt auch einen neuen
+    main.py-Prozess am selben Tag (z.B. ein manueller Re-Run)."""
+    global _rpd_exhausted_today
+    if _rpd_exhausted_today:
+        return True
+    if not os.path.exists(QUOTA_STATE_PATH):
+        return False
+    try:
+        with open(QUOTA_STATE_PATH, encoding="utf-8") as f:
+            state = json.load(f)
+        if state.get("rpd_exhausted_date") == date.today().isoformat():
+            _rpd_exhausted_today = True
+            return True
+    except (json.JSONDecodeError, OSError):
+        pass
+    return False
+
+
+def _set_daily_quota_marker():
+    global _rpd_exhausted_today
+    _rpd_exhausted_today = True
+    os.makedirs(os.path.dirname(QUOTA_STATE_PATH), exist_ok=True)
+    with open(QUOTA_STATE_PATH, "w", encoding="utf-8") as f:
+        json.dump({"rpd_exhausted_date": date.today().isoformat()}, f)
+
+
+def _call_gemini(prompt, api_key, model, retries=3):
+    """
+    SPEC_lernzyklus.md 6.1/6.3: liefert IMMER ein Diagnose-Dict statt zu
+    werfen oder die Fehlerantwort zu verwerfen - "Kontingent oder API-Fehler"
+    fasste bisher völlig verschiedene Fälle zusammen, jede Ursachenanalyse
+    war Raten. Jetzt: Statuscode, Fehlertext, finishReason, Token-Zahlen,
+    Modell werden immer mitgeliefert.
+
+    Retry mit wachsender Wartezeit + Zufallsstreuung (5s/15s/45s ± Jitter)
+    bei 503 und bei 429 vom Typ RPM/TPM. **Kein Retry bei RPD** (Tages-
+    kontingent) - das verbraucht nur weiteres Kontingent, hilft aber nicht;
+    stattdessen wird der Tagesmerker gesetzt. 400 wird ebenfalls wiederholt
+    (im Testlauf mehrfach beobachtet: derselbe Payload scheitert mal
+    transient Google-seitig, ohne erkennbare Payload-Ursache). Andere 4xx
+    (401/403/404) werden NICHT wiederholt - echte Konfigurationsfehler.
+    """
+    import random
     import time as _time
+
     url = f"{BASE}/models/{model}:generateContent"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
@@ -406,44 +484,94 @@ def _call_gemini(prompt, api_key, model, retries=1):
             "temperature": 0.3,
         },
     }
+    backoffs = [5, 15, 45]
+    last = None
     for attempt in range(retries + 1):
-        r = requests.post(url, headers={"X-goog-api-key": api_key}, json=payload, timeout=60)
-        if r.status_code in (400, 500, 502, 503, 504) and attempt < retries:
-            _time.sleep(2)
+        try:
+            r = requests.post(url, headers={"X-goog-api-key": api_key}, json=payload, timeout=60)
+        except requests.RequestException as e:
+            last = {"ok": False, "status_code": None, "error_text": str(e),
+                    "finish_reason": None, "tokens_in": None, "tokens_out": None,
+                    "model": model, "quota_kind": None}
+            if attempt < retries:
+                _time.sleep(backoffs[min(attempt, len(backoffs) - 1)] + random.uniform(0, 2))
+                continue
+            return last
+
+        if r.status_code == 200:
+            body = r.json()
+            usage = body.get("usageMetadata", {})
+            candidates = body.get("candidates") or [{}]
+            finish_reason = candidates[0].get("finishReason")
+            diag = {"ok": True, "status_code": 200, "model": model,
+                   "finish_reason": finish_reason,
+                   "tokens_in": usage.get("promptTokenCount"),
+                   "tokens_out": usage.get("candidatesTokenCount")}
+            try:
+                text = candidates[0]["content"]["parts"][0]["text"]
+                diag["data"] = json.loads(text)
+            except (KeyError, IndexError, ValueError, json.JSONDecodeError):
+                # Teilausgabe verwerten (SPEC 6.3): manchmal ist der Text da,
+                # aber nicht valides JSON (z.B. bei finishReason=MAX_TOKENS
+                # mitten im Satz abgeschnitten) - dann lieber nichts
+                # erzwingen als raten, aber die Diagnose bleibt vollständig.
+                diag["data"] = None
+                diag["error_text"] = f"Antwort nicht als JSON parsebar (finishReason={finish_reason})"
+            return diag
+
+        error_text = r.text[:800]
+        quota_kind = _classify_429(error_text) if r.status_code == 429 else None
+        last = {"ok": False, "status_code": r.status_code, "error_text": error_text,
+               "finish_reason": None, "tokens_in": None, "tokens_out": None,
+               "model": model, "quota_kind": quota_kind}
+
+        if r.status_code == 429 and quota_kind == "rpd":
+            _set_daily_quota_marker()
+            return last  # kein Retry - würde nur weiteres Kontingent verbrauchen
+
+        retryable = r.status_code in (400, 500, 502, 503, 504) or (r.status_code == 429 and quota_kind != "rpd")
+        if retryable and attempt < retries:
+            _time.sleep(backoffs[min(attempt, len(backoffs) - 1)] + random.uniform(0, 2))
             continue
-        if r.status_code >= 400:
-            # Antworttext mitloggen - reines HTTPError zeigt nur Status+URL,
-            # nicht den Grund (falsches Schema, Content-Filter, etc.).
-            print(f"   ⚠️ Gemini {r.status_code}: {r.text[:500]}")
-        r.raise_for_status()
-        text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
-        return json.loads(text)
+        return last
+    return last
 
 
 def generate_insights(report, strength_map, fixture_mode, matcher, generated_at, api_key,
                       season_start_date=None):
     """
-    Liefert {"report": str, "player_flags": [...]} oder None (kein Key, kein
-    Modell verfügbar, Netzwerk-/Parse-Fehler) - schlägt NIE hart fehl, die
-    Pipeline in main.py läuft ohne KI-Schicht unverändert weiter.
+    Liefert (insights, diagnostics). `insights` ist {"report": str,
+    "player_flags": [...]} oder None (kein Key, kein Modell, Fehler nach
+    allen Retries) - schlägt NIE hart fehl, die Pipeline in main.py läuft
+    ohne KI-Schicht unverändert weiter. `diagnostics` (SPEC 6.1/6.4) trägt
+    IMMER die Ursache, auch bei Erfolg (Modell/Token für die
+    Verbrauchsprotokollierung, SPEC 6.3).
     """
     if not api_key:
-        return None
+        return None, {"status": "no_key"}
+    if _check_daily_quota_marker():
+        return None, {"status": "rpd_exhausted",
+                      "message": "Tageskontingent laut vorherigem Aufruf heute bereits erschöpft - "
+                                "kein neuer Versuch (Reset ca. 09:00 MESZ)"}
     try:
         models = _list_models(api_key)
         model = _pick_model(models)
         if not model:
-            print("   ⚠️ KI-Schicht: kein passendes Gemini-Modell gefunden - übersprungen.")
-            return None
+            return None, {"status": "no_model", "message": "kein passendes Gemini-Modell gefunden"}
         context = build_context(report, strength_map, fixture_mode, matcher, generated_at,
                                 season_start_date=season_start_date)
         prompt = build_prompt(context)
         print(f"   (Prompt: {len(prompt):,} Zeichen, Modell {model})")
-        result = _call_gemini(prompt, api_key, model)
-        if "report" not in result or "player_flags" not in result:
-            print("   ⚠️ KI-Schicht: unerwartete Antwortstruktur - übersprungen.")
-            return None
-        return result
+        diag = _call_gemini(prompt, api_key, model)
+        print(f"   (Modell {diag.get('model')} · Tokens {diag.get('tokens_in')}→"
+              f"{diag.get('tokens_out')} · finishReason {diag.get('finish_reason')})")
+        if not diag.get("ok"):
+            print(f"   ⚠️ Gemini {diag.get('status_code')}: {(diag.get('error_text') or '')[:300]}")
+            return None, {"status": "error", **diag}
+        result = diag.get("data")
+        if not result or "report" not in result or "player_flags" not in result:
+            return None, {"status": "bad_response", **diag}
+        return result, {"status": "ok", **diag}
     except (requests.RequestException, KeyError, IndexError, ValueError) as e:
         print(f"   ⚠️ KI-Schicht übersprungen ({type(e).__name__}: {e})")
-        return None
+        return None, {"status": "exception", "message": f"{type(e).__name__}: {e}"}

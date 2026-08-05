@@ -372,7 +372,8 @@ def market_vs_squad(market_scored, squad_classified, budget, max_squad,
                      f"33% vom neuen Netto-Teamwert)")
         return affordable, financing
 
-    for m in sorted(market_scored, key=lambda x: -x["score"]):
+    # SPEC_lernzyklus.md 5.2c: eindeutiger Zweitschlüssel bei Punktgleichheit.
+    for m in sorted(market_scored, key=lambda x: (-x["score"], x["id"])):
         trading = _trading_assessment(m, squad_classified)
         sporting = _sporting_assessment(m, squad_classified)
 

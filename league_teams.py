@@ -204,5 +204,7 @@ def build_league_teams(kb, cid, league_id, ranking, strength_map, upcoming,
         }
         managers.append(analysis)
 
-    managers.sort(key=lambda m: -m["prognose"])
+    # SPEC_lernzyklus.md 5.2c: eindeutiger Zweitschlüssel bei Punktgleichheit
+    # - sonst ist die Reihenfolge bei exakt gleicher Prognose zufällig.
+    managers.sort(key=lambda m: (-m["prognose"], str(m["uid"])))
     return managers

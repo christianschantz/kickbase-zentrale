@@ -341,9 +341,18 @@ def _model_health_banner(report):
     dev = report.get("deviation_report")
     if dev:
         lines.append(
-            f"<div class='risk-line'>📊 Abweichungszerlegung Spieltag {dev['matchday']}: "
+            f"<div class='risk-line info'>📊 Abweichungszerlegung Spieltag {dev['matchday']}: "
             f"Ø Fehler {dev['mean_error_pct']}% · {dev['in_corridor']}/{dev['n']} "
             f"Manager im Prognosekorridor</div>")
+    # SPEC_lernzyklus.md 5.3: Änderungsnachweis - jede nennenswerte
+    # Prognose-Änderung seit dem letzten Lauf braucht eine Ursache, sonst
+    # ist das ein Instabilitätssignal.
+    pdiff = report.get("prediction_diff")
+    if pdiff:
+        for c in pdiff.get("changes", []):
+            cause = _esc(c["cause"]) if c.get("cause") else "⚠️ nicht erklärbar"
+            lines.append(f"<div class='risk-line info'>📈 {_esc(c['name'])}: {c['from']:.0f} → "
+                        f"{c['to']:.0f} ({c['delta']:+.0f}) - {cause}</div>")
     if not lines:
         return ""
     return f"<div class='risk-banner'>{''.join(lines)}</div>"
@@ -392,20 +401,43 @@ def _changes_block(changes):
     return "".join(parts) or "<p class='note'>Keine nennenswerten Änderungen seit gestern.</p>"
 
 
-def _llm_block(insights, status="ok"):
+QUOTA_LABELS = {"rpm": "Anfragen pro Minute", "tpm": "Token pro Minute",
+                "rpd": "Tageskontingent", "unknown": "Rate-Limit"}
+
+
+def _llm_block(insights, status="ok", diag=None):
     """
     KI-Kurzreport + Flags (llm_insights.py). Spec-Fix 2026-08-05 Punkt 2.1:
     stilles Verschwinden ist der schlechteste Fall - bei fehlendem Key ein
-    dezenter Hinweis, bei einem Fehltag (Kontingent/API-Fehler) ein
-    deutlicher Warnhinweis statt gar nichts anzuzeigen.
+    dezenter Hinweis, bei einem Fehltag ein deutlicher Warnhinweis.
+    **SPEC_lernzyklus.md 6.4**: statt des pauschalen "Kontingent oder API-
+    Fehler" jetzt die konkrete Ursache (Statuscode, Fehlertext, Modell) -
+    "jede Ursachenanalyse ist sonst Raten".
     """
+    diag = diag or {}
     if not insights:
         if status == "no_key":
             return ("<div class='llm-block llm-off'><div class='llm-label'>🤖 KI-Einordnung</div>"
                     "<p class='note'>Nicht konfiguriert (kein GEMINI_API_KEY).</p></div>")
-        return ("<div class='llm-block llm-warn'><div class='llm-label'>🤖 KI-Einordnung</div>"
-                "<p class='note warn'>⚠️ Heute nicht verfügbar (Kontingent oder API-Fehler) - "
-                "morgen wieder versucht.</p></div>")
+        if status == "rpd_exhausted":
+            return (f"<div class='llm-block llm-warn'><div class='llm-label'>🤖 KI-Einordnung</div>"
+                    f"<p class='note warn'>⚠️ Tageskontingent erschöpft (429, quota exceeded) - "
+                    f"kein weiterer Versuch heute, Reset ca. 09:00 MESZ.</p></div>")
+        lines = ["⚠️ Heute nicht verfügbar"]
+        code = diag.get("status_code")
+        kind = diag.get("quota_kind")
+        if code == 429 and kind:
+            lines.append(f"Ursache: {QUOTA_LABELS.get(kind, kind)} überschritten (429)")
+        elif code:
+            lines.append(f"Ursache: HTTP {code}" + (f" - {_esc(diag['error_text'][:150])}"
+                                                     if diag.get("error_text") else ""))
+        elif status == "exception":
+            lines.append(f"Ursache: {_esc(diag.get('message', 'unbekannt'))}")
+        if diag.get("model"):
+            lines.append(f"Modell: {_esc(diag['model'])}")
+        note = " · ".join(lines)
+        return (f"<div class='llm-block llm-warn'><div class='llm-label'>🤖 KI-Einordnung</div>"
+                f"<p class='note warn'>{note} - morgen wieder versucht.</p></div>")
     flags_html = ""
     flags = insights.get("player_flags") or []
     if flags:
@@ -621,7 +653,7 @@ def _league_panel(report, panel_id):
   <h3 class="section-h">📋 Heute zu erledigen</h3>
   {_action_list(report.get("actions", []))}
 
-  {_llm_block(report.get("llm_insights"), report.get("llm_status", "ok"))}
+  {_llm_block(report.get("llm_insights"), report.get("llm_status", "ok"), report.get("llm_diag"))}
 
   {_kpi_grid(kpis)}
 

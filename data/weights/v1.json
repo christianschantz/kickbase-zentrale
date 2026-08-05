@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "active_from": "2026-08-05",
+  "derived_from": "Erstkalibrierung (kein Regressionsfit - siehe SPEC_kalibrierung_fairvalue.md/SPEC_spieltagsmodell_v2.md), keine Ist-Werte vor Spieltag 1 vorhanden",
+  "changed_vs_previous": [],
+  "reason": "Baseline-Version - dokumentiert die zum Zeitpunkt der Einfuehrung in coach.py hartkodierten Konstanten. Erst ab Spieltag 5 (SPEC_lernzyklus.md Stufe 2) wird eine Version 2 per Regression gegen echte Ist-Werte abgeleitet.",
+  "weights": {
+    "einsatz": {"blau": 1.00, "gruen": 0.95, "gelb": 0.60, "rot": 0.25, "grau": 0.10},
+    "einsatz_verletzt_cap": 0.10,
+    "gegner_k": {"TW": 0.90, "ABW": 1.00, "MF": 0.50, "ANG": 0.75},
+    "gegner_bounds": [0.80, 1.25],
+    "form_bounds": [0.80, 1.25],
+    "zu_null": {"aussenseiter_ausw": 0.12, "ausgeglichen": 0.25, "favorit_heim": 0.40},
+    "zu_null_praemie": {"TW": 25, "ABW": 20},
+    "zu_null_tw_floor": 0.15,
+    "verlauf_spanne": [0.90, 1.10],
+    "sigma_estimate_factor": {"TW": 0.25, "ABW": 0.35, "MF": 0.30, "ANG": 0.40},
+    "team_faktor_bounds": [0.80, 1.20]
+  },
+  "hinweis": "coach.py laedt diese Werte NOCH NICHT dynamisch - sie sind 1:1 identisch zu den hartkodierten Modulkonstanten (EINSATZ_FACTOR, OPPONENT_K, ...). Diese Datei ist der dokumentierte Ausgangspunkt fuer Version 2, sobald SPEC_lernzyklus.md Stufe 2 (Regression ab Spieltag 5) echte Koeffizienten liefert - erst dann lohnt sich der Umbau auf dynamisches Laden."
+}

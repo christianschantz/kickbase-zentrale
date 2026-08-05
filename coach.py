@@ -371,7 +371,8 @@ def _best_eleven_for_formation(players_by_pos, formation):
     """
     xi, total = [], 0.0
     for pos, count in formation.items():
-        pool = sorted(players_by_pos.get(pos, []), key=lambda p: -p["expected_points"])
+        # SPEC_lernzyklus.md 5.2c: eindeutiger Zweitschlüssel bei Punktgleichheit.
+        pool = sorted(players_by_pos.get(pos, []), key=lambda p: (-p["expected_points"], p["id"]))
         chosen = pool[:count]
         if len(chosen) < count:
             return None  # Kader hat nicht genug Spieler dieser Position
