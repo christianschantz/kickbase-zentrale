@@ -77,12 +77,22 @@ def _next_22_countdown(generated_at):
 def _squad_card(c):
     color = VERDICT_COLORS.get(c["verdict"], "#888")
     icon = VERDICT_ICONS.get(c["verdict"], "•")
-    opponents = (f"<div class='meta'>Nächste Gegner: {_esc(', '.join(c['opponents']))}</div>"
-                 if c.get("opponents") else "")
+    # Nächster Gegner: bevorzugt os/ht aus /lineup (verifiziert, kein
+    # Fuzzy-Matching mehr nötig), Fallback auf die alte Quotenkopplung.
+    if c.get("next_opponent_verified"):
+        opponents = f"<div class='meta'>Nächster Gegner: {_esc(c['next_opponent_verified'])}</div>"
+    elif c.get("opponents"):
+        opponents = f"<div class='meta'>Nächste Gegner: {_esc(', '.join(c['opponents']))}</div>"
+    else:
+        opponents = ""
+    kb_color = c.get("kickbase_color")
+    color_dot = (f"<span class='kb-dot kb-{_esc(kb_color)}' "
+                f"title='Kickbase-Status: {_esc(kb_color)}'></span>" if kb_color else "")
     reasons = "".join(f"<li>{_esc(r)}</li>" for r in c["reasons"])
     return f"""<div class="card" style="border-left-color:{color}">
   <div class="card-head">
     <span class="badge" style="background:{color}">{icon} {_esc(c['verdict'])}</span>
+    {color_dot}
     <span class="name">{_esc(c['name'])} <span class="pos">({_esc(c['pos'])})</span></span>
   </div>
   <div class="stats">Score {c['score']} · MW {_mio(c['mv'])} ({c['tfhmvt']:+,.0f} €/Tag)</div>
@@ -366,11 +376,12 @@ def _lineup_row(p):
 </div>"""
 
 
-def _lineup_block(lineup):
+def _lineup_block(lineup, lineup_status=None, swaps=None, missing=None):
     """
-    Aufstellungsempfehlung (Punkt 6, Grundgerüst) - beste Elf nach erwarteten
-    Punkten je Formation. Kein Abgleich mit der echten gesetzten Aufstellung
-    möglich (kein verifizierter Endpoint, s. coach.py-Docstring).
+    Aufstellungsempfehlung (Punkt 6) - beste Elf nach erwarteten Punkten je
+    Formation, PLUS Abgleich mit der echten gesetzten Aufstellung über
+    GET /lineup (verifiziert 2026-08-05, s. coach.py-Docstring): freie Slots
+    und konkrete Wechselvorschläge ggü. der Ist-Aufstellung.
     """
     if not lineup or not lineup.get("best"):
         return "<p class='empty'>Kein Kader für eine Aufstellungsempfehlung geladen.</p>"
@@ -380,12 +391,32 @@ def _lineup_block(lineup):
                   if n != lineup["best"]), key=lambda x: -x[1])[:3]
     alts_txt = ", ".join(f"{n} ({t - lineup['best_total']:+.1f})" for n, t in alts)
     alts_html = f"<p class='note'>Alternativen: {_esc(alts_txt)}</p>" if alts_txt else ""
+
+    status_html = ""
+    if lineup_status:
+        n_filled = len(lineup_status["xi"])
+        if lineup_status["empty_slots"]:
+            gap_txt = ", ".join(f"{n}× {pos}" for pos, n in (missing or {}).items()) or "Position unklar"
+            status_html += (f"<div class='risk-line warn'>⚠️ Aktuell gesetzte Elf: nur "
+                            f"{n_filled}/11 Slots belegt - fehlt: {_esc(gap_txt)}</div>")
+        else:
+            status_html += f"<p class='note'>Aktuell gesetzte Elf: {n_filled}/11 Slots belegt.</p>"
+        if swaps:
+            swap_rows = "".join(
+                f"<div class='board-row'><span class='board-status'>Slot {s['slot']}</span>"
+                f"<span class='board-name'>{_esc(s['out']['name'])} raus, {_esc(s['in']['name'])} rein</span>"
+                f"<span class='board-stats'>{s['diff']:+.1f} P</span></div>"
+                for s in swaps)
+            status_html += f"<p class='note'>Wechselvorschläge ggü. der Ist-Aufstellung:</p><div class='board'>{swap_rows}</div>"
+    else:
+        status_html = ("<p class='note warn'>⚠️ Kein Abgleich mit der aktuell im Spiel gesetzten "
+                       "Aufstellung möglich - das ist die rechnerisch beste Elf aus dem Kader.</p>")
+
     return f"""<p class="note"><strong>{_esc(lineup['best'])}</strong> - {lineup['best_total']} erwartete
 Punkte · Deadline 20:29 Uhr</p>
 <div class="board">{rows}</div>
 {alts_html}
-<p class="note warn">⚠️ Kein Abgleich mit der aktuell im Spiel gesetzten Aufstellung möglich
-(kein verifizierter Endpoint dafür) - das ist die rechnerisch beste Elf aus dem Kader.</p>"""
+{status_html}"""
 
 
 def _league_panel(report, panel_id):
@@ -421,7 +452,8 @@ def _league_panel(report, panel_id):
   {_risk_banner(report.get("risks", []))}
 
   <h3 class="section-h">🧠 Aufstellungsempfehlung</h3>
-  {_lineup_block(report.get("lineup"))}
+  {_lineup_block(report.get("lineup"), report.get("lineup_status"),
+                report.get("lineup_swaps"), report.get("lineup_missing"))}
 
   <h3 class="section-h">🛒 Transfermarkt</h3>
   {_transfermarkt_section(report)}
@@ -500,6 +532,12 @@ main { max-width: 640px; margin: 0 auto; padding: 0.75rem; }
 .card-head .name { font-weight: 600; }
 .card-head .pos { font-weight: 400; color: var(--text-dim); }
 .badge { color: #fff; font-size: 0.72rem; padding: 0.1rem 0.45rem; border-radius: 6px; margin-right: 0.4rem; white-space: nowrap; }
+.kb-dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; margin-right: 0.35rem; vertical-align: middle; border: 1px solid #0003; }
+.kb-blau { background: #2e6fd6; }
+.kb-grün { background: #2e9e50; }
+.kb-gelb { background: #e0c02e; }
+.kb-rot { background: #d64545; }
+.kb-grau { background: #9aa1ad; }
 .star { font-size: 0.78rem; color: #caa23a; font-weight: 600; }
 .stats { font-size: 0.82rem; color: var(--text-dim); margin-top: 0.15rem; }
 .components { font-size: 0.78rem; color: var(--text-dim); margin-top: 0.3rem; }

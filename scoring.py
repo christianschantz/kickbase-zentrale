@@ -25,6 +25,20 @@ DEFAULT_WEIGHTS = {
 PROB_SCORE = {1: 1.0, 2: 0.75, 3: 0.5, 4: 0.25, 5: 0.0}
 STATUS_PENALTY = {0: 1.0, 1: 0.6, 2: 0.25}
 
+# Kickbase-Statusfarbe aus `prob` (SPEC_lineup_verified.md Punkt 4, 2026-08-05
+# verifiziert per Kreuzprobe gegen 4 vom User genannte Spieler mit bekannter
+# App-Farbe - 4/4 Treffer, nicht mehr Hypothese): prob 1 = blau (gesetzt),
+# 2 = grün (wahrscheinlich Startelf), 3 = gelb (fraglich), 4 = rot (eher
+# nicht), 5 = grau (keine Einschätzung/fällt aus - kein Gegenbeispiel
+# gefunden, aber auch kein eigener Treffer, da kein prob=5-Spieler im
+# Abgleich war). Ergänzt das eigene Verdikt (STAMM/HALTEN/...), ersetzt es
+# NICHT - die Farbe sagt "spielt er?", das Verdikt sagt "was tue ich mit ihm?".
+KICKBASE_COLOR = {1: "blau", 2: "grün", 3: "gelb", 4: "rot", 5: "grau"}
+
+
+def kickbase_color(prob):
+    return KICKBASE_COLOR.get(prob)
+
 
 def _clamp(x, lo=0.0, hi=1.0):
     return max(lo, min(hi, x))

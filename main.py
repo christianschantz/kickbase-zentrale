@@ -21,8 +21,8 @@ from fixtures import (get_table, get_table_football_data, build_strength_map,
                       team_strength_for,
                       get_upcoming_by_team, get_upcoming_by_team_football_data,
                       get_table_tsdb, get_upcoming_by_team_tsdb,
-                      fixture_ease_for_team)
-from scoring import score_player, explain, player_reliability_profile, punktetyp_label
+                      fixture_ease_for_team, get_season_start_date)
+from scoring import score_player, explain, player_reliability_profile, punktetyp_label, kickbase_color
 from bid_advisor import learn_league_overpay
 from mv_forecast import clean_mv_series
 from odds import load_fixture_odds, load_fixture_odds_api, fixture_ease_odds
@@ -124,9 +124,24 @@ def run_league(kb, cfg, run_timestamp):
     if not upcoming:
         print("ℹ️ Kein Spielplan verfügbar -> Spielplan-Komponente neutral.")
 
+    # Saisonstart live aus dem OpenLigaDB-Spielplan (verifiziert 2026-08-05,
+    # nicht mehr geschätzt) - nur für openligadb-Quellen (2. Bundesliga)
+    # verfügbar, football-data.org liefert bei uns kein Datumsfeld dafür.
+    season_start_date = None
+    if cfg.get("fixture_source") == "openligadb":
+        season_start_date = get_season_start_date(
+            cfg.get("season", "2026"), cfg.get("openligadb_shortcut", "bl2"))
+        if season_start_date:
+            print(f"📅 Saisonstart (verifiziert): {season_start_date:%d.%m.%Y %H:%M} UTC")
+
     # ---------- 1) EIGENER KADER ----------
     squad_raw = kb.get_squad(league_id)
     squad_players = squad_raw.get("it", []) or squad_raw.get("players", [])
+    # Verifiziert 2026-08-05 (SPEC_lineup_verified.md): /lineup liefert `lo`
+    # (Startelf-Slot) sowie `os`/`ht` (Gegner-Kürzel/Heimrecht) direkt - macht
+    # Team-Fuzzy-Matching für die EIGENE Kader-Gegneranzeige überflüssig.
+    lineup_raw = kb.get_lineup(league_id)
+    lineup_by_id = {str(p.get("i")): p for p in (lineup_raw.get("it", []) or [])}
     squad_classified = []
     if squad_players:
         print(f"\n👥 KADER-STATUS ({len(squad_players)}/{max_squad} Plätze, "
@@ -138,6 +153,14 @@ def run_league(kb, cfg, run_timestamp):
             # "BEOBACHTEN" - s. squad_analysis-Docstring).
             c = classify_own_player(p, d, ease, WEIGHTS, sdmvt=p.get("sdmvt"))
             c["opponents"] = opps
+            lu = lineup_by_id.get(c["id"])
+            c["next_opponent_verified"] = (
+                f"{lu['os']} ({'Heim' if lu.get('ht') else 'Auswärts'})"
+                if lu and lu.get("os") else None)
+            # Punkt 4 (verifiziert 4/4 Treffer 2026-08-05): Kickbase-Farbe aus
+            # prob 1-5 - ergänzt das eigene Verdikt, ersetzt es nicht (s.
+            # KICKBASE_COLOR-Docstring in scoring.py).
+            c["kickbase_color"] = kickbase_color(d.get("prob", 3))
             # Punkt 6 (Grundgerüst): erwartete Punkte für die Aufstellungs-
             # optimierung (coach.py) - `ease` (Sieg-WK-Näherung) und `ph`
             # (letzte Spieltage) liegen aus diesem Loop-Durchlauf schon vor,
@@ -154,35 +177,51 @@ def run_league(kb, cfg, run_timestamp):
         for c in sorted(squad_classified, key=lambda x: order.get(x["verdict"], 9)):
             icon = {"VERKAUFEN": "🔻", "BEOBACHTEN": "👀",
                     "STAMM": "⭐", "HALTEN (Trading)": "📈"}[c["verdict"]]
-            print(f"\n{icon} {c['name']} ({c['pos']}) - {c['verdict']} "
+            color_txt = f" [{c['kickbase_color']}]" if c["kickbase_color"] else ""
+            print(f"\n{icon} {c['name']} ({c['pos']}){color_txt} - {c['verdict']} "
                   f"| Score {c['score']} | MW {c['mv']:,.0f} ({c['tfhmvt']:+,.0f}/Tag)")
             print(f"   {'; '.join(c['reasons'])}")
-            if c["opponents"]:
+            if c["next_opponent_verified"]:
+                print(f"   Nächster Gegner: {c['next_opponent_verified']}")
+            elif c["opponents"]:
                 print(f"   Nächste Gegner: {', '.join(c['opponents'])}")
     else:
         print("\nℹ️ Kader-Endpoint lieferte nichts - Team-Ansicht in der App mit "
               "HTTP Toolkit aufnehmen, dann verifiziere ich den Pfad.")
     squad_slots = len(squad_players)
 
-    # ---------- 1b) AUFSTELLUNG (Punkt 6, Grundgerüst) ----------
-    lineup = coach.optimize_lineup(squad_classified) if squad_classified else None
-    if lineup and lineup["best"]:
-        best = lineup["formations"][lineup["best"]]
-        print(f"\n🧠 AUFSTELLUNGSEMPFEHLUNG: {lineup['best']} "
-              f"({lineup['best_total']} erwartete Punkte) · Deadline 20:29 Uhr")
+    # ---------- 1b) AUFSTELLUNG (Punkt 6, jetzt mit echter Startelf) ----------
+    lineup_opt = coach.optimize_lineup(squad_classified) if squad_classified else None
+    lineup_status = (coach.current_lineup_status(lineup_raw, squad_classified)
+                     if squad_classified else None)
+    swaps = coach.suggest_swaps(lineup_status) if lineup_status else []
+    missing_pos = (coach.missing_positions(lineup_status, lineup_opt)
+                   if lineup_status and lineup_opt else {})
+
+    if lineup_opt and lineup_opt["best"]:
+        best = lineup_opt["formations"][lineup_opt["best"]]
+        print(f"\n🧠 AUFSTELLUNGSEMPFEHLUNG: {lineup_opt['best']} "
+              f"({lineup_opt['best_total']} erwartete Punkte) · Deadline 20:29 Uhr")
         for p in sorted(best["xi"], key=lambda x: -x["expected_points"]):
             print(f"   {p['pos']:<4} {p['name']:<20} {p['expected_points']:>5.1f} P "
                   f"(Basis {p['ep_factors']['basis']} × Einsatz {p['ep_factors']['einsatzfaktor']} "
                   f"× Gegner {p['ep_factors']['gegnerfaktor']} × Verlauf {p['ep_factors']['spielverlaufsfaktor']})")
         alternatives = sorted(
-            ((n, r["total_points"]) for n, r in lineup["formations"].items() if n != lineup["best"]),
+            ((n, r["total_points"]) for n, r in lineup_opt["formations"].items() if n != lineup_opt["best"]),
             key=lambda x: -x[1])
         if alternatives:
             alt_txt = ", ".join(f"{n} ({t:+.1f})" for n, t in
-                                [(n, t - lineup["best_total"]) for n, t in alternatives[:3]])
+                                [(n, t - lineup_opt["best_total"]) for n, t in alternatives[:3]])
             print(f"   Alternativen: {alt_txt}")
-        print("   ⚠️ Kein Abgleich mit der aktuell im Spiel gesetzten Aufstellung möglich "
-             "(kein verifizierter Endpoint dafür) - das ist die rechnerisch beste Elf.")
+
+    if lineup_status:
+        print(f"\n📋 AKTUELL GESETZTE ELF: {len(lineup_status['xi'])}/11 Slots belegt")
+        if lineup_status["empty_slots"]:
+            gap_txt = ", ".join(f"{n}× {pos}" for pos, n in missing_pos.items()) or "Position unklar"
+            print(f"   ⚠️ {lineup_status['empty_slots']} freie(r) Slot(s) - fehlt: {gap_txt}")
+        for s in swaps:
+            print(f"   ↳ Slot {s['slot']}: {s['out']['name']} raus, {s['in']['name']} rein "
+                  f"- erwartet {s['diff']:+.1f} Punkte")
 
     # Kaufkraft-Kennzahlen fürs Dashboard (identische Formel wie in
     # squad_analysis.market_vs_squad, dort nicht nach außen gereicht).
@@ -364,6 +403,22 @@ def run_league(kb, cfg, run_timestamp):
     mitspieler_appendix = build_mitspieler_appendix(board)
     risks = build_risks(capacity, net_value, budget, compared, bool(upcoming))
 
+    # Leere Aufstellungsslots sind dringend (Spec 5.2/6.3) - vorne in Risiken
+    # UND Handlungsleiste, mit konkretem Positionsbezug wenn ableitbar.
+    if lineup_status and lineup_status["empty_slots"]:
+        gap_txt = ", ".join(f"{n}× {pos}" for pos, n in missing_pos.items()) or "Position unklar"
+        risks.insert(0, {
+            "level": "warn", "icon": "⚠️",
+            "text": f"{lineup_status['empty_slots']} freie Aufstellungsslot(s) vor der 20:29-Deadline - fehlt: {gap_txt}",
+        })
+        actions.insert(0, {
+            "icon": "🧩", "kind": "lineup_gap", "urgent": True,
+            "text": f"{lineup_status['empty_slots']} Aufstellungsslot(s) unbesetzt",
+            "amount": None, "deadline_hours": None,
+            "reason": f"Fehlt: {gap_txt} - Deadline 20:29 Uhr",
+        })
+        actions[:] = actions[:5]
+
     report = {
         "league": {"name": name, "id": league_id, "cid": cid,
                   "generated_at": run_timestamp.isoformat()},
@@ -379,7 +434,10 @@ def run_league(kb, cfg, run_timestamp):
         "league_board": board,
         "targets": targets,
         "mitspieler_appendix": mitspieler_appendix,
-        "lineup": lineup,
+        "lineup": lineup_opt,
+        "lineup_status": lineup_status,
+        "lineup_swaps": swaps,
+        "lineup_missing": missing_pos,
         "risks": risks,
         "meta": {"season_phase": season_phase(kpis)},
         # Rückwärtskompatible Top-Level-Felder (html_report.py-Detailblöcke):
@@ -396,7 +454,8 @@ def run_league(kb, cfg, run_timestamp):
     if GEMINI_API_KEY:
         print("\n🤖 KI-Einordnung (Gemini)...")
     insights = generate_insights(report, strength_map, fixture_mode, _match_name,
-                                 run_timestamp, GEMINI_API_KEY)
+                                 run_timestamp, GEMINI_API_KEY,
+                                 season_start_date=season_start_date)
     report["llm_insights"] = insights
     if insights:
         print(f"   {insights['report']}")

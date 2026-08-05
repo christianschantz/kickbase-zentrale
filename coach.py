@@ -8,11 +8,13 @@ brauchen echte Spieltagsdaten zur Kalibrierung): 6.2 (Punktetyp-Streuung für
 situationsabhängige Aufstellung), 6.4 (Team-KPI + ligaweite Prognosetabelle),
 6.5 (Rückkopplungs-/Lern-Protokollierung).
 
-**Bekannte Lücke**: kein Vergleich mit der AKTUELL GESETZTEN Aufstellung
-(Spec 6.3 "Tausch X gegen Y bringt +6,4 Punkte") - es gibt keinen
-verifizierten Kickbase-Endpoint für die im Spiel hinterlegte Startelf (der
-Community-Kandidat `/lineupex` lieferte beim `get_squad`-Verifizieren leer
-zurück, s. CLAUDE.md). Der Optimierer liefert nur die BESTE Elf je Formation.
+**Lücke geschlossen (2026-08-05, SPEC_lineup_verified.md)**: `GET /v4/leagues
+/{id}/lineup` liefert den kompletten Kader inkl. `lo` (Slot 0-10 in der
+Startelf, fehlt bei Bankspielern) - live verifiziert. `current_lineup_status()`
+und `suggest_swaps()` nutzen das für echte Wechselvorschläge ggü. der
+tatsächlich gesetzten Elf. **Kein POST**: `/lineup` (setzt die Aufstellung)
+wird bewusst nicht implementiert - würde den echten Kickbase-Kader verändern,
+gehört laut Spec explizit nicht in den automatischen Lauf.
 
 **Formationen unverifiziert**: die 7 Formationen unten sind allgemeines
 Fantasy-Football-Wissen, nicht gegen einen Kickbase-Endpoint geprüft (kein
@@ -154,3 +156,78 @@ def optimize_lineup(squad_with_points):
     best_name = max(results, key=lambda k: results[k]["total_points"])
     return {"formations": results, "best": best_name,
            "best_total": results[best_name]["total_points"]}
+
+
+def current_lineup_status(lineup_raw, squad_with_points):
+    """
+    Ordnet GET /lineup (echte Startelf über `lo`) die bereits berechneten
+    erwarteten Punkte zu (Merge über die Spieler-ID). Liefert
+    {"xi": [...], "bench": [...], "empty_slots": int} - xi sortiert nach Slot.
+    """
+    points_by_id = {p["id"]: p for p in squad_with_points}
+    items = lineup_raw.get("it", []) or []
+
+    def _enrich(p):
+        pid = str(p.get("i"))
+        extra = points_by_id.get(pid, {})
+        return {
+            "id": pid, "name": p.get("n", "?"),
+            "pos": POS_NAMES.get(p.get("pos"), "?"),
+            "lo": p.get("lo"), "os": p.get("os"), "ht": p.get("ht"),
+            "expected_points": extra.get("expected_points", 0.0),
+            "ep_factors": extra.get("ep_factors", {}),
+        }
+
+    xi = sorted((_enrich(p) for p in items if p.get("lo") is not None),
+               key=lambda p: p["lo"])
+    bench = [_enrich(p) for p in items if p.get("lo") is None]
+    return {"xi": xi, "bench": bench, "empty_slots": max(0, 11 - len(xi))}
+
+
+def suggest_swaps(status, max_suggestions=3):
+    """
+    Vergleicht jeden Startelf-Spieler mit dem stärksten Bankspieler DERSELBEN
+    Position (die Formation ist fix, kein Positionswechsel innerhalb eines
+    Tauschs möglich) und schlägt Tausche mit positiver erwarteter
+    Punktedifferenz vor, absteigend sortiert.
+    """
+    bench_by_pos = {}
+    for b in status["bench"]:
+        bench_by_pos.setdefault(b["pos"], []).append(b)
+    for pos in bench_by_pos:
+        bench_by_pos[pos].sort(key=lambda p: -p["expected_points"])
+
+    suggestions = []
+    for starter in status["xi"]:
+        candidates = bench_by_pos.get(starter["pos"], [])
+        if not candidates:
+            continue
+        best = candidates[0]
+        diff = best["expected_points"] - starter["expected_points"]
+        if diff > 0:
+            suggestions.append({"slot": starter["lo"], "out": starter,
+                               "in": best, "diff": round(diff, 1)})
+    suggestions.sort(key=lambda s: -s["diff"])
+    return suggestions[:max_suggestions]
+
+
+def missing_positions(status, lineup_result):
+    """
+    Leere Slots (Spec 5.2/6.3): vergleicht die AKTUELLE Startelf-Besetzung je
+    Position mit der vom Optimierer empfohlenen Formation (die tatsächlich in
+    der App eingestellte Formation ist über GET /lineup nicht auslesbar) und
+    liefert die Positionen, die dafür noch fehlen. Leer, wenn 11 Slots belegt
+    sind oder keine Optimierer-Empfehlung vorliegt.
+    """
+    if status["empty_slots"] == 0 or not lineup_result.get("best"):
+        return {}
+    target = lineup_result["formations"][lineup_result["best"]]["formation"]
+    have = {}
+    for p in status["xi"]:
+        have[p["pos"]] = have.get(p["pos"], 0) + 1
+    missing = {}
+    for pos, need in target.items():
+        gap = need - have.get(pos, 0)
+        if gap > 0:
+            missing[pos] = gap
+    return missing

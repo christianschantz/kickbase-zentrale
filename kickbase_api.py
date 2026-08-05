@@ -164,8 +164,7 @@ class KickbaseAPI:
 
     # ---------- Eigenes Team ----------
     def get_squad(self, league_id):
-        """UNVERIFIZIERT: wahrscheinlichster Pfad laut Community-Doku.
-        Falls leer -> HAR-Aufnahme der Team-Ansicht machen und Pfad anpassen."""
+        """Verifiziert (2026-07-30): liefert {"it": [...], "mppu": ...}."""
         for path in (f"/v4/leagues/{league_id}/squad",
                      f"/v4/leagues/{league_id}/lineupex",
                      f"/v4/leagues/{league_id}/teamcenter/myeleven"):
@@ -173,6 +172,21 @@ class KickbaseAPI:
             if data:
                 return data
         return {}
+
+    def get_lineup(self, league_id):
+        """
+        Verifiziert (2026-08-05, HAR-Mitschnitt der Aufstellungsansicht):
+        liefert den KOMPLETTEN Kader mit Aufstellungsinfo unter "it". Feld
+        `lo` = Slot in der Startelf (0-10, Slot 0 immer TW) - fehlt `lo`,
+        sitzt der Spieler auf der Bank. Zusätzlich je Spieler `os` (Kürzel
+        des nächsten Gegners, z.B. "FCM") und `ht` (True=Heimspiel) - macht
+        Team-Fuzzy-Matching für die eigene Kader-Gegnerbestimmung unnötig.
+        `mdst` (0 = Spieltag noch nicht begonnen) ebenfalls enthalten.
+        POST /v4/leagues/{id}/lineup setzt die echte Aufstellung - bewusst
+        NICHT implementiert (würde den echten Kickbase-Kader verändern,
+        gehört nicht in den automatischen Lauf).
+        """
+        return self._get(f"/v4/leagues/{league_id}/lineup") or {}
 
     # ---------- Aktivitäten (für Overpay-Statistik) ----------
     def get_activities(self, league_id, max_items=200):

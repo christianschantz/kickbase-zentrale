@@ -84,6 +84,7 @@ sdmvt: MW-Änderung der letzten 7 Tage
 momentum_ratio = (tfhmvt * 7) / sdmvt: >1 beschleunigt, 0,6-0,9 lässt nach, <0,6 deutliche Abflachung - ABER: eine Momentaufnahme, kein über mehrere Tage bestätigter Trend. Ein Wert von 0,3 heißt "Verkaufsfenster prüfen", nicht "morgen fällt der Kurs".
 sporting_core: Score-Anteil OHNE Momentum - reine sportliche Einschätzung
 team_score: Klassestärke des Vereins aus Wettquoten
+kickbase_color: die OFFIZIELLE Kickbase-Einsatzampel (blau=gesetzt, grün=wahrscheinlich Startelf, gelb=fraglich, rot=eher nicht, grau=keine Einschätzung/fällt aus). Beantwortet NUR "spielt er?", nicht "was tue ich mit ihm?" - das ist weiterhin das Verdikt. kickbase_color_conflict ist gesetzt, wenn beide auseinanderlaufen (z.B. grün, aber Verdikt VERKAUFEN) - das IMMER kommentieren, wenn vorhanden.
 
 VERHALTENSREGELN:
 - Verwende die gelieferten Verdikte und Begründungen als gesetzt. Deine Aufgabe ist NICHT, sie neu zu berechnen, sondern zu prüfen, ob externe Informationen (Verletzung, Trainerwechsel, Bericht) etwas ändern.
@@ -109,7 +110,11 @@ B. Spieltagseinordnung: für Partien mit eigenen Spielern - nicht "wer
    Ballbesitzmannschaft, tiefstehender Konter unter Druck, offener
    Schlagabtausch. Das entscheidet, welche Positionen eher punkten.
 C. Kader-/Aufstellungsbewertung: wo widerspricht die Berichtslage den
-   Kickbase-Zahlen (falls bekannt)?
+   Kickbase-Zahlen (falls bekannt)? Prüfe dabei auch explizit jeden Spieler
+   mit gesetztem kickbase_color_conflict - das ist ein bereits erkannter
+   Widerspruch zwischen der offiziellen Kickbase-Einsatzampel und unserem
+   Verdikt, den IMMER kurz einordnen (welche Seite ist wahrscheinlicher
+   richtig, falls einschätzbar).
 
 Deine Aufgabe:
 1. Trage NUR bei, was du zusätzlich zum JSON-Kontext weißt oder ableiten
@@ -204,12 +209,17 @@ def _team_context(player, strength_map, matcher, fixture_mode):
     return f"{team}, Team-Stärke {strength:.0%} (Buchmacher-Einschätzung)"
 
 
-def build_context(report, strength_map, fixture_mode, matcher, generated_at):
+def build_context(report, strength_map, fixture_mode, matcher, generated_at, season_start_date=None):
     """
     Baut die zusätzlichen Eingangsdaten für den Prompt (SPEC v2 Abschnitt 4) -
     verdichtete Finanzkennzahlen im Zeitverlauf statt nur dem nackten Budget,
     verdict_scope je Kaderspieler (was das Verdikt NICHT aussagt), gefilterte
     (nur finanzierbare) Marktziele.
+
+    season_start_date: echtes, live aus OpenLigaDB abgeleitetes Datum (2026-
+    08-05 verifiziert, main.py/fixtures.get_season_start_date) - nur für die
+    2. Bundesliga verfügbar. Ohne das (z.B. La Liga, football-data.org ohne
+    Datumsfeld) fällt es auf die grobe SEASON_START_ESTIMATE-Schätzung zurück.
     """
     kpis = report.get("kpis", {})
     squad = report.get("squad_classified", [])
@@ -223,7 +233,10 @@ def build_context(report, strength_map, fixture_mode, matcher, generated_at):
     if budget < 0 and daily_squad_yield > 0:
         days_to_positive = round(abs(budget) / daily_squad_yield, 1)
 
-    days_until_season = (SEASON_START_ESTIMATE - generated_at.date()).days
+    if season_start_date is not None:
+        days_until_season = (season_start_date.date() - generated_at.date()).days
+    else:
+        days_until_season = (SEASON_START_ESTIMATE - generated_at.date()).days
 
     team_financials = {
         "budget": budget,
@@ -237,6 +250,17 @@ def build_context(report, strength_map, fixture_mode, matcher, generated_at):
 
     squad_ctx = []
     for s in squad:
+        color = s.get("kickbase_color")
+        # Punkt 4.3 (SPEC_lineup_verified.md): Widerspruch Kickbase-Farbe vs.
+        # eigenes Verdikt geht explizit an die KI - die Farbe sagt "spielt
+        # er?" (offizielle Kickbase-Einschätzung), das Verdikt "was tue ich
+        # mit ihm?" (unsere Trading-/Sport-Logik). Beides kann auseinander-
+        # laufen (z.B. MW fällt trotz gesetztem Startplatz).
+        conflict = None
+        if color in ("blau", "grün") and s["verdict"] == "VERKAUFEN":
+            conflict = f"Kickbase stuft ihn als {color} ein (voraussichtlich im Kader), Skript empfiehlt aber VERKAUFEN"
+        elif color in ("rot", "grau") and s["verdict"] == "STAMM":
+            conflict = f"Kickbase stuft ihn als {color} ein (Einsatz fraglich/unwahrscheinlich), Skript sieht ihn aber als STAMM"
         squad_ctx.append({
             "name": s["name"], "team": s.get("team", ""), "pos": s["pos"],
             "verdict": s["verdict"],
@@ -246,6 +270,8 @@ def build_context(report, strength_map, fixture_mode, matcher, generated_at):
             "team_context": _team_context(s, strength_map, matcher, fixture_mode),
             "tfhmvt": s["tfhmvt"],
             "momentum_ratio": s.get("momentum_ratio"),
+            "kickbase_color": color,
+            "kickbase_color_conflict": conflict,
         })
 
     # Nicht finanzierbare Ziele werden HIER herausgefiltert, nicht erst im
@@ -332,7 +358,8 @@ def _call_gemini(prompt, api_key, model, retries=1):
         return json.loads(text)
 
 
-def generate_insights(report, strength_map, fixture_mode, matcher, generated_at, api_key):
+def generate_insights(report, strength_map, fixture_mode, matcher, generated_at, api_key,
+                      season_start_date=None):
     """
     Liefert {"report": str, "player_flags": [...]} oder None (kein Key, kein
     Modell verfügbar, Netzwerk-/Parse-Fehler) - schlägt NIE hart fehl, die
@@ -346,7 +373,8 @@ def generate_insights(report, strength_map, fixture_mode, matcher, generated_at,
         if not model:
             print("   ⚠️ KI-Schicht: kein passendes Gemini-Modell gefunden - übersprungen.")
             return None
-        context = build_context(report, strength_map, fixture_mode, matcher, generated_at)
+        context = build_context(report, strength_map, fixture_mode, matcher, generated_at,
+                                season_start_date=season_start_date)
         prompt = build_prompt(context)
         print(f"   (Prompt: {len(prompt):,} Zeichen, Modell {model})")
         result = _call_gemini(prompt, api_key, model)

@@ -39,6 +39,32 @@ def get_table(season="2026", shortcut="bl2"):
     return table
 
 
+def get_season_start_date(season="2026", shortcut="bl2"):
+    """
+    Frühestes Datum aus den noch nicht gespielten Partien des Saison-
+    Spielplans - in der Saisonvorbereitung (noch kein Spiel gelaufen)
+    entspricht das Spieltag 1. Live verifiziert (2026-08-05): 2. Bundesliga
+    Spieltag 1 = 2026-08-07 18:30 UTC. Liefert ein UTC-datetime oder None
+    (z.B. wenn `shortcut` keine OpenLigaDB-Liga ist - nur für die 2.
+    Bundesliga verifiziert, La Liga läuft über football-data.org ohne
+    Datumsfeld in unserer bisherigen Anbindung).
+    """
+    from datetime import datetime
+    matches = _get_json(OL_MATCHES.format(shortcut=shortcut, season=season)) or []
+    dates = []
+    for m in matches:
+        if m.get("matchIsFinished"):
+            continue
+        raw = m.get("matchDateTimeUTC")
+        if not raw:
+            continue
+        try:
+            dates.append(datetime.fromisoformat(raw.replace("Z", "+00:00")))
+        except ValueError:
+            continue
+    return min(dates) if dates else None
+
+
 def get_upcoming_by_team(season="2026", shortcut="bl2", next_n=3):
     """
     Kompletten Saison-Spielplan laden und pro Team die nächsten n noch nicht
