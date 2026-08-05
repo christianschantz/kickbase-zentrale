@@ -110,34 +110,47 @@ def _squad_card(c):
 
 
 def _market_card(m, highlight=False):
+    """
+    SPEC_spieltagsmodell_v2.md 3.7 "Karte verschlanken": Kaufkraft (global,
+    gehört einmal in die KPI-Zeile, nicht auf jede Karte), Komponenten-
+    Prozente und die volle Regime-Methodik wandern in einen `<details>`-
+    Detailbereich. Fair Value als EINE Aussage (die frühere zweite Zeile
+    "liefert X P, üblich wären Y P" wirkte neben der Prozent-Aussage
+    widersprüchlich, obwohl beides stimmte - jetzt nur noch im Detailbereich).
+    Neu: die Ideal-Elf-Brücke (3.2, "bringt mir der Spieler Punkte?") und
+    die vierstufige Tier-Badge (3.3) direkt in der Hauptansicht.
+    """
     parts = (m.get("team_verdict") or "").split(" | ")
     headline = parts[0] if parts else ""
     angles = parts[1:]
     angle_html = "".join(f"<li>{_esc(a)}</li>" for a in angles)
     bid = m.get("bid") or {}
-    bid_html = ""
+
+    bid_html, detail_extra = "", ""
     if bid and "KEIN BEDARF" not in headline:
-        extra = ""
         if bid.get("projection_note"):
-            extra += f"<div class='meta'>↳ {_esc(bid['projection_note'])}</div>"
+            detail_extra += f"<div class='meta'>↳ {_esc(bid['projection_note'])}</div>"
         if bid.get("star_ceiling"):
-            extra += (f"<div class='meta'>↳ Star-Ausnahme: in Einzelfällen bis "
-                      f"{_mio(bid['star_ceiling'])} belegt (nicht die Regel)</div>")
+            detail_extra += (f"<div class='meta'>↳ Star-Ausnahme: in Einzelfällen bis "
+                            f"{_mio(bid['star_ceiling'])} belegt (nicht die Regel)</div>")
+        if m.get("financing"):
+            detail_extra += f"<div class='meta'>{_esc(m['financing'])}</div>"
         if bid.get("verdict") == "nicht_bieten":
             bid_html = (f"<div class='bid nicht-bieten'>🚫 NICHT BIETEN - "
-                        f"{_esc(bid.get('verdict_reason', 'zu teuer'))}</div>{extra}")
+                        f"{_esc(bid.get('verdict_reason', 'zu teuer'))}</div>")
         else:
             tick = "✅" if m.get("affordable") else "❌"
+            # 3.6: bei instabilem Regime nur die ehrliche Kurzform in der
+            # Hauptansicht, die Methodik (Regime/Datenpunkte/Dämpfung)
+            # steckt bereits vollständig in detail_extra/projection_note.
+            short = bid.get("projection_short")
+            short_html = f" · {_esc(short)}" if short else ""
             bid_html = (f"<div class='bid'>💶 Gebot {_mio(bid.get('recommended_bid', 0))} "
-                        f"(22h-MW ~{_mio(bid.get('expected_mv_22h', 0))}, "
-                        f"Puffer {bid.get('buffer_pct', 0)}%, "
-                        f"WK ~{bid.get('win_probability', 0):.0%}) {tick} "
-                        f"{_esc(m.get('financing', ''))}</div>{extra}")
-    # SPEC_kalibrierung_fairvalue.md 3.1/3.4: Mindestpreis-Spieler sind
-    # zensierte Beobachtungen ("neutral", nie "überbewertet" - sie können
-    # nicht billiger sein). Sonst beide Richtungen derselben Kurve zeigen:
-    # Fair Value (Punkte -> MW) UND was der aktuelle MW an Punkten "üblich"
-    # wäre (MW -> Punkte, scoring.expected_points).
+                        f"· Zuschlags-WK ~{bid.get('win_probability', 0):.0%} {tick}{short_html}</div>")
+
+    # SPEC_kalibrierung_fairvalue.md 3.1 / SPEC_spieltagsmodell_v2.md 3.7:
+    # Mindestpreis-Spieler = zensierte Beobachtung ("neutral"). Sonst EINE
+    # Fair-Value-Aussage.
     fair_value_html = ""
     if m.get("min_price_player"):
         fair_value_html = "<div class='fair-value'>💰 Fair Value: neutral - Mindestpreis</div>"
@@ -146,36 +159,53 @@ def _market_card(m, highlight=False):
         urteil = ("unterbewertet" if diff_pct > 0.05 else
                   "überbewertet" if diff_pct < -0.05 else "fair bewertet")
         fv_cls = "up" if diff_pct > 0.05 else ("down" if diff_pct < -0.05 else "")
-        expected_line = ""
-        if m.get("expected_ap_for_mv") is not None:
-            expected_line = (f"<div class='meta'>liefert Ø {m['ap']:.0f} P, für {_mio(m['mv'])} "
-                             f"üblich wären {m['expected_ap_for_mv']:.0f} P</div>")
         fair_value_html = (f"<div class='fair-value {fv_cls}'>💰 Fair Value {_mio(m['fair_value'])} "
-                           f"· aktuell {_mio(m['mv'])} ({diff_pct:+.0%}) - {urteil}</div>{expected_line}")
-    opponents = (f"<div class='meta'>Nächste Gegner: {_esc(', '.join(m['opponents']))}</div>"
-                 if m.get("opponents") else "")
+                           f"- {diff_pct:+.0%} {urteil}</div>")
+        if m.get("expected_ap_for_mv") is not None:
+            detail_extra += (f"<div class='meta'>liefert Ø {m['ap']:.0f} P, für {_mio(m['mv'])} "
+                            f"üblich wären {m['expected_ap_for_mv']:.0f} P</div>")
+
+    # 3.2: Ideal-Elf-Brücke, kombiniert mit dem nächsten Gegner in einer Zeile.
+    bridge = m.get("ideal_elf_bridge") or {}
+    opp_txt = f"Gegner {_esc(m['opponents'][0])}" if m.get("opponents") else ""
+    bridge_txt = ""
+    if bridge.get("kind") == "free_slot":
+        bridge_txt = f"würde deine Ideal-Elf ergänzen: +{bridge['gain']:.0f} P"
+    elif bridge.get("kind") == "verdraengt":
+        bridge_txt = f"würde deine Elf verstärken: verdrängt {_esc(bridge['target']['name'])} · +{bridge['gain']:.0f} P"
+    elif bridge.get("kind") == "kein_platz":
+        bridge_txt = f"käme nicht in deine Elf ({_esc(bridge['target']['pos'])} belegt)"
+    bridge_line = " · ".join(t for t in (opp_txt, bridge_txt) if t)
+    bridge_html = f"<div class='meta'>{bridge_line}</div>" if bridge_line else ""
+
     fitness = f"<div class='meta warn'>⚠️ {_esc(m['fitness'])}</div>" if m.get("fitness") else ""
     star_badge = (f"<span class='star'>💎 Star {m['star']:.0%}</span>"
                   if m.get("banger") else "")
+    tier_badge = f"<span class='tier tier-{_esc((m.get('tier') or '').lower().replace(' ', '-'))}'>{_esc(m.get('tier', ''))}</span>"
     kb_color = m.get("kickbase_color")
     color_dot = (f"<span class='kb-dot kb-{_esc(kb_color)}' "
                 f"title='Kickbase-Status: {_esc(kb_color)}'></span>" if kb_color else "")
     cls = "card market-card banger" if highlight else "card market-card"
     comps = explain(m.get("components", {}), m.get("meta")) if m.get("components") else ""
+    daily_pct = (m["tfhmvt"] / m["mv"]) if m.get("mv") else 0
+    details_html = (f"<details class='card-detail'><summary>Details</summary>"
+                    f"<div class='components'>{_esc(comps)}</div>{detail_extra}</details>"
+                    if comps or detail_extra else "")
     return f"""<div class="{cls}">
   <div class="card-head">
     {color_dot}
     <span class="name">{_esc(m['name'])} <span class="pos">({_esc(m['pos'])}, {_esc(m.get('team', ''))})</span></span>
     {star_badge}
+    <span class="expiry">⏳ {m.get('expiry_s', 0)/3600:.0f}h</span>
   </div>
-  <div class="stats">Score {m['score']} · MW {_mio(m['mv'])} ({m['tfhmvt']:+,.0f} €/Tag) · Ø {m['ap']} P · ⏳ {m.get('expiry_s', 0)/3600:.0f}h</div>
+  <div class="stats">Score {m['score']} · Ø {m['ap']} P · {_mio(m['mv'])} ({m['tfhmvt']:+,.0f} €/Tag, {daily_pct:+.1%})</div>
   {fair_value_html}
-  <div class="components">{_esc(comps)}</div>
-  {opponents}
+  {bridge_html}
   {fitness}
-  <div class="verdict">🎯 {_esc(headline)}</div>
+  <div class="verdict">🎯 {tier_badge} {_esc(headline)}</div>
   <ul class="angles">{angle_html}</ul>
   {bid_html}
+  {details_html}
 </div>"""
 
 
@@ -306,6 +336,14 @@ def _model_health_banner(report):
                      "40-60% verletzt) - Fair Value heute unterdrückt</div>")
     for txt in (report.get("self_play_conflicts") or [])[:5]:
         lines.append(f"<div class='risk-line warn'>⚔️ {_esc(txt)}</div>")
+    # SPEC_spieltagsmodell_v2.md 4.4: Abweichungszerlegung erscheint im
+    # Report des Folgetags, sobald Prognose UND Ist-Werte vorliegen.
+    dev = report.get("deviation_report")
+    if dev:
+        lines.append(
+            f"<div class='risk-line'>📊 Abweichungszerlegung Spieltag {dev['matchday']}: "
+            f"Ø Fehler {dev['mean_error_pct']}% · {dev['in_corridor']}/{dev['n']} "
+            f"Manager im Prognosekorridor</div>")
     if not lines:
         return ""
     return f"<div class='risk-banner'>{''.join(lines)}</div>"
@@ -440,8 +478,8 @@ def _lineup_row(p):
             + (f" + Zu-Null {f['zu_null_bonus']:+.1f}" if f.get("zu_null_bonus") else "")
             + ")")
     bandwidth = f.get("bandbreite")
-    duel_note = (" ⚔️ gedämpft (direktes Duell im Kader)" if f.get("direktduell_gedaempft") else "")
-    sub = (f"<div class='meta'>Bandbreite {bandwidth[0]:.0f}-{bandwidth[1]:.0f} P{duel_note}</div>"
+    sigma_note = " (geschätzt)" if f.get("sigma_geschaetzt") else ""
+    sub = (f"<div class='meta'>Bandbreite {bandwidth[0]:.0f}-{bandwidth[1]:.0f} P{sigma_note}</div>"
           if bandwidth else "")
     return f"""<div class="board-row">
   <span class="board-status">{_esc(p['pos'])}</span>
@@ -451,17 +489,28 @@ def _lineup_row(p):
 </div>"""
 
 
-def _lineup_block(lineup, lineup_status=None, swaps=None, missing=None):
+def _lineup_block(lineup, lineup_status=None, swaps=None, missing=None,
+                  ideal_prognose=None, ist_prognose=None, duel_hints=None,
+                  kaderstaerke_reason=None):
     """
     Aufstellungsempfehlung (Punkt 6) - beste Elf nach erwarteten Punkten je
     Formation, PLUS Abgleich mit der echten gesetzten Aufstellung über
     GET /lineup (verifiziert 2026-08-05, s. coach.py-Docstring): freie Slots
     und konkrete Wechselvorschläge ggü. der Ist-Aufstellung.
+
+    SPEC_spieltagsmodell_v2.md: `ideal_prognose`/`ist_prognose`
+    (coach.xi_prognose(), Direktduell-gedämpfter Gesamtwert + echte Sigma-
+    Bandbreite) ersetzen das ungedämpfte `lineup['best_total']` in der
+    Anzeige - EINE Zahl statt zwei potenziell widersprüchlicher.
     """
     if not lineup or not lineup.get("best"):
-        return "<p class='empty'>Kein Kader für eine Aufstellungsempfehlung geladen.</p>"
+        reason = f" - {_esc(kaderstaerke_reason)}" if kaderstaerke_reason else ""
+        return f"<p class='empty'>Keine Aufstellungsempfehlung berechenbar{reason}.</p>"
     best = lineup["formations"][lineup["best"]]
     rows = "".join(_lineup_row(p) for p in sorted(best["xi"], key=lambda x: -x["expected_points"]))
+    total = ideal_prognose["total"] if ideal_prognose else lineup["best_total"]
+    band = ideal_prognose["bandbreite"] if ideal_prognose else None
+    band_txt = f" (Bandbreite {band[0]:.0f}-{band[1]:.0f})" if band else ""
     alts = sorted(((n, r["total_points"]) for n, r in lineup["formations"].items()
                   if n != lineup["best"]), key=lambda x: -x[1])[:3]
     alts_txt = ", ".join(f"{n} ({t - lineup['best_total']:+.1f})" for n, t in alts)
@@ -470,25 +519,32 @@ def _lineup_block(lineup, lineup_status=None, swaps=None, missing=None):
     status_html = ""
     if lineup_status:
         n_filled = len(lineup_status["xi"])
+        ist_txt = (f" · Prognose {ist_prognose['total']:.0f} P "
+                  f"({ist_prognose['bandbreite'][0]:.0f}-{ist_prognose['bandbreite'][1]:.0f})"
+                  if ist_prognose else "")
         if lineup_status["empty_slots"]:
             gap_txt = ", ".join(f"{n}× {pos}" for pos, n in (missing or {}).items()) or "Position unklar"
             status_html += (f"<div class='risk-line warn'>⚠️ Aktuell gesetzte Elf: nur "
                             f"{n_filled}/11 Slots belegt - fehlt: {_esc(gap_txt)}</div>")
         else:
-            status_html += f"<p class='note'>Aktuell gesetzte Elf: {n_filled}/11 Slots belegt.</p>"
+            status_html += f"<p class='note'>Aktuell gesetzte Elf: {n_filled}/11 Slots belegt{ist_txt}.</p>"
         if swaps:
             swap_rows = "".join(
                 f"<div class='board-row'><span class='board-status'>Slot {s['slot']}</span>"
-                f"<span class='board-name'>{_esc(s['out']['name'])} raus, {_esc(s['in']['name'])} rein</span>"
+                f"<span class='board-name'>{_esc(s['out']['name'])} raus, {_esc(s['in']['name'])} rein"
+                f"{' ⚖️ knapp' if s.get('knapp') else ''}</span>"
                 f"<span class='board-stats'>{s['diff']:+.1f} P</span></div>"
                 for s in swaps)
             status_html += f"<p class='note'>Wechselvorschläge ggü. der Ist-Aufstellung:</p><div class='board'>{swap_rows}</div>"
+        if duel_hints:
+            duel_rows = "".join(f"<div class='risk-line warn'>⚔️ {_esc(h)}</div>" for h in duel_hints)
+            status_html += f"<p class='note'>Direktes Duell in deiner Elf:</p>{duel_rows}"
     else:
         status_html = ("<p class='note warn'>⚠️ Kein Abgleich mit der aktuell im Spiel gesetzten "
                        "Aufstellung möglich - das ist die rechnerisch beste Elf aus dem Kader.</p>")
 
-    return f"""<p class="note"><strong>{_esc(lineup['best'])}</strong> - {lineup['best_total']} erwartete
-Punkte · Deadline 20:29 Uhr</p>
+    return f"""<p class="note"><strong>{_esc(lineup['best'])}</strong> - {total:.0f} erwartete
+Punkte{band_txt} · Deadline 20:29 Uhr</p>
 <div class="board">{rows}</div>
 {alts_html}
 {status_html}"""
@@ -510,13 +566,22 @@ def _league_teams_table(teams, my_uid):
         rng = f"({m['prognose_range'][0]:.0f}-{m['prognose_range'][1]:.0f})"
         eff = f"{m['effizienz']:.0f}%" if m["effizienz"] is not None else "?"
         ks = f"{m['kaderstaerke']:.0f}" if m["kaderstaerke"] is not None else "?"
-        warn = ""
+        # 1.3: kein stummes "?" - fehlende Kaderstärke wird begründet, max.
+        # 2 Kontext-Hinweise je Manager, nach Wirkung sortiert (SPEC 1.4).
+        hints = []
+        if m.get("kaderstaerke_reason"):
+            hints.append((4, f"ℹ️ Kaderstärke: {_esc(m['kaderstaerke_reason'])}"))
+        elif m.get("effizienz_text") and m["effizienz"] is not None and m["effizienz"] < 97:
+            hints.append((3, f"ℹ️ {m['effizienz']:.0f}% - {_esc(m['effizienz_text'])}"))
         if m["empty_slots"]:
-            warn += f"<span class='team-warn'>⚠️ {m['empty_slots']} Slot(s) frei</span>"
+            hints.append((3, f"⚠️ {m['empty_slots']} Slot(s) frei"))
         if m["klumpenrisiko"] and m["klumpenrisiko"] >= 30:
-            warn += f"<span class='team-warn'>⚠️ {m['klumpenrisiko']:.0f}% aus {_esc(m['top_team'])}</span>"
-        hint = (f"<div class='meta'>ℹ️ {_esc(m['formation_hint'])}</div>"
-               if m.get("formation_hint") else "")
+            hints.append((2, f"⚠️ {m['klumpenrisiko']:.0f}% aus {_esc(m['top_team'])}"))
+        if m.get("formation_hint"):
+            hints.append((1, f"ℹ️ {_esc(m['formation_hint'])}"))
+        hints.sort(key=lambda x: -x[0])
+        warn = "".join(f"<span class='team-warn'>{txt}</span>" for _, txt in hints[:2])
+        duel_html = "".join(f"<div class='meta'>⚔️ {_esc(h)}</div>" for h in (m.get("duel_hints") or []))
         rows.append(f"""<div class="{cls}">
   <span class="team-rank">{i}</span>
   <span class="team-name">{_esc(m['name'])}{' ⭐' if is_me else ''}</span>
@@ -525,7 +590,7 @@ def _league_teams_table(teams, my_uid):
   <span class="team-stat">{eff} <span class="team-sub">Effizienz</span></span>
   <span class="team-stat">{_esc(m['formation'] or '?')}</span>
   {warn}
-  {hint}
+  {duel_html}
 </div>""")
     return "<div class='team-table'>" + "".join(rows) + "</div>"
 
@@ -565,7 +630,9 @@ def _league_panel(report, panel_id):
 
   <h3 class="section-h">🧠 Aufstellungsempfehlung</h3>
   {_lineup_block(report.get("lineup"), report.get("lineup_status"),
-                report.get("lineup_swaps"), report.get("lineup_missing"))}
+                report.get("lineup_swaps"), report.get("lineup_missing"),
+                report.get("ideal_prognose"), report.get("ist_prognose"),
+                report.get("self_play_conflicts"), report.get("kaderstaerke_reason"))}
 
   <h3 class="section-h">👥 Spieltagsprognose - alle Manager</h3>
   <p class="note">Beruht auf der ECHTEN gesetzten Aufstellung jedes Managers
@@ -656,6 +723,15 @@ main { max-width: 640px; margin: 0 auto; padding: 0.75rem; }
 .kb-rot { background: #d64545; }
 .kb-grau { background: #9aa1ad; }
 .star { font-size: 0.78rem; color: #caa23a; font-weight: 600; }
+.expiry { margin-left: auto; font-size: 0.78rem; color: var(--text-dim); white-space: nowrap; }
+.tier { font-size: 0.68rem; font-weight: 700; padding: 0.05rem 0.4rem; border-radius: 5px;
+        margin-right: 0.3rem; white-space: nowrap; vertical-align: middle; }
+.tier-klare-kaufempfehlung { background: #2e9e5033; color: #2e9e50; }
+.tier-interessant { background: #1f6fd633; color: #1f6fd6; }
+.tier-nur-trading { background: #caa23a33; color: #caa23a; }
+.tier-kein-bedarf { background: #8884; color: var(--text-dim); }
+.card-detail { margin-top: 0.4rem; }
+.card-detail summary { font-size: 0.76rem; color: var(--text-dim); cursor: pointer; }
 .stats { font-size: 0.82rem; color: var(--text-dim); margin-top: 0.15rem; }
 .components { font-size: 0.78rem; color: var(--text-dim); margin-top: 0.3rem; }
 .reasons, .angles { margin: 0.35rem 0 0; padding-left: 1.1rem; font-size: 0.85rem; }

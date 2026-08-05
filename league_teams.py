@@ -43,6 +43,35 @@ def fetch_team_map(kb, cid):
     return {str(t["tid"]): t.get("tn", "") for t in table.get("it", [])}
 
 
+def _estimate_prob(p):
+    """
+    **Bugfix, live über die neue Diagnose-Kaskade gefunden (SPEC_
+    spieltagsmodell_v2.md 1.2)**: `managers/{uid}/squad` liefert KEIN
+    `prob`-Feld (anders als `get_player_details`, das für den eigenen Kader
+    genutzt wird - s. kickbase_api.get_manager_squad()-Docstring, die 17
+    dokumentierten Felder enthalten kein `prob`). Ohne diesen Fix defaultete
+    `p.get("prob", 3)` für JEDEN Mitspieler-Spieler auf gelb (Einsatzfaktor
+    0,60) - live verifiziert: die Diagnose-Kaskade zeigte "Einsatz ×0.6" für
+    praktisch jeden Manager, EINSCHLIESSLICH des eigenen Teams (dessen
+    `squad_classified`-Pfad über get_player_details() korrekt überwiegend
+    blau/grün zeigt) - der Unterschied bewies, dass es an der Datenquelle
+    lag, nicht am Modell.
+
+    Näherung: der Manager hat den Spieler bereits real in die Startelf
+    gestellt (`lo` gesetzt) - das ist ein STÄRKERES Signal als Kickbases
+    eigene Prognose. Fit (st=0) + in der Startelf -> prob~2 (grün).
+    Verletzt/angeschlagen (st=2) -> prob~4 (rot), unabhängig vom Lineup-
+    Status (ein Manager stellt einen Verletzten manchmal trotzdem optimistisch
+    auf). Bankspieler/unklarer Status -> prob=3 (gelb, neutral) wie bisher.
+    """
+    st = p.get("st", 0)
+    if st == 2:
+        return 4
+    if p.get("lo") is not None and st == 0:
+        return 2
+    return 3
+
+
 def analyze_manager(kb, cid, league_id, uid, name, tid_to_name, strength_map,
                     upcoming, fixture_mode, matcher, sleep=0.15,
                     liga_avg_win_prob=0.5):
@@ -78,7 +107,7 @@ def analyze_manager(kb, cid, league_id, uid, name, tid_to_name, strength_map,
         else:
             ease, opponents = fixture_ease_for_team(team_name, upcoming, strength_map)
         ep, factors = coach.expected_points(
-            pos, p.get("ap", 0), None, p.get("st", 0), p.get("prob", 3), ease,
+            pos, p.get("ap", 0), None, p.get("st", 0), _estimate_prob(p), ease,
             team_name=team_name, mv=p.get("mv", 0), liga_avg_win_prob=liga_avg_win_prob)
         players.append({
             "id": str(p.get("pi")), "name": p.get("pn", "?"), "pos": pos,
@@ -88,22 +117,33 @@ def analyze_manager(kb, cid, league_id, uid, name, tid_to_name, strength_map,
             "expected_points": ep, "ep_factors": factors, "opponents": opponents,
         })
 
-    # SPEC_kalibrierung_fairvalue.md 2.1: gilt laut Spec ausdrücklich auch
-    # für die Bewertung der Mitspieler-Teams, nicht nur die eigene Elf.
-    coach.adjust_for_self_play_duels(players, matcher)
-
     xi = sorted((p for p in players if p["lo"] is not None), key=lambda p: p["lo"])
     bench = [p for p in players if p["lo"] is None]
 
-    prognose = round(sum(p["expected_points"] for p in xi), 1)
-    # Bandbreite grob aus den Einzel-Einsatzfaktoren - ohne Streuungsdaten
-    # (s. Modul-Docstring) eine einfache +/-15%-Näherung, klar als solche
-    # ausgewiesen statt eine Scheingenauigkeit vorzutäuschen.
-    prognose_range = (round(prognose * 0.85, 1), round(prognose * 1.15, 1))
+    # SPEC_spieltagsmodell_v2.md 1.1 + 2.1 + 2.3: echte Sigma-Bandbreite +
+    # Direktduell-Dämpfung NUR innerhalb der Startelf (nicht mehr über den
+    # ganzen Kader gesucht - Bankspieler sind irrelevant, deren Punkte
+    # zählen nicht) statt einer festen ±15%-Näherung.
+    xi_result = coach.xi_prognose(xi, matcher)
+    prognose = xi_result["total"]
+    prognose_range = xi_result["bandbreite"]
+    duel_hints = coach.duel_hints_for_xi(xi, matcher)
 
     lineup_opt = coach.optimize_lineup(players) if players else None
-    kaderstaerke = lineup_opt["best_total"] if lineup_opt and lineup_opt["best"] else None
+    kaderstaerke_reason = None
+    if lineup_opt and lineup_opt["best"]:
+        kaderstaerke = lineup_opt["best_total"]
+    else:
+        kaderstaerke = None
+        # 1.3-Bugfix: kein stummes "?" mehr - Grund benennen (zu wenige
+        # Spieler einer Position für JEDE der 7 Formationen).
+        kaderstaerke_reason = coach.formation_gap_reason(players) if players else "kein Kader geladen"
     effizienz = round(prognose / kaderstaerke * 100, 1) if kaderstaerke else None
+    # 1.3: Effizienz fließt NIRGENDS in die Punkteerwartung ein, ist eine rein
+    # abgeleitete Kennzahl (Prognose ÷ Kaderstärke) - Klartext statt nackter %.
+    effizienz_text = (f"mit optimaler Aufstellung wären +{kaderstaerke - prognose:.0f} "
+                      f"Punkte möglich" if kaderstaerke and kaderstaerke > prognose
+                      else "spielt bereits die stärkste Elf" if kaderstaerke else None)
 
     tiefe = sum(1 for p in players if p["expected_points"] >= DEPTH_THRESHOLD)
 
@@ -120,7 +160,10 @@ def analyze_manager(kb, cid, league_id, uid, name, tid_to_name, strength_map,
     formation_counts = Counter(p["pos"] for p in xi)
     formation = (f"{formation_counts.get('ABW', 0)}-{formation_counts.get('MF', 0)}-"
                 f"{formation_counts.get('ANG', 0)}") if xi else None
-    # Formationsdynamik-Textbaustein (SPEC 2.4) - rein informativ.
+    # Formationsdynamik-Textbaustein (SPEC 2.4) - rein informativ, NUR wenn
+    # er in diesem Fall etwas bedeutet (nicht wortgleich für jeden Manager,
+    # s. SPEC 1.4 - deshalb prüft formation_hint() die Zu-Null-Erwartung
+    # statt pauschal bei "drei Stürmer" zu triggern).
     hint = coach.formation_hint(xi)
 
     return {
@@ -128,7 +171,9 @@ def analyze_manager(kb, cid, league_id, uid, name, tid_to_name, strength_map,
         "squad_size": len(players), "bench_size": len(bench),
         "xi": xi, "bench": bench,
         "prognose": prognose, "prognose_range": prognose_range,
-        "kaderstaerke": kaderstaerke, "effizienz": effizienz,
+        "duel_hints": duel_hints,
+        "kaderstaerke": kaderstaerke, "kaderstaerke_reason": kaderstaerke_reason,
+        "effizienz": effizienz, "effizienz_text": effizienz_text,
         "tiefe": tiefe, "klumpenrisiko": klumpenrisiko, "top_team": top_team,
         "formation": formation, "formation_hint": hint,
         "empty_slots": max(0, 11 - len(xi)),

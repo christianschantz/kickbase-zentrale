@@ -35,21 +35,28 @@ aber ein blauer Stammspieler bekommt dort jetzt exakt 1,0, nicht 0,75.
   (grobe Sieg-WK-Näherung, Erstkalibrierung)
 - Spielverlaufsfaktor: aus llm_insights.matchday_outlook, sonst neutral 1,0
 
-**Direkte Duelle (2.1)**: `adjust_for_self_play_duels()` erkennt eigene
-Spieler in derselben Partie auf verschiedenen Seiten und dämpft den
-ergebnisabhängigen Anteil (Gegnerfaktor-Abweichung + Zu-Null-Bonus) für
-BEIDE auf die Hälfte - grobe, transparente Näherung an "der Ergebnis-Topf
-wird einmal vergeben, nicht zweimal" (eine echte gemeinsame Verteilung
-bräuchte eine Kovarianzrechnung, die hier bewusst nicht gebaut wird) und
-weitet die ausgewiesene Bandbreite.
+**Direkte Duelle (SPEC_spieltagsmodell_v2.md 2.1/2.3)**: `xi_prognose()`
+erkennt (über `find_self_play_pairs()`) eigene Spieler in derselben Partie
+auf verschiedenen Seiten - NUR wenn beide in der übergebenen Startelf
+stehen, Bankspieler zählen nicht - und dämpft den ergebnisabhängigen Anteil
+(Gegnerfaktor-Abweichung + Zu-Null-Bonus) für BEIDE auf die Hälfte, ohne die
+Spieler-Dicts zu mutieren (dieselbe Elf kann in mehreren Kontexten, z.B.
+Ideal- vs. Ist-Aufstellung, unterschiedlich zu werten sein). Grobe,
+transparente Näherung an "der Ergebnis-Topf wird einmal vergeben, nicht
+zweimal" (eine echte gemeinsame Verteilung bräuchte eine Kovarianzrechnung,
+bewusst nicht gebaut) und senkt die Sigma-Gewichtung in der Team-Bandbreite.
+`duel_hints_for_xi()` liefert die Text-Hinweise dazu.
 
 **Lücke geschlossen (2026-08-05, SPEC_lineup_verified.md)**: `GET /v4/leagues
 /{id}/lineup` liefert den kompletten Kader inkl. `lo` (Slot 0-10 in der
 Startelf, fehlt bei Bankspielern) - live verifiziert. `current_lineup_status()`
-und `suggest_swaps()` nutzen das für echte Wechselvorschläge ggü. der
-tatsächlich gesetzten Elf. **Kein POST**: `/lineup` (setzt die Aufstellung)
-wird bewusst nicht implementiert - würde den echten Kickbase-Kader verändern,
-gehört laut Spec explizit nicht in den automatischen Lauf.
+und `swaps_from_ideal()` (SPEC_spieltagsmodell_v2.md 2.1 - EINE Quelle statt
+zwei unabhängig berechneter, die sich widersprechen konnten: die Ideal-Elf
+ist die Wahrheit, Wechselvorschläge sind das Delta dazu) nutzen das für echte
+Wechselvorschläge ggü. der tatsächlich gesetzten Elf. **Kein POST**:
+`/lineup` (setzt die Aufstellung) wird bewusst nicht implementiert - würde
+den echten Kickbase-Kader verändern, gehört laut Spec explizit nicht in den
+automatischen Lauf.
 
 **Formationen unverifiziert**: die 7 Formationen unten sind allgemeines
 Fantasy-Football-Wissen, nicht gegen einen Kickbase-Endpoint geprüft (kein
@@ -198,16 +205,44 @@ def team_factor(team_strength):
     return lo + (hi - lo) * team_strength
 
 
-# ---------- Bandbreite (Transparenz, SPEC 2.5) ----------
-# Erstkalibrierung ohne echte Streuungsdaten (bräuchte Ist-Werte je
-# Spieltag, die es vor dem ersten Spieltag naturgemäß nicht gibt) - grobe,
-# klar als Näherung ausgewiesene Spanne um die erwarteten Punkte.
-BANDWIDTH_RANGE = (0.65, 1.45)
-BANDWIDTH_RANGE_DUEL = (0.55, 1.60)  # weiter bei direkten Duellen (2.1: "Streuung steigt")
+# ---------- Bandbreite (SPEC_spieltagsmodell_v2.md 1.1 - echte Streuung
+# statt fester ±15%) ----------
+# Erstkalibrierung für Spieler OHNE `ph`-Historie (Neuzugänge/Vorbereitung):
+# grobe Sigma-Schätzung als Anteil der Basis, je Position - Torhüter am
+# stabilsten (Paraden/Gegentore schwanken wenig), Angreifer am volatilsten
+# (Boom-or-Bust: Tor oder nichts).
+SIGMA_ESTIMATE_FACTOR = {"TW": 0.25, "ABW": 0.35, "MF": 0.30, "ANG": 0.40}
+MIN_SIGMA = 5.0
 
 
-def _bandwidth(erwartung, widened=False):
-    lo, hi = BANDWIDTH_RANGE_DUEL if widened else BANDWIDTH_RANGE
+def player_sigma(ph, pos, basis):
+    """
+    Standardabweichung der Spieltagspunkte (SPEC 1.1): aus `ph` (Vorsaison-
+    Spieltage mit hp=true), wenn mindestens 4 Datenpunkte vorliegen - sonst
+    aus der Positions-/Preisklasse geschätzt (Basis × Erfahrungsfaktor,
+    `SIGMA_ESTIMATE_FACTOR`) und als Schätzung gekennzeichnet.
+    Liefert (sigma, ist_geschaetzt).
+    """
+    real = [e["p"] for e in (ph or []) if e.get("hp") and e.get("p") is not None]
+    if len(real) >= 4:
+        mean = sum(real) / len(real)
+        var = sum((x - mean) ** 2 for x in real) / (len(real) - 1)
+        return max(MIN_SIGMA, var ** 0.5), False
+    factor = SIGMA_ESTIMATE_FACTOR.get(pos, 0.33)
+    return max(MIN_SIGMA, basis * factor), True
+
+
+def _bandwidth(erwartung, sigma=None):
+    """
+    Einzelspieler-Bandbreite: E ± 1,0×σ (≈68% der Fälle laut Normalnäherung,
+    SPEC_spieltagsmodell_v2.md 1.1). `sigma=None` (Aufrufer ohne Historie/
+    Kontext) fällt auf die alte grobe ±-Prozent-Näherung zurück. Die
+    Team-Bandbreite (mit Direktduell-Dämpfung + Klumpen-Korrelation) baut
+    `xi_prognose()` separat aus den Einzel-Sigmas auf.
+    """
+    if sigma is not None:
+        return (round(max(0.0, erwartung - sigma), 1), round(erwartung + sigma, 1))
+    lo, hi = (0.55, 1.60) if widened else (0.65, 1.45)
     return (round(erwartung * lo, 1), round(erwartung * hi, 1))
 
 
@@ -248,6 +283,7 @@ def expected_points(pos, ap, ph, st, prob, win_prob, team_name=None,
     zu_null, p_zu_null = zu_null_bonus(pos, win_prob)
 
     erwartung = basis * einsatz * gegner * form * verlauf + zu_null
+    sigma, sigma_geschaetzt = player_sigma(ph, pos, basis)
     return round(erwartung, 1), {
         "basis": round(basis, 1), "basis_quelle": quelle,
         "basis_geschaetzt": quelle != "real",
@@ -255,7 +291,38 @@ def expected_points(pos, ap, ph, st, prob, win_prob, team_name=None,
         "gegnerfaktor": round(gegner, 2), "formfaktor": round(form, 2),
         "spielverlaufsfaktor": round(verlauf, 2), "spielverlauf_grund": verlauf_grund,
         "zu_null_bonus": round(zu_null, 1), "p_zu_null": round(p_zu_null, 2) if p_zu_null else None,
-        "bandbreite": _bandwidth(erwartung),
+        "sigma": round(sigma, 1), "sigma_geschaetzt": sigma_geschaetzt,
+        "bandbreite": _bandwidth(erwartung, sigma),
+    }
+
+
+def diagnose_prognose(xi):
+    """
+    Kaskadierte Diagnose-Tabelle (SPEC_spieltagsmodell_v2.md 1.2, Pflicht-
+    Ausgabe bei >25% Abweichung vom pspts-Anker): zeigt Schritt für Schritt,
+    wie viel Niveau jeder Faktor kostet/bringt - "welcher Faktor drückt die
+    Prognose" ist damit direkt ablesbar statt vermutet.
+    """
+    basis_sum = sum(p["ep_factors"]["basis"] for p in xi)
+    nach_einsatz = sum(p["ep_factors"]["basis"] * p["ep_factors"]["einsatzfaktor"] for p in xi)
+    nach_gegner = sum(p["ep_factors"]["basis"] * p["ep_factors"]["einsatzfaktor"]
+                      * p["ep_factors"]["gegnerfaktor"] for p in xi)
+    nach_form = sum(p["ep_factors"]["basis"] * p["ep_factors"]["einsatzfaktor"]
+                    * p["ep_factors"]["gegnerfaktor"] * p["ep_factors"].get("formfaktor", 1.0)
+                    for p in xi)
+    zu_null_sum = sum(p["ep_factors"].get("zu_null_bonus", 0.0) for p in xi)
+    final = sum(p["expected_points"] for p in xi)
+
+    def _eff(nach, vor):
+        return round(nach / vor, 2) if vor else None
+
+    return {
+        "basis": round(basis_sum, 1),
+        "nach_einsatz": round(nach_einsatz, 1), "einsatz_effektiv": _eff(nach_einsatz, basis_sum),
+        "nach_gegner": round(nach_gegner, 1), "gegner_effektiv": _eff(nach_gegner, nach_einsatz),
+        "nach_form": round(nach_form, 1), "form_effektiv": _eff(nach_form, nach_gegner),
+        "zu_null": round(zu_null_sum, 1),
+        "final": round(final, 1),
     }
 
 
@@ -365,29 +432,49 @@ def current_lineup_status(lineup_raw, squad_with_points):
     return {"xi": xi, "bench": bench, "empty_slots": max(0, 11 - len(xi))}
 
 
-def suggest_swaps(status, max_suggestions=3):
-    """
-    Vergleicht jeden Startelf-Spieler mit dem stärksten Bankspieler DERSELBEN
-    Position (die Formation ist fix, kein Positionswechsel innerhalb eines
-    Tauschs möglich) und schlägt Tausche mit positiver erwarteter
-    Punktedifferenz vor, absteigend sortiert.
-    """
-    bench_by_pos = {}
-    for b in status["bench"]:
-        bench_by_pos.setdefault(b["pos"], []).append(b)
-    for pos in bench_by_pos:
-        bench_by_pos[pos].sort(key=lambda p: -p["expected_points"])
+# Differenz unter ~8% der Erwartung = Abwägung kennzeichnen, keine klare
+# Empfehlung (SPEC_spieltagsmodell_v2.md 2.2).
+SWAP_MARGIN = 0.08
 
-    suggestions = []
-    for starter in status["xi"]:
-        candidates = bench_by_pos.get(starter["pos"], [])
+
+def swaps_from_ideal(lineup_status, lineup_opt, max_suggestions=3):
+    """
+    SPEC_spieltagsmodell_v2.md 2.1: EINE Quelle statt zwei getrennt
+    berechneter Kennzahlen, die sich widersprechen konnten (Wechsel-
+    vorschläge liefen bisher unabhängig über "stärkster Bankspieler ggü.
+    jedem Starter" statt gegen die tatsächlich empfohlene Ideal-Elf). Jetzt:
+    die Ideal-Elf (`lineup_opt`, `coach.optimize_lineup()`) ist die einzige
+    Wahrheit, Wechselvorschläge sind das DELTA zur echten Ist-Aufstellung -
+    für jeden Ideal-Elf-Spieler, der nicht in der echten Startelf steht,
+    wird der schwächste echte Startelf-Spieler DERSELBEN Position (der
+    selbst nicht Teil der Ideal-Elf ist) als Tausch-Kandidat vorgeschlagen.
+    `knapp=True` (SPEC 2.2) markiert Differenzen <8% der Erwartung als
+    Abwägung statt klare Empfehlung.
+    """
+    if not lineup_opt or not lineup_opt.get("best"):
+        return []
+    ideal_xi = lineup_opt["formations"][lineup_opt["best"]]["xi"]
+    ideal_ids = {p["id"] for p in ideal_xi}
+    real_ids = {p["id"] for p in lineup_status["xi"]}
+    missing = [p for p in ideal_xi if p["id"] not in real_ids]
+    if not missing:
+        return []
+    real_by_pos = {}
+    for p in lineup_status["xi"]:
+        real_by_pos.setdefault(p["pos"], []).append(p)
+
+    suggestions, used_out = [], set()
+    for ideal_p in sorted(missing, key=lambda x: -x["expected_points"]):
+        candidates = [p for p in real_by_pos.get(ideal_p["pos"], [])
+                     if p["id"] not in ideal_ids and p["id"] not in used_out]
         if not candidates:
             continue
-        best = candidates[0]
-        diff = best["expected_points"] - starter["expected_points"]
-        if diff > 0:
-            suggestions.append({"slot": starter["lo"], "out": starter,
-                               "in": best, "diff": round(diff, 1)})
+        worst_real = min(candidates, key=lambda p: p["expected_points"])
+        used_out.add(worst_real["id"])
+        diff = ideal_p["expected_points"] - worst_real["expected_points"]
+        knapp = abs(diff) < SWAP_MARGIN * max(worst_real["expected_points"], 1)
+        suggestions.append({"slot": worst_real.get("lo"), "out": worst_real,
+                           "in": ideal_p, "diff": round(diff, 1), "knapp": knapp})
     suggestions.sort(key=lambda s: -s["diff"])
     return suggestions[:max_suggestions]
 
@@ -414,6 +501,23 @@ def missing_positions(status, lineup_result):
     return missing
 
 
+def formation_gap_reason(players):
+    """
+    SPEC_spieltagsmodell_v2.md 1.3: kein stummes "?", wenn optimize_lineup()
+    für KEINE der 7 Formationen genug Spieler einer Position findet - benennt
+    konkret, welche Position(en) unter der Kickbase-Mindestbesetzung liegen
+    (squad_analysis.MIN_POS_COUNT, gilt über alle Formationen hinweg).
+    """
+    from collections import Counter
+    from squad_analysis import MIN_POS_COUNT
+    counts = Counter(p["pos"] for p in players)
+    gaps = [f"{MIN_POS_COUNT[pos] - counts.get(pos, 0)}x {pos}"
+           for pos in MIN_POS_COUNT if counts.get(pos, 0) < MIN_POS_COUNT[pos]]
+    if gaps:
+        return "zu wenige Spieler für eine gültige Elf - fehlt: " + ", ".join(gaps)
+    return "zu wenige Spieler für alternative Formationen (Kader zu klein/unausgewogen)"
+
+
 def formation_hint(xi):
     """
     Textbaustein zur Formationsdynamik (SPEC 2.4) für die Manager-Analyse:
@@ -435,92 +539,111 @@ def formation_hint(xi):
     return None
 
 
-def adjust_for_self_play_duels(players, matcher):
+def find_self_play_pairs(xi, matcher):
     """
-    SPEC_kalibrierung_fairvalue.md 2.1, vom Nutzer als wichtigster Mangel
-    benannt: stehen zwei eigene Spieler in derselben Partie auf
-    verschiedenen Seiten, sind die ergebnisabhängigen Anteile (Gegnerfaktor-
-    Abweichung von 1,0 + Zu-Null-Bonus) wechselseitig ausschließend - nur
-    eine Seite kann tatsächlich gewinnen. Beide unverändert mit ihrem vollen
-    Ergebnisbonus zu bewerten überschätzt das Team systematisch.
-
-    Grobe, transparente Näherung ("der Topf wird einmal vergeben, gewichtet
-    nach Sieg-WK, nicht zweimal"): der Gegnerfaktor-Ausschlag UND der
-    Zu-Null-Bonus werden für BEIDE Betroffenen halbiert (eine echte gemeinsame
-    Verteilung bräuchte eine Kovarianzrechnung, die hier bewusst nicht gebaut
-    wird), die ausgewiesene Bandbreite wird geweitet (Streuung steigt bei
-    korrelierten Ergebnissen). Mutiert `players` (Feld `expected_points`/
-    `ep_factors`) direkt und gibt die betroffenen Paare zurück
-    ([(playerA, playerB), ...], Namen für die Report-Ausweisung).
-
-    `players`: Liste von Dicts mit 'name', 'team', 'pos', 'opponents'
-    (nächste Gegner-Namen), 'expected_points', 'ep_factors' - passt sowohl
-    auf squad_classified (main.py) als auch league_teams.analyze_manager()'s
-    Spielerliste.
+    SPEC_spieltagsmodell_v2.md 2.3 (Korrektur ggü. der Vorfassung): Duelle
+    werden NUR ausgewertet, wenn BEIDE Spieler in der STARTELF stehen -
+    Bankspieler sind irrelevant, deren Punkte zählen nicht. `xi` muss daher
+    bereits die konkrete Elf sein (Ideal- oder Ist-Aufstellung), NICHT der
+    volle Kader. Reine Erkennung (Fuzzy-Match von `opponents[0]` gegen die
+    eigenen Teamnamen in der Elf, derselbe `_match_name`-Matcher wie sonst
+    im Projekt), keine Punktemutation - s. `xi_prognose()`/
+    `duel_hints_for_xi()` für die Verwendung.
     """
-    teams = {p["team"]: p for p in players if p.get("team")}
+    teams = {p["team"]: p for p in xi if p.get("team")}
     team_names = list(teams.keys())
     seen, pairs = set(), []
-    for p in players:
-        if not p.get("team") or not p.get("opponents") or "ep_factors" not in p:
+    for p in xi:
+        if not p.get("team") or not p.get("opponents"):
             continue
         opp_clean = p["opponents"][0].split(" (")[0].strip()
         matched = matcher(opp_clean, team_names)
         if not matched or matched == p["team"]:
             continue
         other = teams.get(matched)
-        if not other or other is p or "ep_factors" not in other:
+        if not other or other is p:
             continue
         pair = tuple(sorted((p["name"], other["name"])))
         if pair in seen:
             continue
         seen.add(pair)
         pairs.append((p, other))
-
-    for a, b in pairs:
-        for pl in (a, b):
-            f = pl["ep_factors"]
-            gegner_dev = f["gegnerfaktor"] - 1.0
-            f["gegnerfaktor"] = round(1.0 + gegner_dev * 0.5, 2)
-            f["zu_null_bonus"] = round(f.get("zu_null_bonus", 0.0) * 0.5, 1)
-            f["direktduell_gedaempft"] = True
-            neu = (f["basis"] * f["einsatzfaktor"] * f["gegnerfaktor"]
-                  * f.get("formfaktor", 1.0) * f["spielverlaufsfaktor"]
-                  + f["zu_null_bonus"])
-            pl["expected_points"] = round(neu, 1)
-            f["bandbreite"] = _bandwidth(neu, widened=True)
-
     return pairs
 
 
-def detect_self_play_conflicts(squad, matcher):
+def _damped_points(f):
+    """Punkte eines Spielers, wenn sein ergebnisabhängiger Anteil (Gegner-
+    faktor-Ausschlag + Zu-Null-Bonus) wegen eines Direktduells halbiert wird
+    (SPEC_kalibrierung_fairvalue.md 2.1: "der Topf wird einmal vergeben,
+    nicht zweimal") - grobe, transparente Näherung ohne echte Kovarianz."""
+    gegner_dev = f.get("gegnerfaktor", 1.0) - 1.0
+    damped_gegner = 1.0 + gegner_dev * 0.5
+    damped_zu_null = f.get("zu_null_bonus", 0.0) * 0.5
+    pts = (f.get("basis", 0) * f.get("einsatzfaktor", 1.0) * damped_gegner
+          * f.get("formfaktor", 1.0) * f.get("spielverlaufsfaktor", 1.0)
+          + damped_zu_null)
+    return round(pts, 1)
+
+
+def xi_prognose(xi, matcher):
     """
-    Text-Hinweise fürs Reporting/die KI (SPEC_gebote_ki_team_KOMPLETT.md
-    2.2 + SPEC_kalibrierung_fairvalue.md 2.1) - nutzt dieselbe Paar-Findung
-    wie `adjust_for_self_play_duels()` (identische Fuzzy-Match-Logik über
-    `opponents[0]` gegen die eigenen Teamnamen), aber rein informativ, ohne
-    die Punkte zu verändern (für Aufrufer, die nur den Hinweistext brauchen,
-    z.B. den KI-Kontext).
+    Gesamtprognose + Bandbreite für eine KONKRETE Startelf (SPEC_
+    spieltagsmodell_v2.md 1.1 + 2.1 + 2.3 zusammengeführt) - mutiert die
+    übergebenen Spieler-Dicts NICHT (dieselbe Elf kann in mehreren Kontexten,
+    z.B. Ideal- vs. Ist-Aufstellung, unterschiedlich zu werten sein).
+    Direktduelle (beide Spieler IN DIESER Elf) dämpfen ihren ergebnis-
+    abhängigen Punkteanteil UND senken ihre Sigma-Gewichtung (negativ
+    korreliert). Team-Varianz sonst additiv aus `ep_factors['sigma']`
+    + Klumpen-Korrelation (mehrere Spieler desselben Vereins).
+    Liefert {"total", "bandbreite", "duels": [(playerA, playerB), ...]}.
     """
-    teams = {s["team"]: s for s in squad if s.get("team")}
-    team_names = list(teams.keys())
-    seen, conflicts = set(), []
-    for s in squad:
-        if not s.get("team") or not s.get("opponents"):
-            continue
-        opp_clean = s["opponents"][0].split(" (")[0].strip()
-        matched = matcher(opp_clean, team_names)
-        if not matched or matched == s["team"]:
-            continue
-        other = teams.get(matched)
-        if not other or other["name"] == s["name"]:
-            continue
-        pair = tuple(sorted((s["name"], other["name"])))
-        if pair in seen:
-            continue
-        seen.add(pair)
-        conflicts.append(
-            f"{s['name']} ({s['team']}) trifft direkt auf {other['name']} ({other['team']}) "
-            f"- beide eigene Spieler, Ergebnisbonus hebt sich weitgehend auf"
+    if not xi:
+        return {"total": 0.0, "bandbreite": (0.0, 0.0), "duels": []}
+    pairs = find_self_play_pairs(xi, matcher)
+    damped_ids = {p["id"] for pair in pairs for p in pair}
+
+    total, var_total = 0.0, 0.0
+    by_team = {}
+    for p in xi:
+        f = p.get("ep_factors", {})
+        sigma = f.get("sigma", MIN_SIGMA)
+        if p["id"] in damped_ids:
+            pts = _damped_points(f)
+            sigma *= 0.75
+        else:
+            pts = p["expected_points"]
+        total += pts
+        var_total += sigma ** 2
+        if p.get("team"):
+            by_team.setdefault(p["team"], []).append(sigma)
+    for sigmas in by_team.values():
+        if len(sigmas) >= 2:
+            avg = sum(sigmas) / len(sigmas)
+            var_total += 0.4 * (len(sigmas) - 1) * avg ** 2
+    sigma_team = var_total ** 0.5
+
+    return {
+        "total": round(total, 1),
+        "bandbreite": (round(max(0.0, total - sigma_team), 1), round(total + sigma_team, 1)),
+        "duels": pairs,
+    }
+
+
+def duel_hints_for_xi(xi, matcher):
+    """
+    Text-Hinweise für Report/KI (SPEC_gebote_ki_team_KOMPLETT.md 2.2 +
+    SPEC_spieltagsmodell_v2.md 2.3) - NUR für Duelle innerhalb einer
+    konkreten Startelf (`xi`), inkl. Einschätzung, welcher der beiden die
+    bessere Wahl ist (höhere erwartete Punkte in der ORIGINAL-Berechnung -
+    vor der Dämpfung, die zeigt ja gerade den Vergleich).
+    """
+    hints = []
+    for a, b in find_self_play_pairs(xi, matcher):
+        besser, schlechter = ((a, b) if a["expected_points"] >= b["expected_points"] else (b, a))
+        hints.append(
+            f"{a['name']} ({a['team']}) vs. {b['name']} ({b['team']}) - "
+            f"Ergebnisbonus fällt nur einmal an, beide gleichzeitig stark ist unwahrscheinlich. "
+            f"{besser['name']} ({besser['expected_points']} P) ist die bessere Wahl vor "
+            f"{schlechter['name']} ({schlechter['expected_points']} P)."
         )
-    return conflicts
+    return hints

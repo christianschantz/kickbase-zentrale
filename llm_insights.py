@@ -312,8 +312,9 @@ def build_context(report, strength_map, fixture_mode, matcher, generated_at, sea
     market_targets.sort(key=lambda x: -x["score"])
 
     # Punkt 2.2 Thema 2: bereits algorithmisch erkannt (coach.
-    # detect_self_play_conflicts in main.py), hier nur durchgereicht - die KI
-    # soll es einordnen, nicht selbst suchen.
+    # duel_hints_for_xi() in main.py, NUR innerhalb der echten Startelf,
+    # SPEC_spieltagsmodell_v2.md 2.3), hier nur durchgereicht - die KI soll
+    # es einordnen, nicht selbst suchen.
     self_play_conflicts = report.get("self_play_conflicts") or []
 
     lineup_status = report.get("lineup_status") or {}

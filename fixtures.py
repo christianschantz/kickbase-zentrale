@@ -206,28 +206,31 @@ def team_strength_for(kb_team_name, strength_map, default=0.5):
 def league_avg_win_prob(fixture_mode, strength_map, upcoming):
     """
     Liga-Ø-Sieg-WK für die Gegnerfaktor-Zentrierung (SPEC_kalibrierung_
-    fairvalue.md Abschnitt 0/1.2/2.2): Fußball hat 3 Ausgänge, die reale
-    Ø-Siegwahrscheinlichkeit pro Team liegt bei ~35-40%, nicht bei 50% -
-    ein Gegnerfaktor, der bei 0,5 zentriert, unterschätzt daher systematisch
-    fast jeden Spieler (mitursächlich für die zu niedrigen Punkteprognosen).
+    fairvalue.md Abschnitt 0/1.2/2.2, verengt SPEC_spieltagsmodell_v2.md 1.2):
+    Fußball hat 3 Ausgänge, die reale Ø-Siegwahrscheinlichkeit pro Team liegt
+    bei ~35-40%, nicht bei 50% - ein Gegnerfaktor, der bei 0,5 zentriert,
+    unterschätzt daher systematisch fast jeden Spieler.
+
+    **Verengt auf `next_n=1`** (2026-08-05, SPEC_spieltagsmodell_v2.md 1.2:
+    "Mittelwert der Sieg-WK über alle Partien DES Spieltags", nicht über
+    mehrere künftige Spieltage gemittelt) - vorher wurden je Team die
+    nächsten 3 Spiele gemittelt, was den Nullpunkt leicht in Richtung des
+    generellen Liga-Durchschnitts über mehrere Spieltage verwässern konnte
+    statt exakt auf DIESEN Spieltag zu zentrieren.
 
     odds-Modus (`upcoming` = {team: [(gegner, echte Sieg-WK), ...]} aus
-    odds.py): Mittel der eigenen Ø-Sieg-WK (nächste 3 Spiele) über alle
-    Teams - echte Buchmacher-Quoten, typischerweise klar unter 0,5.
-    table/openligadb-Modus: `strength_map` ist über `build_strength_map()`
-    uniform von 1 (Erster) bis 0 (Letzter) verteilt (`1 - i/(n-1)`) - das
-    Mittel ist rechnerisch IMMER exakt 0,5, hier trotzdem generisch über
-    die Daten berechnet statt hartkodiert (bleibt korrekt, falls sich die
-    Verteilung mal ändert). 0,5 als letzter Fallback ohne Datengrundlage.
+    odds.py, chronologisch): Mittel der eigenen Sieg-WK des JEWEILS NÄCHSTEN
+    Spiels über alle Teams - echte Buchmacher-Quoten, typischerweise klar
+    unter 0,5. table/openligadb-Modus: `strength_map` ist über
+    `build_strength_map()` uniform von 1 (Erster) bis 0 (Letzter) verteilt
+    (`1 - i/(n-1)`) - das Mittel ist rechnerisch IMMER exakt 0,5, hier
+    trotzdem generisch über die Daten berechnet statt hartkodiert. 0,5 als
+    letzter Fallback ohne Datengrundlage.
     """
     if fixture_mode == "odds" and upcoming:
-        team_avgs = []
-        for _, games in upcoming.items():
-            probs = [p for _, p in games[:3]]
-            if probs:
-                team_avgs.append(sum(probs) / len(probs))
-        if team_avgs:
-            return sum(team_avgs) / len(team_avgs)
+        team_next = [games[0][1] for games in upcoming.values() if games]
+        if team_next:
+            return sum(team_next) / len(team_next)
     if strength_map:
         vals = list(strength_map.values())
         return 1 - (sum(vals) / len(vals))

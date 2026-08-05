@@ -12,6 +12,16 @@ Kickbase-Mechanik (recherchiert):
 
 DEFAULT_BUFFER = 0.03  # 3% über erwartetem 22-Uhr-MW
 
+# SPEC_spieltagsmodell_v2.md 3.5: bei hohem Fair Value UND gutem Wachstum
+# darf mehr geboten werden - Aufschlag = Basis-Aufschlag × (1 + 0,5 ×
+# relative Unterbewertung), gedeckelt bei +50% (FAIR_VALUE_BOOST_CAP).
+# Die Wertobergrenze aus 1.2 (max_gebot = max(trading_ceiling, fair_value))
+# bleibt die harte Bremse - dieser Boost wirkt nur INNERHALB dieser Grenze,
+# er kann sie nicht überschreiben (Erhöhung des Wunschgebots, nicht der
+# Obergrenze).
+FAIR_VALUE_BOOST_FACTOR = 0.5
+FAIR_VALUE_BOOST_CAP = 1.5
+
 # Bei stark & nachhaltig steigenden Spielern bietet nicht nur einer auf den
 # nächsten 22-Uhr-MW, sondern die ganze Liga auf die absehbare Entwicklung der
 # nächsten Tage (User-Erfahrung). PROJECTION_DAYS ist die Zielspanne dafür.
@@ -74,6 +84,11 @@ def _recommend_bid_forecast(mv, mv_history, aggressiveness, league_overpay, star
     f = forecast(mv_history)
     regime = f["regime"]
 
+    # SPEC_spieltagsmodell_v2.md 3.6: die Regime-Detailzeile ("Regime STABIL
+    # (92 Datenpunkte, Dämpfung 1.0) - ...") ist bei INITIALISIERUNG/INSTABIL
+    # methodisch irreführend (es GIBT keine tragfähige Prognose) - Hauptsicht
+    # bekommt nur die ehrliche Kurzform, die volle Methodik wandert in
+    # `projection_note` (Detailbereich, s. html_report.py).
     if regime == INITIALISIERUNG or not f["projections"]:
         # Spec 1.2: keine Trendprojektion - Gebot = aktueller MW + kleiner
         # Fixaufschlag (der reguläre Puffer unten reicht dafür).
@@ -83,6 +98,7 @@ def _recommend_bid_forecast(mv, mv_history, aggressiveness, league_overpay, star
         projection_note = (f"Regime INITIALISIERUNG ({f['n_points']} Datenpunkte{jump_txt}) - "
                            "keine Trendprojektion (Neueinsteiger/Ausreißertag), "
                            "Gebot nah am aktuellen MW")
+        projection_short = "zu wenig Historie für eine Prognose"
     else:
         untergrenze = f["projections"][1]["basis"]
         horizon = max(f["projections"])
@@ -94,10 +110,21 @@ def _recommend_bid_forecast(mv, mv_history, aggressiveness, league_overpay, star
                            f"Dämpfung {f['damping']}) - Basis-Prognose morgen 22:00 "
                            f"{untergrenze:,.0f} €, Trading-Obergrenze in {horizon} Tagen "
                            f"{trading_decke:,.0f} €")
+        projection_short = None if regime == "STABIL" else "zu wenig Historie für eine Prognose"
 
     buffer = DEFAULT_BUFFER * aggressiveness
     if league_overpay is not None:
         buffer = max(buffer, league_overpay * aggressiveness)
+
+    # SPEC 3.5: Fair Value erhöht den Aufschlag, wenn der Spieler deutlich
+    # unterbewertet ist ("bei hohem Fair Value und gutem Wachstum darf mehr
+    # geboten werden") - gedeckelt, damit es keine Einladung zum grenzenlosen
+    # Überbieten wird. Wirkt nur nach OBEN (Unterbewertung), nie als Rabatt
+    # bei Überbewertung - das regelt bereits die Wertobergrenze unten.
+    if fair_value_mv is not None and mv > 0 and fair_value_mv > mv:
+        underval = (fair_value_mv - mv) / mv
+        boost = min(FAIR_VALUE_BOOST_CAP, 1 + FAIR_VALUE_BOOST_FACTOR * underval)
+        buffer *= boost
 
     wunsch = untergrenze * (1 + buffer)
     # max_gebot = max(wert_decke, trading_decke) - Punkt 1.2c: entweder die
@@ -133,6 +160,7 @@ def _recommend_bid_forecast(mv, mv_history, aggressiveness, league_overpay, star
         "buffer_pct": round(buffer * 100, 1),
         "win_probability": round(win_prob, 2),
         "projection_note": projection_note,
+        "projection_short": projection_short,
         "star_ceiling": star_ceiling,
         "regime": regime,
         "verdict": verdict,
@@ -187,6 +215,7 @@ def _recommend_bid_legacy(mv, tfhmvt, aggressiveness, league_overpay, sporting_c
         "buffer_pct": round(buffer * 100, 1),
         "win_probability": round(win_prob, 2),
         "projection_note": projection_note,
+        "projection_short": None,
         "star_ceiling": star_ceiling,
     }
 

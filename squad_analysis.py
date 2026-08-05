@@ -306,6 +306,45 @@ def _punktetyp_note(m):
     return text
 
 
+# SPEC_spieltagsmodell_v2.md 3.2: "die eigentliche Brücke zwischen
+# Transfermarkt und Trainer-Modul" - beantwortet direkt "bringt mir der
+# Spieler Punkte?" statt den Spieler nur abstrakt zu bewerten.
+def bridge_to_ideal_elf(ep_market, pos, lineup_opt, free_slots):
+    if free_slots > 0:
+        return {"kind": "free_slot", "gain": ep_market}
+    if not lineup_opt or not lineup_opt.get("best"):
+        return {"kind": "unknown"}
+    xi = lineup_opt["formations"][lineup_opt["best"]]["xi"]
+    same_pos = [p for p in xi if p["pos"] == pos]
+    if not same_pos:
+        return {"kind": "unknown"}
+    weakest = min(same_pos, key=lambda p: p["expected_points"])
+    gain = ep_market - weakest["expected_points"]
+    if gain > 0:
+        return {"kind": "verdraengt", "target": weakest, "gain": gain}
+    return {"kind": "kein_platz", "target": weakest, "gap": -gain}
+
+
+# SPEC 3.3: vierstufige Empfehlung statt binär, mit Ausschlusskriterien -
+# baut auf dem bereits berechneten team_verdict/bid AUF (kein Ersatz für
+# die bestehende, über viele Feedback-Runden kalibrierte market_vs_squad-
+# Logik, nur eine gröbere Einordnung obendrauf).
+def recommendation_tier(m, bridge):
+    headline = m.get("team_verdict", "")
+    color = m.get("kickbase_color")
+    no_startelf_aussicht = color in ("rot", "grau") and bridge.get("kind") not in ("free_slot", "verdraengt")
+    kein_beitrag = bridge.get("kind") in ("kein_platz", "unknown") and m.get("tfhmvt", 0) <= 0
+    if no_startelf_aussicht or kein_beitrag or "KEIN BEDARF" in headline:
+        return "KEIN BEDARF"
+    if "KLARE KAUFEMPFEHLUNG" in headline:
+        return "KLARE KAUFEMPFEHLUNG"
+    if bridge.get("kind") in ("free_slot", "verdraengt") and m.get("affordable"):
+        return "INTERESSANT"
+    if m.get("trading_angle", {}).get("qualifies"):
+        return "NUR TRADING"
+    return "INTERESSANT" if m.get("affordable") and ("UPGRADE" in headline or "KAUFEN" in headline) else "KEIN BEDARF"
+
+
 def market_vs_squad(market_scored, squad_classified, budget, max_squad,
                     league_overpay=None, club_limit=None):
     free_slots = max(0, max_squad - len(squad_classified))

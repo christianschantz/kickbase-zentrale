@@ -41,6 +41,7 @@ from report_builder import (compute_kpis, build_actions, build_squad_action_item
 from llm_insights import generate_insights
 import coach
 from league_teams import build_league_teams
+from prediction_log import save_matchday_prediction, save_daily_bids, save_matchday_actuals, deviation_report
 
 LEAGUE_BOARD_TOP_N = 10  # Top N je Position in der Liga-Bestenliste (B5)
 
@@ -230,20 +231,6 @@ def run_league(kb, cfg, run_timestamp):
                       f">Faktor 2 von Ø {ap_check} ab")
             squad_classified.append(c)
         flag_formation_risk(squad_classified)
-        # Punkt 2.2 (SPEC_gebote_ki_team_KOMPLETT.md): "eigene Spieler, die
-        # gegeneinander spielen" ist algorithmisch erkennbar - gehört der KI
-        # ausdrücklich benannt vorgesetzt statt selbst erraten.
-        self_play_conflicts = coach.detect_self_play_conflicts(squad_classified, _match_name)
-        if self_play_conflicts:
-            print("\n⚔️ EIGENE SPIELER GEGENEINANDER:")
-            for txt in self_play_conflicts:
-                print(f"   {txt}")
-        # SPEC_kalibrierung_fairvalue.md 2.1: den ergebnisabhängigen Anteil
-        # (Gegnerfaktor-Abweichung + Zu-Null-Bonus) NICHT doppelt vergeben -
-        # dämpft beide Seiten eines erkannten Duells, weitet die Bandbreite.
-        # Muss VOR optimize_lineup()/current_lineup_status() laufen, damit
-        # die Aufstellungsempfehlung die gedämpften Werte nutzt.
-        coach.adjust_for_self_play_duels(squad_classified, _match_name)
 
         order = {"VERKAUFEN": 0, "BEOBACHTEN": 1, "STAMM": 2, "HALTEN (Trading)": 3}
         for c in sorted(squad_classified, key=lambda x: order.get(x["verdict"], 9)):
@@ -263,17 +250,38 @@ def run_league(kb, cfg, run_timestamp):
     squad_slots = len(squad_players)
 
     # ---------- 1b) AUFSTELLUNG (Punkt 6, jetzt mit echter Startelf) ----------
+    # SPEC_spieltagsmodell_v2.md 2.1: die Ideal-Elf ist die EINZIGE Quelle -
+    # Wechselvorschläge (swaps_from_ideal) werden als Delta dazu abgeleitet,
+    # nicht mehr unabhängig über "stärkster Bankspieler" berechnet (das
+    # konnte sich widersprechen).
     lineup_opt = coach.optimize_lineup(squad_classified) if squad_classified else None
     lineup_status = (coach.current_lineup_status(lineup_raw, squad_classified)
                      if squad_classified else None)
-    swaps = coach.suggest_swaps(lineup_status) if lineup_status else []
+    swaps = (coach.swaps_from_ideal(lineup_status, lineup_opt)
+            if lineup_status and lineup_opt else [])
     missing_pos = (coach.missing_positions(lineup_status, lineup_opt)
                    if lineup_status and lineup_opt else {})
+    # 1.3: kein stummes "?" - wenn KEINE Formation passt, den Grund benennen.
+    kaderstaerke_reason = (coach.formation_gap_reason(squad_classified)
+                           if squad_classified and not (lineup_opt and lineup_opt["best"]) else None)
+
+    # SPEC_spieltagsmodell_v2.md 2.3: Direktduelle NUR auswerten, wenn beide
+    # Spieler in der Startelf stehen (nicht mehr im ganzen Kader gesucht) -
+    # ausgewertet auf der ECHTEN Ist-Elf, weil die die "Prognose"-Kennzahlen
+    # überall im Report trägt (Dashboard, Modul 3, KI-Kontext).
+    ist_prognose = (coach.xi_prognose(lineup_status["xi"], _match_name)
+                    if lineup_status and lineup_status["xi"] else None)
+    self_play_conflicts = (coach.duel_hints_for_xi(lineup_status["xi"], _match_name)
+                           if lineup_status and lineup_status["xi"] else [])
+    ideal_prognose = (coach.xi_prognose(lineup_opt["formations"][lineup_opt["best"]]["xi"], _match_name)
+                      if lineup_opt and lineup_opt["best"] else None)
 
     if lineup_opt and lineup_opt["best"]:
         best = lineup_opt["formations"][lineup_opt["best"]]
         print(f"\n🧠 AUFSTELLUNGSEMPFEHLUNG: {lineup_opt['best']} "
-              f"({lineup_opt['best_total']} erwartete Punkte) · Deadline 20:29 Uhr")
+              f"({ideal_prognose['total']} erwartete Punkte, Bandbreite "
+              f"{ideal_prognose['bandbreite'][0]:.0f}-{ideal_prognose['bandbreite'][1]:.0f}) · "
+              f"Deadline 20:29 Uhr")
         for p in sorted(best["xi"], key=lambda x: -x["expected_points"]):
             print(f"   {p['pos']:<4} {p['name']:<20} {p['expected_points']:>5.1f} P "
                   f"(Basis {p['ep_factors']['basis']} × Einsatz {p['ep_factors']['einsatzfaktor']} "
@@ -285,15 +293,28 @@ def run_league(kb, cfg, run_timestamp):
             alt_txt = ", ".join(f"{n} ({t:+.1f})" for n, t in
                                 [(n, t - lineup_opt["best_total"]) for n, t in alternatives[:3]])
             print(f"   Alternativen: {alt_txt}")
+    elif kaderstaerke_reason:
+        print(f"\n🧠 AUFSTELLUNGSEMPFEHLUNG: nicht berechenbar - {kaderstaerke_reason}")
 
     if lineup_status:
-        print(f"\n📋 AKTUELL GESETZTE ELF: {len(lineup_status['xi'])}/11 Slots belegt")
+        n_filled = len(lineup_status["xi"])
+        prog_txt = (f" · Prognose {ist_prognose['total']:.0f} P "
+                    f"({ist_prognose['bandbreite'][0]:.0f}-{ist_prognose['bandbreite'][1]:.0f})"
+                    if ist_prognose else "")
+        print(f"\n📋 AKTUELL GESETZTE ELF: {n_filled}/11 Slots belegt{prog_txt}")
         if lineup_status["empty_slots"]:
             gap_txt = ", ".join(f"{n}× {pos}" for pos, n in missing_pos.items()) or "Position unklar"
             print(f"   ⚠️ {lineup_status['empty_slots']} freie(r) Slot(s) - fehlt: {gap_txt}")
         for s in swaps:
+            # SPEC 2.2: knappe Differenzen (<8% der Erwartung) als Abwägung
+            # kennzeichnen statt als klare Empfehlung.
+            tag = " (⚖️ knappe Entscheidung)" if s.get("knapp") else ""
             print(f"   ↳ Slot {s['slot']}: {s['out']['name']} raus, {s['in']['name']} rein "
-                  f"- erwartet {s['diff']:+.1f} Punkte")
+                  f"- erwartet {s['diff']:+.1f} Punkte{tag}")
+        if self_play_conflicts:
+            print("   ⚔️ Direktes Duell in deiner Elf:")
+            for txt in self_play_conflicts:
+                print(f"      {txt}")
 
     # Kaufkraft-Kennzahlen fürs Dashboard (identische Formel wie in
     # squad_analysis.market_vs_squad, dort nicht nach außen gereicht).
@@ -375,6 +396,13 @@ def run_league(kb, cfg, run_timestamp):
                     pos_now, mv_now, p.get("ap", 0), d.get("ph"), d.get("st", 0), d.get("prob", 3),
                     ease, team_strength, price_curve, liga_avg_win_prob=liga_avg_win_prob,
                     peer_estimate=peer_est)
+        # SPEC_spieltagsmodell_v2.md 3.2: erwartete Punkte des Marktspielers
+        # IM EIGENEN Kontext (Gegner/Team der kommenden Partie) - Grundlage
+        # für die Ideal-Elf-Brücke unten (wichtigste inhaltliche Ergänzung
+        # laut Spec: "bringt mir der Spieler Punkte?").
+        ep_market, _ = coach.expected_points(
+            pos_now, p.get("ap", 0), d.get("ph"), d.get("st", 0), d.get("prob", 3), ease,
+            team_name=d.get("tn", ""), mv=mv_now, liga_avg_win_prob=liga_avg_win_prob)
         market_scored.append({
             "id": str(p.get("i")),
             "name": f"{p.get('fn', '')} {p.get('n', '')}".strip(),
@@ -391,6 +419,7 @@ def run_league(kb, cfg, run_timestamp):
             "kickbase_color": color_now,
             "team_strength": team_strength,
             "min_price_player": min_price_now,
+            "expected_points_mine": ep_market,
             "fair_value": fair_value_mv,
             "expected_ap_for_mv": round(expected_ap_for_mv, 1) if expected_ap_for_mv is not None else None,
             "reliability": profile,
@@ -423,6 +452,15 @@ def run_league(kb, cfg, run_timestamp):
     compared = finalize_headline_recommendations(compared)
     if free_slots:
         print(f"   ({free_slots} freie Kaderplätze!)")
+
+    # SPEC_spieltagsmodell_v2.md 3.2/3.3: Ideal-Elf-Brücke + vierstufige
+    # Empfehlung je Marktspieler - NACH free_slots/team_verdict, die beide
+    # hier gebraucht werden.
+    from squad_analysis import bridge_to_ideal_elf, recommendation_tier
+    for m in compared:
+        bridge = bridge_to_ideal_elf(m.get("expected_points_mine", 0), m["pos"], lineup_opt, free_slots)
+        m["ideal_elf_bridge"] = bridge
+        m["tier"] = recommendation_tier(m, bridge)
 
     def _print_bid_extra(b):
         if b.get("projection_note"):
@@ -465,7 +503,20 @@ def run_league(kb, cfg, run_timestamp):
             print(f"  Nächste Gegner: {', '.join(m['opponents'])}")
         if m["fitness"]:
             print(f"  ⚠️ {m['fitness']}")
-        print(f"  🎯 {m['team_verdict']}")
+        # SPEC_spieltagsmodell_v2.md 3.2/3.3: Ideal-Elf-Brücke + Tier-Badge.
+        bridge = m.get("ideal_elf_bridge") or {}
+        if bridge.get("kind") == "free_slot":
+            print(f"  ⚽ würde in deine Ideal-Elf einrücken (freier Kaderplatz) - "
+                  f"{bridge['gain']:.0f} erwartete Punkte")
+        elif bridge.get("kind") == "verdraengt":
+            t = bridge["target"]
+            print(f"  ⚽ würde deine Ideal-Elf verstärken: verdrängt {t['name']} "
+                  f"({t['expected_points']:.0f} P) · +{bridge['gain']:.0f} P")
+        elif bridge.get("kind") == "kein_platz":
+            t = bridge["target"]
+            print(f"  ⚽ käme nicht in deine Elf ({t['pos']} ist mit {t['name']} "
+                  f"({t['expected_points']:.0f} P) besetzt, {bridge['gap']:.0f} P schwächer)")
+        print(f"  🎯 [{m.get('tier', '?')}] {m['team_verdict']}")
         if "KEIN BEDARF" not in m["team_verdict"]:
             b = m["bid"]
             if b.get("verdict") == "nicht_bieten":
@@ -546,6 +597,12 @@ def run_league(kb, cfg, run_timestamp):
           f"(echte gesetzte Elf, keine Bestmöglich-Annahme):")
     print(f"   {'#':>2} {'Manager':<18} {'Prognose':>18} {'Kaderstärke':>12} "
           f"{'Effizienz':>10} {'Formation':>10} {'Slots':>6}")
+    # SPEC_spieltagsmodell_v2.md 1.2: Pflicht-Diagnosetabelle je Manager, der
+    # >25% vom EIGENEN pspts-Anker abweicht - zeigt die Faktor-Kaskade statt
+    # nur die Abweichung zu behaupten.
+    pspts_by_uid = {str(u.get("i")): u.get("pspts") for u in (ranking.get("us") or []) if u.get("i")}
+    matchdays_cfg = cfg.get("matchdays", 34)
+
     for i, m in enumerate(league_teams, 1):
         marker = " ⭐ (ich)" if str(m["uid"]) == str(kb.user_id) else ""
         rng = f"({m['prognose_range'][0]:.0f}-{m['prognose_range'][1]:.0f})"
@@ -554,24 +611,86 @@ def run_league(kb, cfg, run_timestamp):
         slot_txt = f"{11 - m['empty_slots']}/11"
         print(f"   {i:>2} {m['name']:<18} {m['prognose']:>7.1f} {rng:>10} "
               f"{ks:>12} {eff:>10} {(m['formation'] or '?'):>10} {slot_txt:>6}{marker}")
+        # 1.3: kein stummes "?" - fehlende Kaderstärke wird begründet.
+        if m.get("kaderstaerke_reason"):
+            print(f"      ℹ️ Kaderstärke: {m['kaderstaerke_reason']}")
+        elif m.get("effizienz_text") and m["effizienz"] is not None and m["effizienz"] < 97:
+            print(f"      ℹ️ Effizienz {m['effizienz']:.0f}% - {m['effizienz_text']}")
+        # 1.4: höchstens 2 Kontext-Hinweise je Manager, nach Wirkung sortiert
+        # (keine wortgleiche Wiederholung für jeden Manager).
+        hints = []
         if m["empty_slots"]:
-            print(f"      ⚠️ {m['empty_slots']} unbesetzte Slot(s)")
+            hints.append((3, f"⚠️ {m['empty_slots']} unbesetzte Slot(s)"))
         if m["klumpenrisiko"] and m["klumpenrisiko"] >= 30:
-            print(f"      ⚠️ Klumpenrisiko: {m['klumpenrisiko']:.0f}% der Prognose aus {m['top_team']}")
+            hints.append((2, f"⚠️ Klumpenrisiko: {m['klumpenrisiko']:.0f}% der Prognose aus {m['top_team']}"))
         if m.get("formation_hint"):
-            print(f"      ℹ️ {m['formation_hint']}")
+            hints.append((1, f"ℹ️ {m['formation_hint']}"))
+        hints.sort(key=lambda x: -x[0])
+        for _, txt in hints[:2]:
+            print(f"      {txt}")
+        # 2.3: Direktduelle NUR innerhalb der Startelf, nur wenn eins vorliegt.
+        for txt in (m.get("duel_hints") or []):
+            print(f"      ⚔️ {txt}")
+        # 1.2 Diagnose-Kaskade bei >25% Abweichung vom EIGENEN pspts-Anker.
+        pspts = pspts_by_uid.get(str(m["uid"]))
+        if pspts and matchdays_cfg and m["xi"]:
+            m_anchor = pspts / matchdays_cfg
+            if m_anchor > 0:
+                dev = (m["prognose"] - m_anchor) / m_anchor
+                if abs(dev) > 0.25:
+                    d = coach.diagnose_prognose(m["xi"])
+                    print(f"      📐 Diagnose (Anker {m_anchor:.0f}, Abw. {dev:+.0%}): "
+                          f"Basis {d['basis']:.0f} → Einsatz {d['nach_einsatz']:.0f} "
+                          f"(×{d['einsatz_effektiv']}) → Gegner {d['nach_gegner']:.0f} "
+                          f"(×{d['gegner_effektiv']}) → Form {d['nach_form']:.0f} "
+                          f"(×{d['form_effektiv']}) + Zu-Null {d['zu_null']:+.0f} = {d['final']:.0f}")
 
     # SPEC_kalibrierung_fairvalue.md 1.1: harter Kalibrierungsanker aus
     # `ranking.us[].pspts`/Spieltagszahl - hätte den ursprünglichen Faktor-
     # Bug (Prognose ~250-450 statt real ~900) sofort sichtbar gemacht.
     # Pflicht-Selbstprüfung, kein optionales Debug-Feature.
-    calibration = _check_pspts_anchor(ranking, cfg.get("matchdays", 34), league_teams)
+    calibration = _check_pspts_anchor(ranking, matchdays_cfg, league_teams)
     if calibration:
         icon = "⚠️ KALIBRIERUNGS-WARNUNG" if not calibration["plausible"] else "✅ Kalibrierungsanker"
         print(f"\n{icon}: Median der Spieltagsprognosen {calibration['median_prognose']:.0f} P "
               f"vs. Vorsaison-Anker {calibration['anchor']:.0f} P/Spieltag "
-              f"(aus pspts/{cfg.get('matchdays', 34)}) - Abweichung {calibration['deviation']:+.0%}"
+              f"(aus pspts/{matchdays_cfg}) - Abweichung {calibration['deviation']:+.0%}"
               + ("" if calibration["plausible"] else " (Faktoren prüfen!)"))
+
+    # ---------- SPEC_spieltagsmodell_v2.md 4.4: Rückkopplungs-Protokollierung
+    # (zeitkritisch - vor dem ersten Anpfiff scharfgeschaltet) ----------
+    # TODO: `matchday` ist für Spieltag 1 hartkodiert - eine echte
+    # Spieltagszahl-Ableitung (z.B. über ranking.us[].sp>0-Erkennung wie in
+    # report_builder.compute_kpis, oder /v4/competitions/{cid}/players
+    # Feld day/sn/mdsn/nsn, noch unverifiziert) ist ein Folgeschritt für
+    # Spieltag 2+, hier bewusst nicht vorgezogen (nicht validierbar ohne
+    # echten zweiten Spieltag).
+    matchday = 1
+    kickoff_first = season_start_date  # None für La Liga (kein Datumsfeld verfügbar)
+    pred_path = save_matchday_prediction(name, matchday, kickoff_first, league_teams,
+                                         calibration["anchor"] if calibration else None,
+                                         run_timestamp)
+    if pred_path:
+        print(f"\n💾 Spieltagsprognose protokolliert: {pred_path}")
+    bid_entries = [
+        {"player": m["name"], "pos": m["pos"], "team": m.get("team"),
+         "mv_now": m.get("mv"), "recommended_bid": m["bid"].get("recommended_bid"),
+         "fair_value": m.get("fair_value"), "expected_mv_22h": m["bid"].get("expected_mv_22h"),
+         "regime": m["bid"].get("regime"), "verdict": m["bid"].get("verdict")}
+        for m in compared if m.get("bid") and "KEIN BEDARF" not in m["team_verdict"]
+    ]
+    save_daily_bids(name, run_timestamp.strftime("%Y-%m-%d"), bid_entries, run_timestamp)
+    actuals_path = save_matchday_actuals(name, matchday, ranking, run_timestamp)
+    if actuals_path:
+        print(f"💾 Spieltags-Ist-Werte protokolliert: {actuals_path}")
+    deviation = deviation_report(name, matchday)
+    if deviation:
+        print(f"\n📊 ABWEICHUNGSZERLEGUNG · Spieltag {matchday}: "
+              f"Ø Fehler {deviation['mean_error_pct']}% · "
+              f"{deviation['in_corridor']}/{deviation['n']} Manager im Prognosekorridor")
+        for r in sorted(deviation["rows"], key=lambda x: -abs(x["diff"]))[:5]:
+            print(f"   {r['name']}: Prognose {r['predicted']:.0f} · tatsächlich "
+                  f"{r['actual']:.0f} · Differenz {r['diff']:+.0f}")
 
     actions = build_actions(compared, squad_classified)
     squad_action_items = build_squad_action_items(squad_classified)
@@ -611,6 +730,9 @@ def run_league(kb, cfg, run_timestamp):
         "targets": targets,
         "mitspieler_appendix": mitspieler_appendix,
         "lineup": lineup_opt,
+        "ideal_prognose": ideal_prognose,
+        "ist_prognose": ist_prognose,
+        "kaderstaerke_reason": kaderstaerke_reason,
         "league_teams": league_teams,
         "my_uid": kb.user_id,
         "lineup_status": lineup_status,
@@ -618,6 +740,7 @@ def run_league(kb, cfg, run_timestamp):
         "lineup_missing": missing_pos,
         "self_play_conflicts": self_play_conflicts,
         "calibration": calibration,
+        "deviation_report": deviation,
         "fair_value_ok": fair_value_ok,
         "risks": risks,
         "meta": {"season_phase": season_phase(kpis)},
