@@ -201,3 +201,34 @@ def team_strength_for(kb_team_name, strength_map, default=0.5):
         return default
     matched, _ = _best_match(kb_team_name, list(strength_map.keys()))
     return strength_map.get(matched, default)
+
+
+def league_avg_win_prob(fixture_mode, strength_map, upcoming):
+    """
+    Liga-Ø-Sieg-WK für die Gegnerfaktor-Zentrierung (SPEC_kalibrierung_
+    fairvalue.md Abschnitt 0/1.2/2.2): Fußball hat 3 Ausgänge, die reale
+    Ø-Siegwahrscheinlichkeit pro Team liegt bei ~35-40%, nicht bei 50% -
+    ein Gegnerfaktor, der bei 0,5 zentriert, unterschätzt daher systematisch
+    fast jeden Spieler (mitursächlich für die zu niedrigen Punkteprognosen).
+
+    odds-Modus (`upcoming` = {team: [(gegner, echte Sieg-WK), ...]} aus
+    odds.py): Mittel der eigenen Ø-Sieg-WK (nächste 3 Spiele) über alle
+    Teams - echte Buchmacher-Quoten, typischerweise klar unter 0,5.
+    table/openligadb-Modus: `strength_map` ist über `build_strength_map()`
+    uniform von 1 (Erster) bis 0 (Letzter) verteilt (`1 - i/(n-1)`) - das
+    Mittel ist rechnerisch IMMER exakt 0,5, hier trotzdem generisch über
+    die Daten berechnet statt hartkodiert (bleibt korrekt, falls sich die
+    Verteilung mal ändert). 0,5 als letzter Fallback ohne Datengrundlage.
+    """
+    if fixture_mode == "odds" and upcoming:
+        team_avgs = []
+        for _, games in upcoming.items():
+            probs = [p for _, p in games[:3]]
+            if probs:
+                team_avgs.append(sum(probs) / len(probs))
+        if team_avgs:
+            return sum(team_avgs) / len(team_avgs)
+    if strength_map:
+        vals = list(strength_map.values())
+        return 1 - (sum(vals) / len(vals))
+    return 0.5

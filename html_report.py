@@ -89,6 +89,13 @@ def _squad_card(c):
     color_dot = (f"<span class='kb-dot kb-{_esc(kb_color)}' "
                 f"title='Kickbase-Status: {_esc(kb_color)}'></span>" if kb_color else "")
     reasons = "".join(f"<li>{_esc(r)}</li>" for r in c["reasons"])
+    # Fair Value dezent (SPEC_kalibrierung_fairvalue.md 4.1 - "nicht dominant",
+    # ergänzt das Verdikt, ersetzt es nicht; die Reason-Zeile trägt bereits die
+    # Einordnung, hier nur der nackte Wert als Kontext).
+    fv_html = ""
+    if c.get("fair_value") is not None:
+        tag = " ⚠️" if c.get("fair_value_sell_flag") else ""
+        fv_html = f"<div class='meta'>💰 Fair Value {_mio(c['fair_value'])}{tag}</div>"
     return f"""<div class="card" style="border-left-color:{color}">
   <div class="card-head">
     <span class="badge" style="background:{color}">{icon} {_esc(c['verdict'])}</span>
@@ -96,6 +103,7 @@ def _squad_card(c):
     <span class="name">{_esc(c['name'])} <span class="pos">({_esc(c['pos'])})</span></span>
   </div>
   <div class="stats">Score {c['score']} · MW {_mio(c['mv'])} ({c['tfhmvt']:+,.0f} €/Tag)</div>
+  {fv_html}
   <ul class="reasons">{reasons}</ul>
   {opponents}
 </div>"""
@@ -125,14 +133,25 @@ def _market_card(m, highlight=False):
                         f"Puffer {bid.get('buffer_pct', 0)}%, "
                         f"WK ~{bid.get('win_probability', 0):.0%}) {tick} "
                         f"{_esc(m.get('financing', ''))}</div>{extra}")
+    # SPEC_kalibrierung_fairvalue.md 3.1/3.4: Mindestpreis-Spieler sind
+    # zensierte Beobachtungen ("neutral", nie "überbewertet" - sie können
+    # nicht billiger sein). Sonst beide Richtungen derselben Kurve zeigen:
+    # Fair Value (Punkte -> MW) UND was der aktuelle MW an Punkten "üblich"
+    # wäre (MW -> Punkte, scoring.expected_points).
     fair_value_html = ""
-    if m.get("fair_value") is not None and m.get("mv"):
+    if m.get("min_price_player"):
+        fair_value_html = "<div class='fair-value'>💰 Fair Value: neutral - Mindestpreis</div>"
+    elif m.get("fair_value") is not None and m.get("mv"):
         diff_pct = (m["fair_value"] - m["mv"]) / m["mv"]
         urteil = ("unterbewertet" if diff_pct > 0.05 else
                   "überbewertet" if diff_pct < -0.05 else "fair bewertet")
         fv_cls = "up" if diff_pct > 0.05 else ("down" if diff_pct < -0.05 else "")
+        expected_line = ""
+        if m.get("expected_ap_for_mv") is not None:
+            expected_line = (f"<div class='meta'>liefert Ø {m['ap']:.0f} P, für {_mio(m['mv'])} "
+                             f"üblich wären {m['expected_ap_for_mv']:.0f} P</div>")
         fair_value_html = (f"<div class='fair-value {fv_cls}'>💰 Fair Value {_mio(m['fair_value'])} "
-                           f"({diff_pct:+.0%}) - {urteil}</div>")
+                           f"· aktuell {_mio(m['mv'])} ({diff_pct:+.0%}) - {urteil}</div>{expected_line}")
     opponents = (f"<div class='meta'>Nächste Gegner: {_esc(', '.join(m['opponents']))}</div>"
                  if m.get("opponents") else "")
     fitness = f"<div class='meta warn'>⚠️ {_esc(m['fitness'])}</div>" if m.get("fitness") else ""
@@ -269,6 +288,29 @@ def _risk_banner(risks):
     return f"<div class='risk-banner'>{lines}</div>"
 
 
+def _model_health_banner(report):
+    """
+    SPEC_kalibrierung_fairvalue.md 1.1/2.1/3.3: Selbstprüfungen und
+    algorithmisch erkannte Duelle gehören sichtbar ins Dashboard, nicht
+    stillschweigend verrechnet oder nur in die Konsole geloggt.
+    """
+    lines = []
+    calibration = report.get("calibration")
+    if calibration and not calibration["plausible"]:
+        lines.append(
+            f"<div class='risk-line warn'>⚠️ Kalibrierung: Median-Prognose "
+            f"{calibration['median_prognose']:.0f} P weicht {calibration['deviation']:+.0%} "
+            f"vom Vorsaison-Anker ({calibration['anchor']:.0f} P/Spieltag) ab</div>")
+    if report.get("fair_value_ok") is False:
+        lines.append("<div class='risk-line warn'>⚠️ Preiskurve wirkt verzerrt (Selbstprüfung "
+                     "40-60% verletzt) - Fair Value heute unterdrückt</div>")
+    for txt in (report.get("self_play_conflicts") or [])[:5]:
+        lines.append(f"<div class='risk-line warn'>⚔️ {_esc(txt)}</div>")
+    if not lines:
+        return ""
+    return f"<div class='risk-banner'>{''.join(lines)}</div>"
+
+
 def _watchlist(targets):
     if not targets:
         return "<p class='empty'>Keine besonderen Transferziele erkannt.</p>"
@@ -394,11 +436,18 @@ def _lineup_row(p):
     f = p.get("ep_factors", {})
     stats = (f"{p['expected_points']} P (Basis {f.get('basis')} × Einsatz "
             f"{f.get('einsatzfaktor')} × Gegner {f.get('gegnerfaktor')} × "
-            f"Verlauf {f.get('spielverlaufsfaktor')})")
+            f"Form {f.get('formfaktor', 1.0)} × Verlauf {f.get('spielverlaufsfaktor')}"
+            + (f" + Zu-Null {f['zu_null_bonus']:+.1f}" if f.get("zu_null_bonus") else "")
+            + ")")
+    bandwidth = f.get("bandbreite")
+    duel_note = (" ⚔️ gedämpft (direktes Duell im Kader)" if f.get("direktduell_gedaempft") else "")
+    sub = (f"<div class='meta'>Bandbreite {bandwidth[0]:.0f}-{bandwidth[1]:.0f} P{duel_note}</div>"
+          if bandwidth else "")
     return f"""<div class="board-row">
   <span class="board-status">{_esc(p['pos'])}</span>
   <span class="board-name">{_esc(p['name'])}</span>
   <span class="board-stats">{_esc(stats)}</span>
+  {sub}
 </div>"""
 
 
@@ -466,6 +515,8 @@ def _league_teams_table(teams, my_uid):
             warn += f"<span class='team-warn'>⚠️ {m['empty_slots']} Slot(s) frei</span>"
         if m["klumpenrisiko"] and m["klumpenrisiko"] >= 30:
             warn += f"<span class='team-warn'>⚠️ {m['klumpenrisiko']:.0f}% aus {_esc(m['top_team'])}</span>"
+        hint = (f"<div class='meta'>ℹ️ {_esc(m['formation_hint'])}</div>"
+               if m.get("formation_hint") else "")
         rows.append(f"""<div class="{cls}">
   <span class="team-rank">{i}</span>
   <span class="team-name">{_esc(m['name'])}{' ⭐' if is_me else ''}</span>
@@ -474,6 +525,7 @@ def _league_teams_table(teams, my_uid):
   <span class="team-stat">{eff} <span class="team-sub">Effizienz</span></span>
   <span class="team-stat">{_esc(m['formation'] or '?')}</span>
   {warn}
+  {hint}
 </div>""")
     return "<div class='team-table'>" + "".join(rows) + "</div>"
 
@@ -509,6 +561,7 @@ def _league_panel(report, panel_id):
   {_kpi_grid(kpis)}
 
   {_risk_banner(report.get("risks", []))}
+  {_model_health_banner(report)}
 
   <h3 class="section-h">🧠 Aufstellungsempfehlung</h3>
   {_lineup_block(report.get("lineup"), report.get("lineup_status"),

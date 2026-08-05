@@ -44,13 +44,24 @@ def fetch_team_map(kb, cid):
 
 
 def analyze_manager(kb, cid, league_id, uid, name, tid_to_name, strength_map,
-                    upcoming, fixture_mode, matcher, sleep=0.15):
+                    upcoming, fixture_mode, matcher, sleep=0.15,
+                    liga_avg_win_prob=0.5):
     """
     Liefert die vollständige Analyse EINES Managers: Kader mit erwarteten
     Punkten (coach.expected_points, ohne Spielverlaufsfaktor - kein KI-
     Kontext pro Mitspieler-Kader vorgesehen, s. Modul-Docstring), echte
     Startelf/Bank, Kennzahlen (Prognose/Kaderstärke/Effizienz/Tiefe/
     Klumpenrisiko), Formation aus der Positionsverteilung.
+
+    `liga_avg_win_prob` (SPEC_kalibrierung_fairvalue.md Abschnitt 0/2.2)
+    zentriert den Gegnerfaktor auf die echte Liga-Ø-Sieg-WK - ohne diesen
+    Fix lag die Spieltagsprognose systematisch bei ~250-450 statt den aus
+    `pspts`/Spieltagszahl ableitbaren realen ~900 (s. CLAUDE.md).
+    **Kein Peer-Vergleichswert (3.2) hier** - bewusst ausgeklammert, würde
+    zusätzlich Teamstärke+Farbe je Spieler und einen ligaweiten Peer-Lookup
+    brauchen (aus league_board.py, dort aber erst nach der vollen
+    Populations-Analyse verfügbar); Mitspieler-Kader ohne Punktehistorie
+    fallen hier auf die MW-Schätzung zurück wie schon vor diesem Fix.
     """
     squad_data = kb.get_manager_squad(league_id, uid)
     time.sleep(sleep)
@@ -68,7 +79,7 @@ def analyze_manager(kb, cid, league_id, uid, name, tid_to_name, strength_map,
             ease, opponents = fixture_ease_for_team(team_name, upcoming, strength_map)
         ep, factors = coach.expected_points(
             pos, p.get("ap", 0), None, p.get("st", 0), p.get("prob", 3), ease,
-            team_name=team_name, mv=p.get("mv", 0))
+            team_name=team_name, mv=p.get("mv", 0), liga_avg_win_prob=liga_avg_win_prob)
         players.append({
             "id": str(p.get("pi")), "name": p.get("pn", "?"), "pos": pos,
             "team": team_name, "lo": p.get("lo"), "mv": p.get("mv", 0) or 0,
@@ -76,6 +87,10 @@ def analyze_manager(kb, cid, league_id, uid, name, tid_to_name, strength_map,
             "sdmvt": p.get("sdmvt"), "st": p.get("st", 0),
             "expected_points": ep, "ep_factors": factors, "opponents": opponents,
         })
+
+    # SPEC_kalibrierung_fairvalue.md 2.1: gilt laut Spec ausdrücklich auch
+    # für die Bewertung der Mitspieler-Teams, nicht nur die eigene Elf.
+    coach.adjust_for_self_play_duels(players, matcher)
 
     xi = sorted((p for p in players if p["lo"] is not None), key=lambda p: p["lo"])
     bench = [p for p in players if p["lo"] is None]
@@ -105,6 +120,8 @@ def analyze_manager(kb, cid, league_id, uid, name, tid_to_name, strength_map,
     formation_counts = Counter(p["pos"] for p in xi)
     formation = (f"{formation_counts.get('ABW', 0)}-{formation_counts.get('MF', 0)}-"
                 f"{formation_counts.get('ANG', 0)}") if xi else None
+    # Formationsdynamik-Textbaustein (SPEC 2.4) - rein informativ.
+    hint = coach.formation_hint(xi)
 
     return {
         "uid": uid, "name": name,
@@ -113,13 +130,13 @@ def analyze_manager(kb, cid, league_id, uid, name, tid_to_name, strength_map,
         "prognose": prognose, "prognose_range": prognose_range,
         "kaderstaerke": kaderstaerke, "effizienz": effizienz,
         "tiefe": tiefe, "klumpenrisiko": klumpenrisiko, "top_team": top_team,
-        "formation": formation,
+        "formation": formation, "formation_hint": hint,
         "empty_slots": max(0, 11 - len(xi)),
     }
 
 
 def build_league_teams(kb, cid, league_id, ranking, strength_map, upcoming,
-                       fixture_mode, matcher, sleep=0.15):
+                       fixture_mode, matcher, sleep=0.15, liga_avg_win_prob=0.5):
     """
     Analysiert ALLE Manager der Liga (aus `ranking.us`, bereits geladen -
     kein Zusatz-Call). Liefert eine nach Prognose sortierte Liste von
@@ -135,7 +152,8 @@ def build_league_teams(kb, cid, league_id, ranking, strength_map, upcoming,
         if not uid:
             continue
         analysis = analyze_manager(kb, cid, league_id, uid, name, tid_to_name,
-                                   strength_map, upcoming, fixture_mode, matcher, sleep)
+                                   strength_map, upcoming, fixture_mode, matcher, sleep,
+                                   liga_avg_win_prob=liga_avg_win_prob)
         analysis["vorsaison"] = {
             "platz": u.get("psp"), "punkte": u.get("pspts"), "siege": u.get("pswc"),
         }

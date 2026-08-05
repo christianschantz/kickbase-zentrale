@@ -21,15 +21,19 @@ from fixtures import (get_table, get_table_football_data, build_strength_map,
                       team_strength_for,
                       get_upcoming_by_team, get_upcoming_by_team_football_data,
                       get_table_tsdb, get_upcoming_by_team_tsdb,
-                      fixture_ease_for_team, get_season_start_date)
-from scoring import score_player, explain, player_reliability_profile, punktetyp_label, kickbase_color
+                      fixture_ease_for_team, get_season_start_date,
+                      league_avg_win_prob)
+from scoring import (score_player, explain, player_reliability_profile, punktetyp_label,
+                     kickbase_color, is_min_price_player, estimate_ap_from_peers,
+                     expected_points as scoring_expected_points)
 from bid_advisor import learn_league_overpay
 from mv_forecast import clean_mv_series
 from odds import load_fixture_odds, load_fixture_odds_api, fixture_ease_odds
 from fixtures import _best_match
 from squad_analysis import (classify_own_player, market_vs_squad,
                             finalize_headline_recommendations,
-                            flag_formation_risk, POS_NAMES, DEBT_RATIO)
+                            flag_formation_risk, POS_NAMES, DEBT_RATIO,
+                            apply_fair_value_note)
 from league_board import build_league_lists
 from report_builder import (compute_kpis, build_actions, build_squad_action_items,
                             build_targets, build_mitspieler_appendix, build_risks,
@@ -44,6 +48,32 @@ LEAGUE_BOARD_TOP_N = 10  # Top N je Position in der Liga-Bestenliste (B5)
 def _match_name(name, candidates):
     m, _ = _best_match(name, candidates)
     return m
+
+
+def _check_pspts_anchor(ranking, matchdays, league_teams):
+    """
+    SPEC_kalibrierung_fairvalue.md 1.1: harter, von den eigenen Faktoren
+    unabhängiger Referenzwert - Vorsaison-Gesamtpunkte je Manager (`pspts`)
+    geteilt durch die Spieltagszahl ergibt den real erreichten Spieltags-
+    schnitt. Weicht der Median der eigenen Prognosen um mehr als 25% davon
+    ab, ist das ein Hinweis auf einen systematischen Modellfehler (genau das
+    hätte den ursprünglichen Faktor-Bug sofort sichtbar gemacht). None ohne
+    ausreichende Datengrundlage (kein pspts oder keine Prognosen).
+    """
+    anchor_values = [u["pspts"] / matchdays for u in (ranking.get("us") or [])
+                     if u.get("pspts") and matchdays]
+    if not anchor_values or not league_teams:
+        return None
+    anchor = sum(anchor_values) / len(anchor_values)
+    if anchor <= 0:
+        return None
+    prognosen = sorted(m["prognose"] for m in league_teams)
+    n = len(prognosen)
+    median_prognose = (prognosen[n // 2] if n % 2
+                       else (prognosen[n // 2 - 1] + prognosen[n // 2]) / 2)
+    deviation = (median_prognose - anchor) / anchor
+    return {"anchor": anchor, "median_prognose": median_prognose,
+           "deviation": deviation, "plausible": abs(deviation) <= 0.25}
 
 
 def load_fixture_data(cfg):
@@ -125,6 +155,14 @@ def run_league(kb, cfg, run_timestamp):
     if not upcoming:
         print("ℹ️ Kein Spielplan verfügbar -> Spielplan-Komponente neutral.")
 
+    # SPEC_kalibrierung_fairvalue.md Abschnitt 0/2.2: Gegnerfaktor-Zentrierung
+    # auf die ECHTE Liga-Ø-Sieg-WK (~35-40% wegen Unentschieden), nicht 0,5 -
+    # einmal pro Liga berechnet, unten an alle coach.expected_points()/
+    # fair_value()-Aufrufe durchgereicht. min_price (Abschnitt 3.1) zensiert
+    # Spieler am Mindestmarktwert aus der Preiskurve.
+    liga_avg_win_prob = league_avg_win_prob(fixture_mode, strength_map, upcoming)
+    min_price = cfg.get("min_price")
+
     # Saisonstart live aus dem OpenLigaDB-Spielplan (verifiziert 2026-08-05,
     # nicht mehr geschätzt) - nur für openligadb-Quellen (2. Bundesliga)
     # verfügbar, football-data.org liefert bei uns kein Datumsfeld dafür.
@@ -163,15 +201,33 @@ def run_league(kb, cfg, run_timestamp):
             # prob 1-5 - ergänzt das eigene Verdikt, ersetzt es nicht (s.
             # KICKBASE_COLOR-Docstring in scoring.py).
             c["kickbase_color"] = kickbase_color(d.get("prob", 3))
+            # Für die spätere Fair-Value-Nachverarbeitung (nach dem Aufbau der
+            # Liga-Preiskurve unten) - prob/ease/team_strength werden hier nur
+            # gebraucht, aber erst dort verwendet.
+            c["prob"] = d.get("prob", 3)
+            c["ease"] = ease
+            c["team_strength"] = (team_strength_for(d.get("tn", ""), strength_map)
+                                  if fixture_mode != "odds"
+                                  else strength_map.get(_match_name(d.get("tn", ""), list(strength_map.keys())), 0.5))
             # Punkt 6 (Grundgerüst): erwartete Punkte für die Aufstellungs-
             # optimierung (coach.py) - `ease` (Sieg-WK-Näherung) und `ph`
             # (letzte Spieltage) liegen aus diesem Loop-Durchlauf schon vor,
-            # kein Zusatz-Call nötig.
+            # kein Zusatz-Call nötig. liga_avg_win_prob zentriert den
+            # Gegnerfaktor (SPEC_kalibrierung_fairvalue.md Abschnitt 0).
             ep, ep_factors = coach.expected_points(
                 c["pos"], p.get("ap", 0), d.get("ph"), d.get("st", 0),
-                d.get("prob", 3), ease, team_name=d.get("tn", ""), mv=c["mv"])
+                d.get("prob", 3), ease, team_name=d.get("tn", ""), mv=c["mv"],
+                liga_avg_win_prob=liga_avg_win_prob)
             c["expected_points"] = ep
             c["ep_factors"] = ep_factors
+            # Plausibilitätslog je Spieler (SPEC_kalibrierung_fairvalue.md
+            # 1.2): bei einem fitten Stammspieler ist eine Abweichung um mehr
+            # als Faktor 2 vom Punkteschnitt fast immer ein Modellfehler,
+            # kein echtes Signal.
+            ap_check = p.get("ap", 0)
+            if ap_check and (ep > 2 * ap_check or ep < 0.5 * ap_check):
+                print(f"   ⚠️ Plausibilität: {c['name']} E[Punkte]={ep} weicht "
+                      f">Faktor 2 von Ø {ap_check} ab")
             squad_classified.append(c)
         flag_formation_risk(squad_classified)
         # Punkt 2.2 (SPEC_gebote_ki_team_KOMPLETT.md): "eigene Spieler, die
@@ -182,6 +238,12 @@ def run_league(kb, cfg, run_timestamp):
             print("\n⚔️ EIGENE SPIELER GEGENEINANDER:")
             for txt in self_play_conflicts:
                 print(f"   {txt}")
+        # SPEC_kalibrierung_fairvalue.md 2.1: den ergebnisabhängigen Anteil
+        # (Gegnerfaktor-Abweichung + Zu-Null-Bonus) NICHT doppelt vergeben -
+        # dämpft beide Seiten eines erkannten Duells, weitet die Bandbreite.
+        # Muss VOR optimize_lineup()/current_lineup_status() laufen, damit
+        # die Aufstellungsempfehlung die gedämpften Werte nutzt.
+        coach.adjust_for_self_play_duels(squad_classified, _match_name)
 
         order = {"VERKAUFEN": 0, "BEOBACHTEN": 1, "STAMM": 2, "HALTEN (Trading)": 3}
         for c in sorted(squad_classified, key=lambda x: order.get(x["verdict"], 9)):
@@ -251,8 +313,31 @@ def run_league(kb, cfg, run_timestamp):
                                weights_quality=WEIGHTS_QUALITY,
                                weights_value=WEIGHTS_VALUE,
                                top_n=LEAGUE_BOARD_TOP_N,
-                               league_overpay=league_overpay)
+                               league_overpay=league_overpay,
+                               min_price=min_price,
+                               liga_avg_win_prob=liga_avg_win_prob)
     price_curve = (board.get("price_curve") or {}).get("curve")
+    peer_lookup = board.get("peer_lookup")
+    fair_value_ok = board.get("fair_value_ok", True)
+    if not fair_value_ok:
+        print("   ⚠️ Preiskurve wirkt verzerrt (Selbstprüfung 40-60% verletzt) - "
+              "Fair Value wird diesen Lauf unterdrückt statt falscher Zahlen.")
+
+    # SPEC_kalibrierung_fairvalue.md 4.1: Fair Value je Kaderspieler NACH dem
+    # Kurvenaufbau nachreichen (die Kurve selbst braucht den vollen Kader
+    # für own_ids, kann also nicht schon im Kader-Loop oben vorliegen).
+    # Ergänzt die bestehenden Verdikte nur um eine Reason - die Farbregel
+    # (STAMM bei blau/grün) bleibt vorrangig, kein automatischer Verkauf.
+    for c in squad_classified:
+        fv_mv = None
+        if fair_value_ok and price_curve:
+            peer_est, _ = estimate_ap_from_peers(c["pos"], c["team_strength"],
+                                                 c["kickbase_color"], peer_lookup)
+            fv_mv, _ = coach.fair_value(
+                c["pos"], c["mv"], c["ap"], None, c["st"], c["prob"], c["ease"],
+                c["team_strength"], price_curve, liga_avg_win_prob=liga_avg_win_prob,
+                peer_estimate=peer_est)
+        apply_fair_value_note(c, fv_mv, is_min_price_player(c["mv"], min_price))
 
     # ---------- 2) MARKT IM TEAM-KONTEXT ----------
     market = kb.get_transfer_market(league_id)
@@ -273,16 +358,27 @@ def run_league(kb, cfg, run_timestamp):
                          if fixture_mode != "odds"
                          else strength_map.get(_match_name(d.get("tn", ""), list(strength_map.keys())), 0.5))
         mv_now = d.get("mv", p.get("mv", 0))
+        pos_now = POS_NAMES.get(p.get("pos"), "?")
+        color_now = kickbase_color(d.get("prob", 3))
         # Fair Value (Punkt 1.2): "was ist er sportlich wert" statt "was
         # wird er kosten" - über die Liga-Preiskurve (price_curve, oben
-        # vorgezogen) aus Form × Einsatz × Gegner × Teamstärke.
-        fair_value_mv, bereinigte_erwartung = coach.fair_value(
-            POS_NAMES.get(p.get("pos"), "?"), mv_now, p.get("ap", 0), d.get("ph"),
-            d.get("st", 0), d.get("prob", 3), ease, team_strength, price_curve)
+        # vorgezogen) aus Form × Einsatz × Gegner × Teamstärke. Peer-
+        # Vergleichswert (3.2) für Spieler ohne eigene Historie, Mindestpreis-
+        # Zensierung (3.1) und Selbstprüfungs-Unterdrückung (3.3) wie überall.
+        fair_value_mv, expected_ap_for_mv = None, None
+        min_price_now = is_min_price_player(mv_now, min_price)
+        if fair_value_ok and price_curve:
+            expected_ap_for_mv = scoring_expected_points(mv_now, price_curve)
+            if not min_price_now:
+                peer_est, _ = estimate_ap_from_peers(pos_now, team_strength, color_now, peer_lookup)
+                fair_value_mv, _ = coach.fair_value(
+                    pos_now, mv_now, p.get("ap", 0), d.get("ph"), d.get("st", 0), d.get("prob", 3),
+                    ease, team_strength, price_curve, liga_avg_win_prob=liga_avg_win_prob,
+                    peer_estimate=peer_est)
         market_scored.append({
             "id": str(p.get("i")),
             "name": f"{p.get('fn', '')} {p.get('n', '')}".strip(),
-            "pos": POS_NAMES.get(p.get("pos"), "?"),
+            "pos": pos_now,
             "tid": str(d.get("tid", p.get("tid", "")) or ""),
             "mv": mv_now,
             "ap": p.get("ap", 0),
@@ -292,10 +388,11 @@ def run_league(kb, cfg, run_timestamp):
             "fitness": d.get("stxt", ""), "expiry_s": p.get("exs", 0),
             "team": d.get("tn", ""), "st": d.get("st", 0),
             "prob": d.get("prob", 3),
-            "kickbase_color": kickbase_color(d.get("prob", 3)),
+            "kickbase_color": color_now,
             "team_strength": team_strength,
+            "min_price_player": min_price_now,
             "fair_value": fair_value_mv,
-            "fair_value_bereinigt": bereinigte_erwartung,
+            "expected_ap_for_mv": round(expected_ap_for_mv, 1) if expected_ap_for_mv is not None else None,
             "reliability": profile,
             "reliable_type": reliable_type,
             "punktetyp_text": punktetyp_text,
@@ -353,10 +450,16 @@ def run_league(kb, cfg, run_timestamp):
         print(f"\n• {m['name']} ({m['pos']}){color_txt} Score {m['score']} "
               f"| MW {m['mv']:,.0f} ({m['tfhmvt']:+,.0f}/Tag) | Ø {m['ap']} P "
               f"| ⏳ {m['expiry_s']/3600:.0f}h")
-        if m.get("fair_value") is not None:
+        if m.get("min_price_player"):
+            print(f"  💰 Fair Value: neutral - Mindestpreis (kann nicht billiger sein)")
+        elif m.get("fair_value") is not None:
             diff_pct = (m["fair_value"] - m["mv"]) / m["mv"] if m["mv"] else 0
             urteil = "unterbewertet" if diff_pct > 0.05 else ("überbewertet" if diff_pct < -0.05 else "fair bewertet")
-            print(f"  💰 Fair Value {m['fair_value']:,.0f} € ({diff_pct:+.0%}) - {urteil}")
+            print(f"  💰 Fair Value {m['fair_value']:,.0f} € · aktuell {m['mv']:,.0f} € "
+                  f"({diff_pct:+.0%}) - {urteil}")
+            if m.get("expected_ap_for_mv") is not None:
+                print(f"     liefert Ø {m['ap']:.0f} P, für {m['mv']:,.0f} € üblich "
+                      f"wären {m['expected_ap_for_mv']:.0f} P")
         print(f"  {explain(m['components'], m.get('meta'))}")
         if m["opponents"]:
             print(f"  Nächste Gegner: {', '.join(m['opponents'])}")
@@ -437,7 +540,8 @@ def run_league(kb, cfg, run_timestamp):
 
     # ---------- Modul 3: Team-Analyse aller Liga-Manager ----------
     league_teams = build_league_teams(kb, cid, league_id, ranking, strength_map,
-                                      upcoming, fixture_mode, _match_name)
+                                      upcoming, fixture_mode, _match_name,
+                                      liga_avg_win_prob=liga_avg_win_prob)
     print(f"\n👥 SPIELTAGSPROGNOSE - alle {len(league_teams)} Manager "
           f"(echte gesetzte Elf, keine Bestmöglich-Annahme):")
     print(f"   {'#':>2} {'Manager':<18} {'Prognose':>18} {'Kaderstärke':>12} "
@@ -454,6 +558,21 @@ def run_league(kb, cfg, run_timestamp):
             print(f"      ⚠️ {m['empty_slots']} unbesetzte Slot(s)")
         if m["klumpenrisiko"] and m["klumpenrisiko"] >= 30:
             print(f"      ⚠️ Klumpenrisiko: {m['klumpenrisiko']:.0f}% der Prognose aus {m['top_team']}")
+        if m.get("formation_hint"):
+            print(f"      ℹ️ {m['formation_hint']}")
+
+    # SPEC_kalibrierung_fairvalue.md 1.1: harter Kalibrierungsanker aus
+    # `ranking.us[].pspts`/Spieltagszahl - hätte den ursprünglichen Faktor-
+    # Bug (Prognose ~250-450 statt real ~900) sofort sichtbar gemacht.
+    # Pflicht-Selbstprüfung, kein optionales Debug-Feature.
+    calibration = _check_pspts_anchor(ranking, cfg.get("matchdays", 34), league_teams)
+    if calibration:
+        icon = "⚠️ KALIBRIERUNGS-WARNUNG" if not calibration["plausible"] else "✅ Kalibrierungsanker"
+        print(f"\n{icon}: Median der Spieltagsprognosen {calibration['median_prognose']:.0f} P "
+              f"vs. Vorsaison-Anker {calibration['anchor']:.0f} P/Spieltag "
+              f"(aus pspts/{cfg.get('matchdays', 34)}) - Abweichung {calibration['deviation']:+.0%}"
+              + ("" if calibration["plausible"] else " (Faktoren prüfen!)"))
+
     actions = build_actions(compared, squad_classified)
     squad_action_items = build_squad_action_items(squad_classified)
     targets = build_targets(board)
@@ -498,6 +617,8 @@ def run_league(kb, cfg, run_timestamp):
         "lineup_swaps": swaps,
         "lineup_missing": missing_pos,
         "self_play_conflicts": self_play_conflicts,
+        "calibration": calibration,
+        "fair_value_ok": fair_value_ok,
         "risks": risks,
         "meta": {"season_phase": season_phase(kpis)},
         # Rückwärtskompatible Top-Level-Felder (html_report.py-Detailblöcke):

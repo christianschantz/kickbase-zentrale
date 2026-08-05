@@ -34,6 +34,8 @@ LEAGUES = [
         "fixture_source": "openligadb",
         "openligadb_shortcut": "bl2",
         "season": "2026",
+        "min_price": 250_000,   # Liga-Mindestmarktwert (SPEC_kalibrierung_fairvalue.md 3.1)
+        "matchdays": 34,        # für den pspts-Kalibrierungsanker (Abschnitt 1.1)
     },
     {
         "name": "WirSchaffenStudium!!!",  # Liga-Name wie in der Kickbase-App
@@ -43,6 +45,8 @@ LEAGUES = [
         "fixture_source": "football-data",
         "football_data_competition": "PD",  # PD = Primera División
         "season": "2026",
+        "min_price": 500_000,   # Liga-Mindestmarktwert (SPEC_kalibrierung_fairvalue.md 3.1)
+        "matchdays": 38,        # für den pspts-Kalibrierungsanker (Abschnitt 1.1)
     },
 ]
 

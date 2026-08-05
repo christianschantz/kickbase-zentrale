@@ -128,6 +128,46 @@ def classify_own_player(p, details, ease, weights=None, sdmvt=None):
     }
 
 
+# Fair-Value-Verkaufskandidat/Halte-Argument (SPEC_kalibrierung_fairvalue.md
+# 4.1) - Erstkalibrierung.
+FAIR_VALUE_SELL_THRESHOLD = 0.25
+FAIR_VALUE_HOLD_THRESHOLD = -0.25
+
+
+def apply_fair_value_note(c, fair_value_mv, min_price_player=False):
+    """
+    SPEC_kalibrierung_fairvalue.md 4.1: Fair Value ERGÄNZT die bestehenden
+    Verdikte, ersetzt sie nicht - die Farbregel (STAMM bei blau/grün, s.
+    Punkt 1.3) bleibt vorrangig, ein Verkauf wird hier NIE ausgelöst, nur
+    eine zusätzliche Reason angehängt. Mindestpreis-Spieler (s. scoring.
+    is_min_price_player) werden nie als über-/unterbewertet ausgewiesen -
+    ihr Preis ist zensiert (kann nicht billiger sein), nicht marktbestimmt.
+    Mutiert `c` (fügt 'fair_value'/'fair_value_sell_flag' hinzu, ggf. eine
+    reasons-Zeile) und gibt es zurück.
+    """
+    c["fair_value"] = fair_value_mv
+    c["fair_value_sell_flag"] = False
+    if fair_value_mv is None or min_price_player or not c.get("mv") or fair_value_mv <= 0:
+        return c
+    diff_pct = (c["mv"] - fair_value_mv) / fair_value_mv
+    if diff_pct >= FAIR_VALUE_SELL_THRESHOLD:
+        c["fair_value_sell_flag"] = True
+        if c["verdict"] == "STAMM":
+            c["reasons"].append(
+                f"💰 Marktwert {diff_pct:+.0%} über sportlichem Wert (Fair Value "
+                f"{fair_value_mv:,.0f} €) - bei Stammspielern kein automatischer "
+                "Verkaufsgrund, nur Beobachtungshinweis")
+        else:
+            c["reasons"].append(
+                f"💰 Marktwert {diff_pct:+.0%} über sportlichem Wert (Fair Value "
+                f"{fair_value_mv:,.0f} €) - Verkaufskandidat")
+    elif diff_pct <= FAIR_VALUE_HOLD_THRESHOLD:
+        c["reasons"].append(
+            f"💰 Marktwert {diff_pct:+.0%} unter sportlichem Wert (Fair Value "
+            f"{fair_value_mv:,.0f} €) - Halte-Argument, auch wenn das MW-Momentum abflacht")
+    return c
+
+
 DEBT_RATIO = 0.33  # Kickbase erlaubt bis -33% des Kaderwerts
 
 # A5: Mindestbesetzung je Position über alle 8 Kickbase-Formationen

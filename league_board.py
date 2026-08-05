@@ -48,7 +48,9 @@ import time
 
 from scoring import (STATUS_PENALTY, PROB_SCORE, percentile_rank,
                      fit_price_curve, value_residual, form_raw,
-                     price_curve_diagnostics)
+                     price_curve_diagnostics, kickbase_color,
+                     is_min_price_player, build_peer_lookup,
+                     estimate_ap_from_peers)
 from bid_advisor import recommend_bid, dynamic_aggressiveness
 from coach import fair_value
 
@@ -132,11 +134,17 @@ def _team_score_for(team_name, strength_map, matcher, fixture_mode):
 
 def build_league_lists(kb, cid, league_id, own_ids, strength_map, upcoming,
                        fixture_mode, matcher, weights_quality=None,
-                       weights_value=None, top_n=10, league_overpay=None):
+                       weights_value=None, top_n=10, league_overpay=None,
+                       min_price=None, liga_avg_win_prob=0.5):
     """
     {"quality": {pos: [...]}, "value": {pos: [...]}, "bangers": [...]} -
     zwei komplett unabhängige Ranglisten je Position über die GESAMTE
     Competition (s. Modul-Docstring), plus Schnittmenge (Top 5 in beiden).
+
+    `min_price` (SPEC_kalibrierung_fairvalue.md 3.1) zensiert Spieler am/nahe
+    dem Liga-Mindestmarktwert aus dem Preiskurven-Fit. `liga_avg_win_prob`
+    (Abschnitt 0/2.2) zentriert den Gegnerfaktor in `coach.fair_value()` auf
+    die echte Liga-Ø-Sieg-WK statt auf 0,5.
     """
     from fixtures import fixture_ease_for_team
     from odds import fixture_ease_odds
@@ -161,7 +169,39 @@ def build_league_lists(kb, cid, league_id, own_ids, strength_map, upcoming,
             fit_players.append({"mv": mv, "ap": ap})
         elif pid in confirmed_zero_ap:
             fit_players.append({"mv": mv, "ap": 0})
-    curve = fit_price_curve(fit_players)
+    curve = fit_price_curve(fit_players, min_price=min_price)
+
+    # ---- Pass 1: pro Spieler Grunddaten (Team-Stärke/Ease/Farbe) einmal
+    # berechnen - Basis sowohl für die Perzentil-Grundlagen als auch für den
+    # Peer-Vergleichswert (Spec 3.2), der ALLE scoreable Spieler kennen muss,
+    # bevor er für die ap=0-Spieler in Pass 2 nachgeschlagen werden kann. ----
+    base = {}
+    for pid, e in profiles.items():
+        pos = POS_NAMES.get(e.get("pos"))
+        if pos is None:
+            continue
+        team_name = e.get("tn", "")
+        if fixture_mode == "odds":
+            ease, opponents = fixture_ease_odds(team_name, upcoming, matcher)
+        else:
+            ease, opponents = fixture_ease_for_team(team_name, upcoming, strength_map)
+        team_score = _team_score_for(team_name, strength_map, matcher, fixture_mode)
+        base[pid] = {"pos": pos, "team_name": team_name, "ease": ease,
+                    "opponents": opponents, "team_score": team_score}
+
+    # ---- Peer-Lookup (Spec 3.2): Median-ap je (Position, Teamstärke-Terzil,
+    # Farbe) über alle Spieler MIT echter Historie - Vergleichswert für
+    # Ligawechsler ohne jede Punktehistorie statt der reinen MW-Schätzung.
+    peer_pool = []
+    for pid, e in profiles.items():
+        b = base.get(pid)
+        if not b:
+            continue
+        ap_raw = e.get("ap", 0) or 0
+        if ap_raw > 0 or pid in confirmed_zero_ap:
+            peer_pool.append({"pos": b["pos"], "ap": ap_raw, "team_strength": b["team_score"],
+                             "color": kickbase_color(e.get("prob", 3))})
+    peer_lookup = build_peer_lookup(peer_pool)
 
     # ---- Perzentil-Grundlagen einmal pro Liga ----
     residuals, expected_pts, form_raws, momentum_raws = {}, {}, {}, {}
@@ -169,7 +209,11 @@ def build_league_lists(kb, cid, league_id, own_ids, strength_map, upcoming,
         ap_raw, mv = e.get("ap", 0) or 0, e.get("mv", 0) or 0
         # ap=None (statt 0) für nicht bewertbare Ligawechsler -> value_residual
         # liefert bewusst None ("unbekannt"), nicht "positiv" (Spec 3.3).
-        scoreable_ap = ap_raw if (ap_raw > 0 or pid in confirmed_zero_ap) else None
+        # Mindestpreis-Spieler (Spec 3.1) ebenfalls None - zensierte
+        # Beobachtung, "nicht bewertbar" statt "über/unter Erwartung".
+        scoreable_ap = (ap_raw if (ap_raw > 0 or pid in confirmed_zero_ap) else None)
+        if is_min_price_player(mv, min_price):
+            scoreable_ap = None
         residual, expected = value_residual(mv, scoreable_ap, curve)
         if residual is not None:
             residuals[pid] = residual
@@ -182,20 +226,21 @@ def build_league_lists(kb, cid, league_id, own_ids, strength_map, upcoming,
     sorted_form = sorted(form_raws.values())
     sorted_momentum = sorted(momentum_raws.values())
     price_diag = price_curve_diagnostics(curve, list(residuals.values()))
+    # Selbstprüfung (Spec 3.3, Pflicht): außerhalb 40-60% ist der Fit
+    # verzerrt - Aufrufer (main.py/html_report.py) unterdrücken die
+    # Fair-Value-Ausgabe dann, statt falsche Zahlen zu zeigen.
+    fair_value_ok = price_diag.get("plausible") is not False
 
     entries = {}
     for pid, e in profiles.items():
-        pos = POS_NAMES.get(e.get("pos"))
-        if pos is None:
+        b = base.get(pid)
+        if not b:
             continue
-        team_name = e.get("tn", "")
-        if fixture_mode == "odds":
-            ease, opponents = fixture_ease_odds(team_name, upcoming, matcher)
-        else:
-            ease, opponents = fixture_ease_for_team(team_name, upcoming, strength_map)
-        team_score = _team_score_for(team_name, strength_map, matcher, fixture_mode)
+        pos, team_name, ease, opponents, team_score = (
+            b["pos"], b["team_name"], b["ease"], b["opponents"], b["team_score"])
 
         st, prob = e.get("st", 0), e.get("prob", 3)
+        color = kickbase_color(prob)
         availability = STATUS_PENALTY.get(st, 0.5) * PROB_SCORE.get(prob, 0.5)
 
         ap, mv = e.get("ap", 0) or 0, e.get("mv", 0) or 0
@@ -210,11 +255,20 @@ def build_league_lists(kb, cid, league_id, own_ids, strength_map, upcoming,
 
         status, owner = resolve_ownership(pid, search_by_id, own_ids)
 
+        has_history = ap > 0 or pid in confirmed_zero_ap
+        peer_est = None
+        if not has_history:
+            peer_est, _ = estimate_ap_from_peers(pos, team_score, color, peer_lookup)
+
         # Fair Value (Punkt 1.2) für alle Spieler - dieselbe Liga-Preiskurve
         # wie überall in diesem Modul, kein Zusatz-Call nötig. `ph` liegt für
-        # die volle 449-Population nicht vor (Kostengrund) - fair_value()
-        # fällt dann auf die MW-Schätzung zurück wie schon expected_points().
-        fv_mv, _ = fair_value(pos, mv, ap, None, st, prob, ease, team_score, curve)
+        # die volle 449-Population nicht vor (Kostengrund) - ohne Historie
+        # UND ohne Peer-Vergleichswert fällt es auf die MW-Schätzung zurück.
+        min_price_flag = is_min_price_player(mv, min_price)
+        fv_mv, fv_meta = fair_value(pos, mv, ap, None, st, prob, ease, team_score, curve,
+                                    liga_avg_win_prob=liga_avg_win_prob, peer_estimate=peer_est)
+        if not fair_value_ok:
+            fv_mv = None  # Selbstprüfung verletzt -> keine Fair-Value-Ausgabe (Spec 3.3)
 
         bid = None
         if status == "MARKT":
@@ -235,13 +289,15 @@ def build_league_lists(kb, cid, league_id, own_ids, strength_map, upcoming,
         entries[pid] = {
             "id": pid, "name": e.get("n", "?"), "pos": pos, "team": team_name,
             "mv": mv, "ap": ap, "sdmvt": e.get("sdmvt"), "st": st, "prob": prob,
+            "kickbase_color": color,
             "quality_score": round(quality_total * 100, 1),
             "value_score": round(value_total * 100, 1),
             "residual_pct": round(residual * 100, 1) if residual is not None else None,
             "residual_abs": round(abs_diff, 1) if abs_diff is not None else None,
             "expected_ap": round(expected_ap, 1) if expected_ap is not None else None,
-            "has_points": ap > 0 or pid in confirmed_zero_ap,
-            "fair_value": fv_mv,
+            "has_points": has_history,
+            "min_price_player": min_price_flag,
+            "fair_value": fv_mv, "fair_value_meta": fv_meta,
             "opponents": opponents, "status": status, "owner": owner, "bid": bid,
         }
 
@@ -271,4 +327,5 @@ def build_league_lists(kb, cid, league_id, own_ids, strength_map, upcoming,
     climbers = sorted(entries.values(), key=lambda x: -(x["sdmvt"] or 0))[:5]
 
     return {"quality": quality_lists, "value": value_lists, "bangers": bangers,
-           "climbers": climbers, "price_curve": price_diag}
+           "climbers": climbers, "price_curve": price_diag,
+           "fair_value_ok": fair_value_ok, "peer_lookup": peer_lookup}

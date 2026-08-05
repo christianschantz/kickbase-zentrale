@@ -40,6 +40,87 @@ def kickbase_color(prob):
     return KICKBASE_COLOR.get(prob)
 
 
+def is_min_price_player(mv, min_price, margin=0.10):
+    """
+    Zensierungs-Erkennung (SPEC_kalibrierung_fairvalue.md 3.1): Spieler am
+    oder nahe dem Liga-Mindestmarktwert (2. BL 250k, La Liga 500k, s.
+    config.LEAGUES) können nicht billiger sein - ihr Preis ist nach unten
+    ABGESCHNITTEN, nicht marktbestimmt (zensierte Beobachtung, keine
+    Bewertung). `margin` erweitert die Zone leicht nach oben (Standard 10%),
+    damit auch knapp-über-Mindestpreis-Spieler noch als "neutral" statt
+    fälschlich "überbewertet" gelten. Ohne bekannten `min_price` (z.B. ein
+    Aufrufer ohne Liga-Konfiguration) liefert diese Funktion False - dann
+    greift die normale Fair-Value-Bewertung, kein stiller Sonderfall.
+    """
+    if not min_price or mv <= 0:
+        return False
+    return mv <= min_price * (1 + margin)
+
+
+def estimate_ap_from_peers(pos, team_strength, color, lookup):
+    """
+    Vergleichswert aus dem Umfeld (SPEC_kalibrierung_fairvalue.md 3.2) für
+    Spieler OHNE eigene Punktehistorie (reine Ligawechsler/Neuzugänge, ap=0
+    UND keine bestätigten Einsätze) - statt sie über den MW zu schätzen
+    (`mv_implied_form`, deckelt bei 0.7 = strukturell unterbewertet ggü.
+    echten Leistungsträgern) den MEDIAN von Spielern mit vergleichbarer
+    Position + Teamstärke-Terzil + Kickbase-Farbe verwenden: "ein blauer
+    Stammspieler eines Mittelfeldteams bekommt die typische Punktzahl genau
+    dieser Gruppe, nicht 0".
+
+    `lookup`: von `build_peer_lookup()` erzeugtes Dict
+    {(pos, terzil, farbe): median_ap}. Fällt progressiv zurück, wenn der
+    exakte Bucket leer ist: (pos, terzil, farbe) -> (pos, farbe) -> (pos) ->
+    None (dann greift beim Aufrufer der alte MW-Schätzer als letzte Instanz).
+    Liefert (median_ap, quelle) - quelle nur für Transparenz/Logging.
+    """
+    if not lookup:
+        return None, None
+    terzil = _team_strength_tercile(team_strength)
+    for key, label in (((pos, terzil, color), "pos+teamstaerke+farbe"),
+                       ((pos, None, color), "pos+farbe"),
+                       ((pos, None, None), "pos")):
+        val = lookup.get(key)
+        if val is not None:
+            return val, label
+    return None, None
+
+
+def _team_strength_tercile(team_strength):
+    ts = 0.5 if team_strength is None else max(0.0, min(1.0, team_strength))
+    if ts < 1 / 3:
+        return "schwach"
+    if ts < 2 / 3:
+        return "mittel"
+    return "stark"
+
+
+def build_peer_lookup(players):
+    """
+    Baut das Bucket-Dict für `estimate_ap_from_peers()`: Median-`ap` je
+    (pos, teamstaerke-terzil, kickbase-farbe) UND den gröberen Fallback-Ebenen
+    (pos, None, farbe) und (pos, None, None) - über alle Spieler MIT echter
+    Punktehistorie (`ap>0` oder bestätigte Nullleistung, s. Aufrufer). Jeder
+    Spieler-Eintrag braucht 'pos', 'ap', 'team_strength', 'color'.
+    """
+    from collections import defaultdict
+    buckets = defaultdict(list)
+    for p in players:
+        pos, ap = p.get("pos"), p.get("ap")
+        if pos is None or ap is None:
+            continue
+        color = p.get("color")
+        terzil = _team_strength_tercile(p.get("team_strength"))
+        buckets[(pos, terzil, color)].append(ap)
+        buckets[(pos, None, color)].append(ap)
+        buckets[(pos, None, None)].append(ap)
+    lookup = {}
+    for key, vals in buckets.items():
+        if len(vals) >= 3:  # Mindestgröße, sonst kein tragfähiger Median
+            lookup[key] = _median(sorted(vals))
+    return lookup
+
+
 def _clamp(x, lo=0.0, hi=1.0):
     return max(lo, min(hi, x))
 
@@ -75,7 +156,7 @@ def _median(sorted_values):
     return (sorted_values[mid - 1] + sorted_values[mid]) / 2
 
 
-def fit_price_curve(players):
+def fit_price_curve(players, min_price=None, censor_margin=0.10):
     """
     Referenzkurve über Preis-Dezile (Median-MW/Median-Punkte je Dezil) statt
     einer globalen Log-Regression (Spec-Fix 2026-07-31, SPEC_forecast_coach_
@@ -91,13 +172,24 @@ def fit_price_curve(players):
     s. league_board._resolve_zero_ap_history). Reine Ligawechsler ohne
     Historie dürfen hier NICHT rein (das war der Bug).
 
+    **Zensierung am Mindestpreis (SPEC_kalibrierung_fairvalue.md 3.1)**:
+    Spieler am/nahe dem Liga-Mindestmarktwert (`min_price`, z.B. 250k in der
+    2. BL) können nicht billiger sein als der Mindestpreis - ihr Preis ist
+    ABGESCHNITTEN (zensierte Beobachtung), nicht frei marktbestimmt. Werden
+    sie mitgefittet, verzerren sie das untere Kurvenende (viele verschiedene
+    Leistungsniveaus auf demselben Mindestpreis gestapelt). Werden per
+    `scoring.is_min_price_player()` ausgeschlossen, wenn `min_price` gesetzt
+    ist - ohne `min_price` (Aufrufer ohne Liga-Konfiguration) bleibt das
+    alte Verhalten (keine Zensierung) erhalten.
+
     Vorteil ggü. Regression: robust gegen Ausreißer, kein Modellrisiko, direkt
     als Tabelle darstellbar ("für 12 Mio bringt der Durchschnittsspieler
     92 Punkte" - wörtlich das Dezil-Ergebnis). Liefert eine sortierte Liste
     von 10 (median_mv, median_ap)-Stützpunkten oder None bei <30 Punkten
     (Mindestgröße für 10 einigermaßen tragfähige Dezile).
     """
-    pts = sorted(((p["mv"], p["ap"]) for p in players if p.get("mv", 0) > 0),
+    pts = sorted(((p["mv"], p["ap"]) for p in players if p.get("mv", 0) > 0
+                 and not is_min_price_player(p.get("mv", 0), min_price, censor_margin)),
                 key=lambda x: x[0])
     n = len(pts)
     if n < 30:
