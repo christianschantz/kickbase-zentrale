@@ -106,9 +106,17 @@ def analyze_manager(kb, cid, league_id, uid, name, tid_to_name, strength_map,
             ease, opponents = fixture_ease_odds(team_name, upcoming, matcher)
         else:
             ease, opponents = fixture_ease_for_team(team_name, upcoming, strength_map)
+        prob = _estimate_prob(p)
         ep, factors = coach.expected_points(
-            pos, p.get("ap", 0), None, p.get("st", 0), _estimate_prob(p), ease,
+            pos, p.get("ap", 0), None, p.get("st", 0), prob, ease,
             team_name=team_name, mv=p.get("mv", 0), liga_avg_win_prob=liga_avg_win_prob)
+        # SPEC_ranking_faktoren_llm.md 2.3: Plausibilitätsprüfung - eine
+        # Erwartung <25 P bei einem blauen/grünen (voraussichtlichen
+        # Startelf-)Spieler ist fast immer ein Datenproblem, kein echtes
+        # Signal (live so gefunden: Reese 14,3 P trotz 25-Mio-MW).
+        if prob <= 2 and ep < 25 and p.get("lo") is not None:
+            print(f"   ⚠️ Plausibilität: {p.get('pn', '?')} ({name}) E[Punkte]={ep} "
+                 f"trotz Farbe {'blau' if prob == 1 else 'grün'} und gesetzter Startelf")
         players.append({
             "id": str(p.get("pi")), "name": p.get("pn", "?"), "pos": pos,
             "team": team_name, "lo": p.get("lo"), "mv": p.get("mv", 0) or 0,
@@ -181,12 +189,25 @@ def analyze_manager(kb, cid, league_id, uid, name, tid_to_name, strength_map,
 
 
 def build_league_teams(kb, cid, league_id, ranking, strength_map, upcoming,
-                       fixture_mode, matcher, sleep=0.15, liga_avg_win_prob=0.5):
+                       fixture_mode, matcher, sleep=0.15, liga_avg_win_prob=0.5,
+                       own_uid=None, own_entry=None):
     """
     Analysiert ALLE Manager der Liga (aus `ranking.us`, bereits geladen -
     kein Zusatz-Call). Liefert eine nach Prognose sortierte Liste von
     analyze_manager()-Ergebnissen plus Vorsaison-Baseline (Punkt 6.2) je
     Manager als Kontext.
+
+    **Ein Rechenweg statt zwei (SPEC_ranking_faktoren_llm.md Abschnitt 1)**:
+    für den EIGENEN Manager (`own_uid`) wird `analyze_manager()` NICHT
+    aufgerufen - der Aufrufer (main.py) hat die eigene Prognose bereits über
+    `get_player_details()` (mit echtem `prob`-Feld, präziser als die
+    `managers/{uid}/squad`-Näherung `_estimate_prob()`, die für alle
+    ANDEREN Manager mangels `prob`-Feld nötig bleibt) berechnet und liefert
+    sie als `own_entry` fertig zusammengebaut. Live gefunden: ohne diesen
+    Fix zeigte die eigene Detailansicht und das Ranking für DENSELBEN Kader/
+    Spieltag zwei unterschiedliche Zahlen (916 vs. 840 P) - zwei getrennte
+    Rechenwege für dieselbe Größe. `own_entry=None` (z.B. kein Kader
+    geladen) fällt auf den alten Weg zurück, kein Absturz.
     """
     tid_to_name = fetch_team_map(kb, cid)
     time.sleep(sleep)
@@ -196,9 +217,12 @@ def build_league_teams(kb, cid, league_id, ranking, strength_map, upcoming,
         uid, name = u.get("i"), (u.get("n") or "").strip()
         if not uid:
             continue
-        analysis = analyze_manager(kb, cid, league_id, uid, name, tid_to_name,
-                                   strength_map, upcoming, fixture_mode, matcher, sleep,
-                                   liga_avg_win_prob=liga_avg_win_prob)
+        if own_uid is not None and own_entry is not None and str(uid) == str(own_uid):
+            analysis = dict(own_entry)
+        else:
+            analysis = analyze_manager(kb, cid, league_id, uid, name, tid_to_name,
+                                       strength_map, upcoming, fixture_mode, matcher, sleep,
+                                       liga_avg_win_prob=liga_avg_win_prob)
         analysis["vorsaison"] = {
             "platz": u.get("psp"), "punkte": u.get("pspts"), "siege": u.get("pswc"),
         }

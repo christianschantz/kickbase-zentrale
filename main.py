@@ -38,7 +38,7 @@ from league_board import build_league_lists
 from report_builder import (compute_kpis, build_actions, build_squad_action_items,
                             build_targets, build_mitspieler_appendix, build_risks,
                             season_phase, save_report, load_previous_snapshot, diff_reports)
-from llm_insights import generate_insights
+from llm_insights import generate_insights, call_summary as llm_call_summary
 import coach
 from league_teams import build_league_teams
 from prediction_log import (save_matchday_prediction, save_daily_bids, save_matchday_actuals,
@@ -272,7 +272,7 @@ def run_league(kb, cfg, run_timestamp):
     # überall im Report trägt (Dashboard, Modul 3, KI-Kontext).
     ist_prognose = (coach.xi_prognose(lineup_status["xi"], _match_name)
                     if lineup_status and lineup_status["xi"] else None)
-    self_play_conflicts = (coach.duel_hints_for_xi(lineup_status["xi"], _match_name)
+    self_play_conflicts = (coach.duel_hints_for_xi(lineup_status["xi"], _match_name, own=True)
                            if lineup_status and lineup_status["xi"] else [])
     ideal_prognose = (coach.xi_prognose(lineup_opt["formations"][lineup_opt["best"]]["xi"], _match_name)
                       if lineup_opt and lineup_opt["best"] else None)
@@ -316,6 +316,51 @@ def run_league(kb, cfg, run_timestamp):
             print("   ⚔️ Direktes Duell in deiner Elf:")
             for txt in self_play_conflicts:
                 print(f"      {txt}")
+
+    # SPEC_ranking_faktoren_llm.md Abschnitt 1: "zwei Rechenwege für dieselbe
+    # Zahl" - die eigene Detailansicht (oben, aus squad_classified/
+    # lineup_status/ist_prognose) und league_teams.py (unten, Modul 3)
+    # berechneten die EIGENE Prognose bisher unabhängig doppelt - über
+    # unterschiedliche Datenquellen (get_player_details mit echtem `prob`
+    # oben vs. managers/{uid}/squad OHNE `prob`, _estimate_prob()-Näherung
+    # unten), mit unterschiedlichem Ergebnis für denselben Kader/Spieltag.
+    # Fix: EIN Ergebnisobjekt - `own_entry` wird hier aus den bereits oben
+    # berechneten (präziseren) Daten zusammengebaut und unten an
+    # build_league_teams() durchgereicht, das für die eigene uid keinen
+    # eigenen Rechenweg mehr aufmacht (spart nebenbei einen API-Call).
+    own_entry = None
+    if lineup_status and ist_prognose:
+        from collections import Counter as _Counter
+        tiefe = sum(1 for c in squad_classified if c["expected_points"] >= 60)
+        team_points = {}
+        for p in lineup_status["xi"]:
+            if p.get("team"):
+                team_points[p["team"]] = team_points.get(p["team"], 0) + p["expected_points"]
+        klumpenrisiko, top_team = None, None
+        if ist_prognose["total"] > 0 and team_points:
+            top_team = max(team_points, key=team_points.get)
+            klumpenrisiko = round(team_points[top_team] / ist_prognose["total"] * 100, 1)
+        fc = _Counter(p["pos"] for p in lineup_status["xi"])
+        formation = (f"{fc.get('ABW', 0)}-{fc.get('MF', 0)}-{fc.get('ANG', 0)}"
+                    if lineup_status["xi"] else None)
+        own_kaderstaerke = lineup_opt["best_total"] if lineup_opt and lineup_opt["best"] else None
+        own_effizienz = (round(ist_prognose["total"] / own_kaderstaerke * 100, 1)
+                         if own_kaderstaerke else None)
+        own_effizienz_text = (f"mit optimaler Aufstellung wären +{own_kaderstaerke - ist_prognose['total']:.0f} "
+                              f"Punkte möglich" if own_kaderstaerke and own_kaderstaerke > ist_prognose["total"]
+                              else "spielt bereits die stärkste Elf" if own_kaderstaerke else None)
+        own_entry = {
+            "uid": kb.user_id, "name": (kb.user_name or name).strip(),
+            "squad_size": len(squad_classified), "bench_size": len(lineup_status["bench"]),
+            "xi": lineup_status["xi"], "bench": lineup_status["bench"],
+            "prognose": ist_prognose["total"], "prognose_range": ist_prognose["bandbreite"],
+            "duel_hints": self_play_conflicts,
+            "kaderstaerke": own_kaderstaerke, "kaderstaerke_reason": kaderstaerke_reason,
+            "effizienz": own_effizienz, "effizienz_text": own_effizienz_text,
+            "tiefe": tiefe, "klumpenrisiko": klumpenrisiko, "top_team": top_team,
+            "formation": formation, "formation_hint": coach.formation_hint(lineup_status["xi"]),
+            "empty_slots": lineup_status["empty_slots"],
+        }
 
     # Kaufkraft-Kennzahlen fürs Dashboard (identische Formel wie in
     # squad_analysis.market_vs_squad, dort nicht nach außen gereicht).
@@ -593,7 +638,8 @@ def run_league(kb, cfg, run_timestamp):
     # ---------- Modul 3: Team-Analyse aller Liga-Manager ----------
     league_teams = build_league_teams(kb, cid, league_id, ranking, strength_map,
                                       upcoming, fixture_mode, _match_name,
-                                      liga_avg_win_prob=liga_avg_win_prob)
+                                      liga_avg_win_prob=liga_avg_win_prob,
+                                      own_uid=kb.user_id, own_entry=own_entry)
     print(f"\n👥 SPIELTAGSPROGNOSE - alle {len(league_teams)} Manager "
           f"(echte gesetzte Elf, keine Bestmöglich-Annahme):")
     print(f"   {'#':>2} {'Manager':<18} {'Prognose':>18} {'Kaderstärke':>12} "
@@ -810,6 +856,16 @@ def main():
         report = run_league(kb, cfg, run_timestamp)
         if report:
             reports.append(report)
+
+    # SPEC_ranking_faktoren_llm.md 6.1: "erste Maßnahme, vor jeder
+    # Anbieterdiskussion: Aufrufe je Lauf zählen und protokollieren" - der
+    # gemeldete 429 RPM trotz "ein gebündelter Call je Liga"-Architektur
+    # war unbelegt, jetzt sichtbar (inkl. Retries, die einen einzelnen
+    # logischen Call auf mehrere echte HTTP-Requests vervielfachen können).
+    summary = llm_call_summary()
+    if summary["total"]:
+        by_kind = ", ".join(f"{k}: {v}" for k, v in summary["by_kind"].items())
+        print(f"\n📊 Gemini-Aufrufe in diesem Lauf: {summary['total']} ({by_kind})")
 
     write_html_report(reports, run_timestamp)
 

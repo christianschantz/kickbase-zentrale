@@ -361,8 +361,40 @@ def build_prompt(context):
 
 # ---------- Gemini REST API (Muster aus test_gemini.py) ----------
 
+# SPEC_ranking_faktoren_llm.md 6.1: Aufrufzähler - der gemeldete 429 RPM
+# widersprach der Annahme "ein gebündelter Call je Liga" ("erste Maßnahme,
+# vor jeder Anbieterdiskussion: Aufrufe je Lauf zählen und protokollieren").
+# Jeder tatsächliche HTTP-Request (inkl. Retries) zählt einzeln, getrennt
+# nach Modell-Liste/generateContent. `call_summary()` wird am Laufende in
+# main.py ausgegeben.
+_call_log = []
+
+
+def _log_call(kind, status_code):
+    _call_log.append({"kind": kind, "status_code": status_code})
+
+
+def call_summary():
+    """Zusammenfassung aller in diesem Prozess bisher getätigten Gemini-
+    HTTP-Requests (SPEC_ranking_faktoren_llm.md 6.1)."""
+    by_kind = {}
+    for c in _call_log:
+        by_kind[c["kind"]] = by_kind.get(c["kind"], 0) + 1
+    return {"total": len(_call_log), "by_kind": by_kind, "calls": list(_call_log)}
+
+
+# Modul-globaler Cache (SPEC 6.1): `_list_models()` lieferte bisher pro Liga
+# einen eigenen Request, obwohl sich die verfügbaren Modelle innerhalb
+# desselben Prozesslaufs nicht ändern - bei 2 Ligen unnötig verdoppelt.
+_models_cache = None
+
+
 def _list_models(api_key):
+    global _models_cache
+    if _models_cache is not None:
+        return _models_cache
     r = requests.get(f"{BASE}/models", headers={"X-goog-api-key": api_key}, timeout=30)
+    _log_call("list_models", r.status_code)
     if r.status_code != 200:
         return []
     out = []
@@ -370,6 +402,7 @@ def _list_models(api_key):
         name = m.get("name", "").replace("models/", "")
         if "generateContent" in m.get("supportedGenerationMethods", []):
             out.append(name)
+    _models_cache = out
     return out
 
 
@@ -490,6 +523,7 @@ def _call_gemini(prompt, api_key, model, retries=3):
         try:
             r = requests.post(url, headers={"X-goog-api-key": api_key}, json=payload, timeout=60)
         except requests.RequestException as e:
+            _log_call("generate_content", None)
             last = {"ok": False, "status_code": None, "error_text": str(e),
                     "finish_reason": None, "tokens_in": None, "tokens_out": None,
                     "model": model, "quota_kind": None}
@@ -497,6 +531,7 @@ def _call_gemini(prompt, api_key, model, retries=3):
                 _time.sleep(backoffs[min(attempt, len(backoffs) - 1)] + random.uniform(0, 2))
                 continue
             return last
+        _log_call("generate_content", r.status_code)
 
         if r.status_code == 200:
             body = r.json()

@@ -35,17 +35,26 @@ aber ein blauer Stammspieler bekommt dort jetzt exakt 1,0, nicht 0,75.
   (grobe Sieg-WK-Näherung, Erstkalibrierung)
 - Spielverlaufsfaktor: aus llm_insights.matchday_outlook, sonst neutral 1,0
 
-**Direkte Duelle (SPEC_spieltagsmodell_v2.md 2.1/2.3)**: `xi_prognose()`
-erkennt (über `find_self_play_pairs()`) eigene Spieler in derselben Partie
-auf verschiedenen Seiten - NUR wenn beide in der übergebenen Startelf
-stehen, Bankspieler zählen nicht - und dämpft den ergebnisabhängigen Anteil
-(Gegnerfaktor-Abweichung + Zu-Null-Bonus) für BEIDE auf die Hälfte, ohne die
-Spieler-Dicts zu mutieren (dieselbe Elf kann in mehreren Kontexten, z.B.
-Ideal- vs. Ist-Aufstellung, unterschiedlich zu werten sein). Grobe,
-transparente Näherung an "der Ergebnis-Topf wird einmal vergeben, nicht
-zweimal" (eine echte gemeinsame Verteilung bräuchte eine Kovarianzrechnung,
-bewusst nicht gebaut) und senkt die Sigma-Gewichtung in der Team-Bandbreite.
-`duel_hints_for_xi()` liefert die Text-Hinweise dazu.
+**Direkte Duelle (SPEC_spieltagsmodell_v2.md 2.1/2.3, partieweise gruppiert
+seit SPEC_ranking_faktoren_llm.md Abschnitt 3)**: `xi_prognose()` erkennt
+(über `find_self_play_matches()`) eigene Spieler in derselben Partie auf
+verschiedenen Seiten - NUR wenn beide in der übergebenen Startelf stehen,
+Bankspieler zählen nicht - und dämpft den ergebnisabhängigen Anteil
+(Gegnerfaktor-Abweichung + Zu-Null-Bonus) für ALLE Beteiligten auf die
+Hälfte, ohne die Spieler-Dicts zu mutieren (dieselbe Elf kann in mehreren
+Kontexten, z.B. Ideal- vs. Ist-Aufstellung, unterschiedlich zu werten sein).
+Grobe, transparente Näherung an "der Ergebnis-Topf wird einmal vergeben,
+nicht zweimal" (eine echte gemeinsame Verteilung bräuchte eine Kovarianz-
+rechnung, bewusst nicht gebaut) und senkt die Sigma-Gewichtung in der
+Team-Bandbreite. **Partieweise statt paarweise (Bugfix)**: die Vorfassung
+gruppierte nach SpielerPAAR - bei 2+ betroffenen Spielern je Seite (z.B.
+zwei Abwehrspieler von Team A gegen einen Stürmer von Team B) erschien
+dieselbe reale Partie mehrfach als separate Zeile ("Keller vs. Otto" UND
+"Keller vs. Zoma" für ein einziges Nürnberg-Dresden-Spiel). `find_self_play_
+matches()` gruppiert jetzt nach Team-Paar, `duel_hints_for_xi()` liefert
+Text-Hinweise dazu - max. 2 je Aufruf, Handlungsempfehlung ("X ist die
+bessere Wahl") nur für das eigene Team (`own=True`), bei fremden Kadern nur
+der Hinweis, dass sich der Ergebnisbonus gegenseitig aufhebt.
 
 **Lücke geschlossen (2026-08-05, SPEC_lineup_verified.md)**: `GET /v4/leagues
 /{id}/lineup` liefert den kompletten Kader inkl. `lo` (Slot 0-10 in der
@@ -260,15 +269,34 @@ def _punktebasis(ap, ph, mv, peer_estimate=None):
        Instanz - verhindert "Basis 0" für Ligawechsler ohne jeden Kontext
        (verstößt sonst gegen "fehlende Daten ≠ schlechter Spieler")
 
-    Liefert (basis, quelle) mit quelle in {"real", "peer", "mv_estimate"}.
+    **Untergrenze + MW-Sockel bei dünner/negativer Historie (2026-08-05,
+    SPEC_ranking_faktoren_llm.md 2.3)**: `ap` ist Kickbases echter, aber
+    manchmal dünner Saisonschnitt - live gefunden: ein 25-Mio-Stürmer
+    (Reese) landete mit rohem `ap`≈14 weit unter jedem plausiblen Topspieler-
+    Niveau, ein anderer Spieler (Gouram) sogar mit NEGATIVEM `ap` unter der
+    Nulllinie, beides ungebremst durchgereicht bis in die Prognose. Fix:
+    `ap` wird nie unter die MW-implizierte Schätzung gedrückt
+    (`basis = max(ap, mv_implied_form(mv)×130)`) - "fehlende ODER dünne
+    Daten ≠ schlechter Spieler" (CLAUDE.md-Grundsatz), der Markt (Community-
+    Marktwert) ist ein besserer Bodenwert als ein einzelner, evtl. auf
+    wenigen Spieltagen beruhender Rohwert. Löst nebenbei die explizite
+    Anforderung "kein negativer Erwartungswert" (mv_implied_form ist per
+    Definition ≥0), ohne einen künstlichen harten Nullpunkt einzuziehen.
+
+    Liefert (basis, quelle) mit quelle in
+    {"real", "real_mv_floor", "peer", "mv_estimate"}.
     """
     from scoring import mv_implied_form
     has_data = bool(ap) or any(e.get("hp") and e.get("p") is not None for e in (ph or []))
+    mv_floor = mv_implied_form(mv or 0) * 130
     if has_data:
-        return (ap or 0), "real"
+        basis_real = ap or 0
+        if basis_real >= mv_floor:
+            return basis_real, "real"
+        return mv_floor, "real_mv_floor"
     if peer_estimate is not None:
-        return peer_estimate, "peer"
-    return mv_implied_form(mv or 0) * 130, "mv_estimate"
+        return max(peer_estimate, 0.0), "peer"
+    return mv_floor, "mv_estimate"
 
 
 def expected_points(pos, ap, ph, st, prob, win_prob, team_name=None,
@@ -540,36 +568,49 @@ def formation_hint(xi):
     return None
 
 
-def find_self_play_pairs(xi, matcher):
+def find_self_play_matches(xi, matcher):
     """
-    SPEC_spieltagsmodell_v2.md 2.3 (Korrektur ggü. der Vorfassung): Duelle
-    werden NUR ausgewertet, wenn BEIDE Spieler in der STARTELF stehen -
-    Bankspieler sind irrelevant, deren Punkte zählen nicht. `xi` muss daher
-    bereits die konkrete Elf sein (Ideal- oder Ist-Aufstellung), NICHT der
-    volle Kader. Reine Erkennung (Fuzzy-Match von `opponents[0]` gegen die
-    eigenen Teamnamen in der Elf, derselbe `_match_name`-Matcher wie sonst
-    im Projekt), keine Punktemutation - s. `xi_prognose()`/
-    `duel_hints_for_xi()` für die Verwendung.
+    SPEC_ranking_faktoren_llm.md Abschnitt 3 (ersetzt find_self_play_pairs -
+    Bugfix "partieweise statt paarweise"): Duelle werden NUR ausgewertet,
+    wenn BEIDE Seiten in der STARTELF stehen - Bankspieler sind irrelevant,
+    deren Punkte zählen nicht. `xi` muss daher bereits die konkrete Elf sein
+    (Ideal- oder Ist-Aufstellung), NICHT der volle Kader. Gruppiert nach
+    TEAM-PAAR statt SPIELER-Paar - alle eigenen Spieler beider Seiten
+    derselben realen Partie kommen in EINEN Eintrag, egal wie viele Spieler
+    je Seite betroffen sind (vorher: eine Zeile pro Spielerpaar, dieselbe
+    Partie erschien bei 2+ Spielern je Seite mehrfach). Reine Erkennung
+    (Fuzzy-Match von `opponents[0]` gegen die eigenen Teamnamen in der Elf,
+    derselbe `_match_name`-Matcher wie sonst im Projekt), keine Punkte-
+    mutation - s. `xi_prognose()`/`duel_hints_for_xi()` für die Verwendung.
+    Liefert [{"team_a", "players_a", "team_b", "players_b"}, ...].
     """
-    teams = {p["team"]: p for p in xi if p.get("team")}
-    team_names = list(teams.keys())
-    seen, pairs = set(), []
+    team_players = {}
     for p in xi:
-        if not p.get("team") or not p.get("opponents"):
+        if p.get("team"):
+            team_players.setdefault(p["team"], []).append(p)
+    team_names = list(team_players.keys())
+    seen, matches = set(), []
+    for team, players in team_players.items():
+        opp_team = None
+        for p in players:
+            if not p.get("opponents"):
+                continue
+            opp_clean = p["opponents"][0].split(" (")[0].strip()
+            matched = matcher(opp_clean, team_names)
+            if matched and matched != team:
+                opp_team = matched
+                break
+        if not opp_team or opp_team not in team_players:
             continue
-        opp_clean = p["opponents"][0].split(" (")[0].strip()
-        matched = matcher(opp_clean, team_names)
-        if not matched or matched == p["team"]:
+        key = tuple(sorted((team, opp_team)))
+        if key in seen:
             continue
-        other = teams.get(matched)
-        if not other or other is p:
-            continue
-        pair = tuple(sorted((p["name"], other["name"])))
-        if pair in seen:
-            continue
-        seen.add(pair)
-        pairs.append((p, other))
-    return pairs
+        seen.add(key)
+        matches.append({
+            "team_a": key[0], "players_a": team_players[key[0]],
+            "team_b": key[1], "players_b": team_players[key[1]],
+        })
+    return matches
 
 
 def _damped_points(f):
@@ -592,16 +633,17 @@ def xi_prognose(xi, matcher):
     spieltagsmodell_v2.md 1.1 + 2.1 + 2.3 zusammengeführt) - mutiert die
     übergebenen Spieler-Dicts NICHT (dieselbe Elf kann in mehreren Kontexten,
     z.B. Ideal- vs. Ist-Aufstellung, unterschiedlich zu werten sein).
-    Direktduelle (beide Spieler IN DIESER Elf) dämpfen ihren ergebnis-
+    Direktduelle (beide Seiten IN DIESER Elf) dämpfen ihren ergebnis-
     abhängigen Punkteanteil UND senken ihre Sigma-Gewichtung (negativ
     korreliert). Team-Varianz sonst additiv aus `ep_factors['sigma']`
     + Klumpen-Korrelation (mehrere Spieler desselben Vereins).
-    Liefert {"total", "bandbreite", "duels": [(playerA, playerB), ...]}.
+    Liefert {"total", "bandbreite", "duels": [{"team_a", "players_a", ...}, ...]}
+    (partieweise gruppiert, s. find_self_play_matches()).
     """
     if not xi:
         return {"total": 0.0, "bandbreite": (0.0, 0.0), "duels": []}
-    pairs = find_self_play_pairs(xi, matcher)
-    damped_ids = {p["id"] for pair in pairs for p in pair}
+    matches = find_self_play_matches(xi, matcher)
+    damped_ids = {p["id"] for m in matches for p in m["players_a"] + m["players_b"]}
 
     total, var_total = 0.0, 0.0
     by_team = {}
@@ -626,25 +668,35 @@ def xi_prognose(xi, matcher):
     return {
         "total": round(total, 1),
         "bandbreite": (round(max(0.0, total - sigma_team), 1), round(total + sigma_team, 1)),
-        "duels": pairs,
+        "duels": matches,
     }
 
 
-def duel_hints_for_xi(xi, matcher):
+def duel_hints_for_xi(xi, matcher, own=False, max_hints=2):
     """
     Text-Hinweise für Report/KI (SPEC_gebote_ki_team_KOMPLETT.md 2.2 +
-    SPEC_spieltagsmodell_v2.md 2.3) - NUR für Duelle innerhalb einer
-    konkreten Startelf (`xi`), inkl. Einschätzung, welcher der beiden die
-    bessere Wahl ist (höhere erwartete Punkte in der ORIGINAL-Berechnung -
-    vor der Dämpfung, die zeigt ja gerade den Vergleich).
+    SPEC_spieltagsmodell_v2.md 2.3, **partieweise + begrenzt seit
+    SPEC_ranking_faktoren_llm.md Abschnitt 3**) - NUR für Duelle innerhalb
+    einer konkreten Startelf (`xi`), EIN Eintrag je realer Partie (nicht je
+    Spielerpaar - vorher erschien z.B. "Keller vs. Otto" UND "Keller vs.
+    Zoma" für dieselbe Partie Nürnberg-Dresden). Max. `max_hints` Einträge.
+    Handlungsempfehlung ("X ist die bessere Wahl") gibt es NUR fürs eigene
+    Team (`own=True`) - bei fremden Kadern ist nur relevant, dass sich der
+    Ergebnisbonus gegenseitig aufhebt, keine Empfehlung für fremde
+    Kaderentscheidungen.
     """
     hints = []
-    for a, b in find_self_play_pairs(xi, matcher):
-        besser, schlechter = ((a, b) if a["expected_points"] >= b["expected_points"] else (b, a))
-        hints.append(
-            f"{a['name']} ({a['team']}) vs. {b['name']} ({b['team']}) - "
-            f"Ergebnisbonus fällt nur einmal an, beide gleichzeitig stark ist unwahrscheinlich. "
-            f"{besser['name']} ({besser['expected_points']} P) ist die bessere Wahl vor "
-            f"{schlechter['name']} ({schlechter['expected_points']} P)."
-        )
+    for m in find_self_play_matches(xi, matcher)[:max_hints]:
+        seite_a = ", ".join(f"{p['name']} ({p['expected_points']} P)" for p in m["players_a"])
+        seite_b = ", ".join(f"{p['name']} ({p['expected_points']} P)" for p in m["players_b"])
+        text = f"{m['team_a']} – {m['team_b']}: {seite_a} vs. {seite_b}"
+        if own:
+            beteiligte = m["players_a"] + m["players_b"]
+            besser = max(beteiligte, key=lambda p: p["expected_points"])
+            text += (f" - Ergebnisbonus fällt nur einmal an, alle gleichzeitig stark ist "
+                     f"unwahrscheinlich. {besser['name']} ({besser['expected_points']} P) "
+                     f"ist die beste Wahl.")
+        else:
+            text += " - Ergebnisbonus fällt nur einmal an, dämpft Erwartung/Streuung beider Seiten."
+        hints.append(text)
     return hints
