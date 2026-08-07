@@ -183,6 +183,41 @@ def run_league(kb, cfg, run_timestamp):
     # Team-Fuzzy-Matching für die EIGENE Kader-Gegneranzeige überflüssig.
     lineup_raw = kb.get_lineup(league_id)
     lineup_by_id = {str(p.get("i")): p for p in (lineup_raw.get("it", []) or [])}
+
+    # SPEC_punkteformel_final.md Abschnitt 2/5 ("Basis 91,0 für fünf
+    # verschiedene Spieler"): Liga-Bestenliste (B5) + Peer-Lookup jetzt VOR
+    # der Kader-Klassifizierung gebaut statt danach - `own_ids` braucht dafür
+    # nur die IDs aus dem ROHEN Kader (bereits oben verfügbar), nicht den
+    # fertig klassifizierten Kader. Grund: der eigene Kader-Loop unten soll
+    # `peer_estimate` (Median aus Position×Teamstärke×Farbe,
+    # scoring.estimate_ap_from_peers) direkt in `coach.expected_points()`
+    # einspeisen können - vorher bekam nur `fair_value()` (in einem SEPARATEN,
+    # späteren Durchlauf) den Peer-Vergleichswert, `expected_points()` (die
+    # Zahl, die tatsächlich überall als "E[Punkte]" angezeigt wird) fiel für
+    # Spieler ohne eigene Historie immer auf den MW-Sockel zurück
+    # (`mv_implied_form(mv)×130`, gedeckelt bei 0,7×130=91,0) - der Deckel
+    # kollabiert für jeden Spieler mit ausreichend hohem MW auf denselben
+    # Wert, unabhängig von Position/Team/Farbe (live belegt: Wahl, Pieringer,
+    # Taz, Ofli, El Kadiri alle exakt "Basis 91,0"). Der Peer-Vergleichswert
+    # ist positions-/team-/farbspezifisch und damit die eigentlich vorgesehene
+    # Vergleichsgruppen-Schätzung statt eines de-facto-globalen Konstantwerts.
+    league_overpay = learn_league_overpay(kb.get_activities(league_id))
+    own_ids = {str(p.get("i")) for p in squad_players}
+    board = build_league_lists(kb, cid, league_id, own_ids, strength_map,
+                               upcoming, fixture_mode, _match_name,
+                               weights_quality=WEIGHTS_QUALITY,
+                               weights_value=WEIGHTS_VALUE,
+                               top_n=LEAGUE_BOARD_TOP_N,
+                               league_overpay=league_overpay,
+                               min_price=min_price,
+                               liga_avg_win_prob=liga_avg_win_prob)
+    price_curve = (board.get("price_curve") or {}).get("curve")
+    peer_lookup = board.get("peer_lookup")
+    fair_value_ok = board.get("fair_value_ok", True)
+    if not fair_value_ok:
+        print("   ⚠️ Preiskurve wirkt verzerrt (Selbstprüfung 40-60% verletzt) - "
+              "Fair Value wird diesen Lauf unterdrückt statt falscher Zahlen.")
+
     squad_classified = []
     self_play_conflicts = []
     plausibility_warnings = []
@@ -217,10 +252,22 @@ def run_league(kb, cfg, run_timestamp):
             # (letzte Spieltage) liegen aus diesem Loop-Durchlauf schon vor,
             # kein Zusatz-Call nötig. liga_avg_win_prob zentriert den
             # Gegnerfaktor (SPEC_kalibrierung_fairvalue.md Abschnitt 0).
+            # SPEC_punkteformel_final.md: `peer_estimate` (Vergleichsgruppe
+            # Position×Teamstärke×Farbe) jetzt an DIESER Stelle mitgegeben,
+            # nicht mehr nur bei fair_value() - board/peer_lookup liegen seit
+            # dem Umbau oben schon vor Beginn dieses Loops vor. Ohne
+            # peer_estimate fiel `_punktebasis()` für Spieler ohne eigene
+            # Historie auf den MW-Sockel zurück, der bei ausreichend hohem MW
+            # für JEDEN Spieler auf denselben gedeckelten Wert (91,0)
+            # kollabiert, unabhängig von Position/Team/Farbe.
+            peer_est = None
+            if peer_lookup is not None:
+                peer_est, _ = estimate_ap_from_peers(c["pos"], c["team_strength"],
+                                                     c["kickbase_color"], peer_lookup)
             ep, ep_factors = coach.expected_points(
                 c["pos"], p.get("ap", 0), d.get("ph"), d.get("st", 0),
                 d.get("prob", 3), ease, team_name=d.get("tn", ""), mv=c["mv"],
-                liga_avg_win_prob=liga_avg_win_prob)
+                liga_avg_win_prob=liga_avg_win_prob, peer_estimate=peer_est)
             c["expected_points"] = ep
             c["ep_factors"] = ep_factors
             # Plausibilitätslog je Spieler (SPEC_kalibrierung_fairvalue.md
@@ -384,32 +431,16 @@ def run_league(kb, cfg, run_timestamp):
     max_debt = DEBT_RATIO * net_value
     capacity = max_debt + budget
 
-    # Liga-Bestenliste (B5) und Overpay-Lernen VORGEZOGEN (Spec-Fix 2026-08-05
-    # Punkt 1.2): der Tagesmarkt-Loop unten braucht die volle Liga-Preiskurve
-    # für Fair Value - das Drucken der B5-Sektionen bleibt an seiner alten
-    # Stelle weiter unten, hier wird nur berechnet.
-    league_overpay = learn_league_overpay(kb.get_activities(league_id))
-    own_ids = {c["id"] for c in squad_classified}
-    board = build_league_lists(kb, cid, league_id, own_ids, strength_map,
-                               upcoming, fixture_mode, _match_name,
-                               weights_quality=WEIGHTS_QUALITY,
-                               weights_value=WEIGHTS_VALUE,
-                               top_n=LEAGUE_BOARD_TOP_N,
-                               league_overpay=league_overpay,
-                               min_price=min_price,
-                               liga_avg_win_prob=liga_avg_win_prob)
-    price_curve = (board.get("price_curve") or {}).get("curve")
-    peer_lookup = board.get("peer_lookup")
-    fair_value_ok = board.get("fair_value_ok", True)
-    if not fair_value_ok:
-        print("   ⚠️ Preiskurve wirkt verzerrt (Selbstprüfung 40-60% verletzt) - "
-              "Fair Value wird diesen Lauf unterdrückt statt falscher Zahlen.")
+    # league_overpay/own_ids/board/price_curve/peer_lookup/fair_value_ok
+    # werden jetzt VOR der Kader-Klassifizierung gebaut (s. Kommentar dort,
+    # SPEC_punkteformel_final.md) - hier nicht mehr nötig.
 
-    # SPEC_kalibrierung_fairvalue.md 4.1: Fair Value je Kaderspieler NACH dem
-    # Kurvenaufbau nachreichen (die Kurve selbst braucht den vollen Kader
-    # für own_ids, kann also nicht schon im Kader-Loop oben vorliegen).
-    # Ergänzt die bestehenden Verdikte nur um eine Reason - die Farbregel
-    # (STAMM bei blau/grün) bleibt vorrangig, kein automatischer Verkauf.
+    # SPEC_kalibrierung_fairvalue.md 4.1: Fair Value je Kaderspieler nach der
+    # Verdikt-Klassifizierung nachreichen (braucht c["pos"]/c["team_strength"]/
+    # c["kickbase_color"], die erst im Kader-Loop entstehen - price_curve/
+    # peer_lookup selbst liegen jetzt schon vorher vor, s.o.). Ergänzt die
+    # bestehenden Verdikte nur um eine Reason - die Farbregel (STAMM bei
+    # blau/grün) bleibt vorrangig, kein automatischer Verkauf.
     for c in squad_classified:
         fv_mv = None
         if fair_value_ok and price_curve:
@@ -452,10 +483,16 @@ def run_league(kb, cfg, run_timestamp):
         # Zensierung (3.1) und Selbstprüfungs-Unterdrückung (3.3) wie überall.
         fair_value_mv, expected_ap_for_mv = None, None
         min_price_now = is_min_price_player(mv_now, min_price)
+        # SPEC_punkteformel_final.md: peer_est jetzt UNGATED von min_price_now
+        # berechnet (reiner Lookup, kein Zusatz-Call) - wird unten sowohl für
+        # fair_value() (dort weiterhin min_price-gegated) als auch für
+        # expected_points() gebraucht, die für JEDEN Marktspieler läuft.
+        peer_est = None
+        if peer_lookup is not None:
+            peer_est, _ = estimate_ap_from_peers(pos_now, team_strength, color_now, peer_lookup)
         if fair_value_ok and price_curve:
             expected_ap_for_mv = scoring_expected_points(mv_now, price_curve)
             if not min_price_now:
-                peer_est, _ = estimate_ap_from_peers(pos_now, team_strength, color_now, peer_lookup)
                 fair_value_mv, _ = coach.fair_value(
                     pos_now, mv_now, p.get("ap", 0), d.get("ph"), d.get("st", 0), d.get("prob", 3),
                     ease, team_strength, price_curve, liga_avg_win_prob=liga_avg_win_prob,
@@ -470,7 +507,8 @@ def run_league(kb, cfg, run_timestamp):
         # laut Spec: "bringt mir der Spieler Punkte?").
         ep_market, _ = coach.expected_points(
             pos_now, p.get("ap", 0), d.get("ph"), d.get("st", 0), d.get("prob", 3), ease,
-            team_name=d.get("tn", ""), mv=mv_now, liga_avg_win_prob=liga_avg_win_prob)
+            team_name=d.get("tn", ""), mv=mv_now, liga_avg_win_prob=liga_avg_win_prob,
+            peer_estimate=peer_est)
         market_scored.append({
             "id": str(p.get("i")),
             "name": f"{p.get('fn', '')} {p.get('n', '')}".strip(),
@@ -671,7 +709,8 @@ def run_league(kb, cfg, run_timestamp):
     league_teams = build_league_teams(kb, cid, league_id, ranking, strength_map,
                                       upcoming, fixture_mode, _match_name,
                                       liga_avg_win_prob=liga_avg_win_prob,
-                                      own_uid=kb.user_id, own_entry=own_entry)
+                                      own_uid=kb.user_id, own_entry=own_entry,
+                                      peer_lookup=peer_lookup)
     print(f"\n👥 SPIELTAGSPROGNOSE - alle {len(league_teams)} Manager "
           f"(echte gesetzte Elf, keine Bestmöglich-Annahme):")
     print(f"   {'#':>2} {'Manager':<18} {'Prognose':>18} {'Kaderstärke':>12} "

@@ -90,7 +90,14 @@ FORMATIONS = {
 # Kader-/Tagesmarkt-Skala unangetastet, über viele Feedback-Runden
 # kalibriert, s. CLAUDE.md). Direkt an der Kickbase-Farbe verankert: ein
 # blauer Stammspieler MUSS Faktor 1,0 bekommen (Grundregel oben).
-EINSATZ_FACTOR = {1: 1.00, 2: 0.95, 3: 0.60, 4: 0.25, 5: 0.10}
+# Werte auf SPEC_punkteformel_final.md Abschnitt 2 (M) exakt angeglichen
+# (2026-08-07, geringfügige Abweichung 0,95/0,60/0,25 -> 0,92/0,55/0,20 -
+# beides Erstkalibrierung ohne echte Ist-Minuten dahinter, die Spec ist die
+# jetzt verbindliche Fassung). Ab Spieltag 5 werden diese Werte laut Spec
+# durch gemessene Ist-Minuten je Farbe ersetzt - noch nicht gebaut (braucht
+# echte Player-Level-Einsatzzeiten, die aktuell nicht erfasst werden, s.
+# retrospective.py-Docstring).
+EINSATZ_FACTOR = {1: 1.00, 2: 0.92, 3: 0.55, 4: 0.20, 5: 0.10}
 VERLETZT_CAP = 0.10  # st==2 (angeschlagen/verletzt) deckelt unabhängig von der Farbe
 
 

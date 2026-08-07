@@ -145,6 +145,111 @@ Base: `https://api.kickbase.com`. Referenz-Doku: github.com/kevinskyba/kickbase-
   **Geprüft, nicht gebaut**: Über/Unter-2,5-Tore-Quoten (Punkt 4.6) - die Spalten (`Avg>2.5`/`Avg<2.5`/`B365>2.5`/`B365<2.5`) existieren in football-data.co.uk/fixtures.csv, aber die Datei enthält aktuell (tiefe Sommerpause) nur schottische Ligen (`SC0-3`), keine `D2`/`SP1`-Zeilen - Füllgrad für unsere Ligen kann erst nach Saisonstart geprüft werden, zurückgestellt.
 - `analytics.py`: nur Kompat-Wrapper, kann weg wenn nichts mehr importiert.
 
+## SPEC_punkteformel_final.md (2026-08-07, Spieltag 1 - Kickoff 18:30 UTC)
+
+**Abschnitt 1 (zeitkritisch, vor Anpfiff)**: `prediction_log.save_matchday_prediction()`
+lief bereits produktiv mit echtem UTC-Zeitstempel (`datetime.now(timezone.utc)`)
+und korrektem Kickoff-Freeze (`generated_at >= kickoff_first` stoppt weitere
+Schreibvorgänge, beide tz-aware, verglichen gegen `fixtures.
+get_season_start_date()`s live verifiziertes 07.08.2026 18:30 UTC) - verifiziert,
+kein Fix nötig. `matchday=1` bleibt bewusst hartkodiert (TODO für Spieltag 2+
+unverändert) - für HEUTE ist der Wert per Definition korrekt, eine neue
+Erkennungslogik unmittelbar vor dem echten Anpfiff einzuführen und
+UNGETESTET zu lassen wäre riskanter gewesen als der Status quo. Ein letzter
+`python main.py`-Lauf um 10:04 UTC wurde sofort committet/gepusht (auch
+gegen einen zeitlich früheren, bereits vorhandenen Actions-Bot-Snapshot von
+08:39 UTC durchgesetzt, da meiner näher am Anpfiff und damit aktueller war -
+Ausnahme vom sonst üblichen "Bot-Snapshot gewinnt"-Muster, hier bewusst nach
+Zeitstempel statt nach Quelle entschieden).
+
+**Abschnitt 2/5 - "Basis 91,0"-Bug behoben**: `coach._punktebasis()`s
+MW-Sockel-Fallback (`mv_implied_form(mv)×130`, gedeckelt bei 0,7×130=91,0)
+kollabierte für JEDEN Spieler ohne eigene Punktehistorie mit ausreichend
+hohem MW auf denselben Wert, unabhängig von Position/Team/Farbe - live belegt
+(Wahl, Pieringer, Taz, Ofli, El Kadiri alle exakt "Basis 91,0" trotz drei
+verschiedener Positionen). Der eigentlich vorgesehene, differenziertere
+Vergleichsgruppen-Wert (`scoring.estimate_ap_from_peers()`, Median aus
+Position×Teamstärke-Drittel×Farbe) existierte zwar bereits und wurde von
+`coach.fair_value()` genutzt, aber NICHT von `coach.expected_points()` (die
+Zahl, die tatsächlich überall als "E[Punkte]" angezeigt wird) - `peer_lookup`
+war zum Zeitpunkt der Kader-/Markt-Klassifizierung schlicht noch nicht
+gebaut (die Liga-Bestenliste lief bisher NACH der Kader-Klassifizierung, weil
+sie `own_ids` aus dem fertigen Kader brauchte). **Fix**: `own_ids` wird jetzt
+aus dem ROHEN Kader (`squad_players`, direkt nach `kb.get_squad()` verfügbar)
+statt aus `squad_classified` gebildet - dadurch kann der komplette
+Liga-Bestenlisten-/Preiskurven-/Peer-Lookup-Aufbau (`league_board.
+build_league_lists()`) VOR die Kader-Klassifizierung vorgezogen werden, ohne
+einen einzigen Zusatz-API-Call. `peer_estimate` fließt jetzt in ALLE drei
+`coach.expected_points()`-Aufrufstellen ein: eigener Kader (`main.py`,
+Kader-Loop), Tagesmarkt (`main.py`, `ep_market`, `peer_est` jetzt UNGATED von
+`min_price_now` berechnet statt nur für Fair Value) und Mitspieler-Kader
+(`league_teams.analyze_manager()`, neuer Parameter `peer_lookup` - vorher
+bewusst ausgeklammert, weil `peer_lookup` zu dem Zeitpunkt noch nicht
+vorlag; jetzt kostenlos verfügbar, da derselbe Aufbau bereits für den
+eigenen Kader vorgezogen wurde). Live verifiziert: dieselben Spieler zeigen
+jetzt differenzierte Werte ("Punktebasis 91.0 → 120.0 bei Pieringer",
+"91.0 → 50.0 bei Souza", "32.5 → 96 bei Zielinski") statt eines geteilten
+Konstantwerts, Kalibrierungsanker bleibt bei -3% (weiterhin PLAUSIBEL, der
+Fix hat die Gesamtkalibrierung nicht verschoben).
+
+**Einsatzfaktor-Tabelle (M) exakt an die Spec angeglichen**: `coach.
+EINSATZ_FACTOR` war bereits farbverankert, aber geringfügig anders kalibriert
+(0,95/0,60/0,25 statt Spec-Werten 0,92/0,55/0,20 für grün/gelb/rot) - beides
+Erstkalibrierung ohne echte Ist-Minuten dahinter, risikoarm angeglichen. **G
+(Gegnerfaktor-`k_pos`) und Z (Zu-Null-Wahrscheinlichkeitstabelle) bewusst
+NICHT angeglichen** - die Spec schlägt spürbar andere Werte vor (`k_pos`
+grob halb so groß wie die aktuell live gegen den `pspts`-Anker verifizierten
+Werte), eine blinde Übernahme Stunden vor dem ersten echten Anpfiff hätte die
+bereits mehrfach live bestätigte Kalibrierung (-4% bis -3% Abweichung vom
+Anker) ohne jede Gegenprobe verändert. Bleibt offen für einen dedizierten
+Kalibrierungsdurchlauf, sobald echte Spieltag-1-Ist-Werte vorliegen (deckt
+sich mit der Spec-eigenen Aussage "ab Spieltag 5 gegen die tatsächliche
+Zu-Null-Quote kalibriert").
+
+**`retrospective.py` (neu) - Wasserfall-Zerlegung (Abschnitt 3)**:
+`waterfall_player()`/`waterfall_manager()` implementieren die in der Spec
+exakt vorgegebene Kaskade (E0 Ausgangsprognose → E1 nach Einsatzzeit-Ist →
+E2 nach Spielausgang-Ist → E3 nach Zu-Null-Ist → Rest = Leistung/unerklärt),
+inkl. Prüfsumme (die vier Deltas müssen exakt Ist−Prognose ergeben) und
+`format_manager_report()` für die Klartext-Ausgabe im Spec-Format.
+**Bewusst NICHT an main.py angebunden**: die Zerlegung braucht
+Player-Level-Ist-Werte (tatsächliche Einsatzminuten, tatsächliches Zu-Null,
+tatsächliches Ergebnis je Partie), die aktuell nirgends erfasst werden -
+`prediction_log.save_matchday_actuals()` ist bewusst auf Manager-Ebene
+begrenzt (`ranking.us[].mdp`, s. bestehender CLAUDE.md-Eintrag). Eine
+Quelle für Player-Level-Ist-Werte ist noch nicht identifiziert/verifiziert
+(vermutlich zusätzliche `ph`-Abrufe je Mitspieler-Kader nach Spieltagsende -
+unverifiziert, analog anderer defensiv scheiternder Endpoints im Projekt).
+
+**`test_retrospective_dryrun.py` (neu) - Trockenlauf (Abschnitt 4.1)**:
+lädt die ECHTE gespeicherte Prognosedatei (`data/predictions/1899_md1.json`,
+reale Basis+Faktoren) und erfindet dazu deterministische Ist-Werte
+(`random.Random(42)`, reproduzierbar), um NUR den Rechenmechanismus zu
+prüfen, nicht die Datenverfügbarkeit. Kein Netzwerkzugriff, direkt lauffähig
+(`python test_retrospective_dryrun.py`). Live bestanden: alle 11 Manager der
+2. Bundesliga-Liga, Prüfsumme exakt (keine Rundungsabweichung) - der
+Zerlegungsmechanismus ist nachweislich korrekt. **Läuft aktuell NICHT** als
+Teil der CI (anders als `test_determinism.py`) - reiner Entwickler-Check für
+den Mechanismus, kein Regressionstest für main.py-Verhalten.
+
+**Bewusst zurückgestellt** (Abschnitt 6-9, Varianzzerlegung/Quantile/
+Kalibrierung/Team-Kovarianzen): die Spec fordert eine vollständige
+Unsicherheits-Architektur (Var_Leistung/Var_Niveau/Var_Spielausgang/
+Var_ZuNull/Var_Einsatz je Spieler, rechtsschiefe Quantilverteilung statt
+symmetrischem Intervall, Team-Kovarianzen für Vereinsbindung/Direktduell,
+Vertrauensgewichtetes Nachziehen `n/(n+n₀)`) - das ist ein eigenständiges,
+mehrtägiges statistisches Modellierungsprojekt, keine Bugfix-Serie, und die
+Spec selbst platziert die eigentliche Kalibrierung explizit "ab Spieltag 5"
+(mehrfach wörtlich so benannt) - vor echten Ist-Werten ist ohnehin nichts
+davon verifizierbar. Aktuelle `player_sigma()`/`xi_prognose()`-Bandbreite
+(symmetrisch, SPEC_spieltagsmodell_v2.md) bleibt unverändert bestehen, liefert
+aber bereits die rohen Ist-Vergleichsdaten (`ep_factors` in jeder gespeicherten
+Prognose), auf denen eine künftige Varianzzerlegung aufbauen könnte, ohne
+das Speicherformat ändern zu müssen. Abschnitt 10 (Interaktivität: Drill-down,
+Aufstellung/Transfer durchspielen) und 11 (Robustheit: Entwicklungsmodus,
+Statusleiste) ebenfalls nicht begonnen - explizit UI-/Infrastruktur-Ausbau,
+kein Korrektheitsproblem am ersten Spieltag.
+
 ## REVIEW_architektur_KOMPLETT.md (2026-08-07, Architektur-Review des Livereports)
 
 **Wurzelbefund (Teil 1)**: "Score"/"Fair Value"/"erwartete Punkte" wurden je

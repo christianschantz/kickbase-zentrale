@@ -27,8 +27,9 @@ coach.py) + 3.3 (Manager-Kennzahlen, ohne Streuung/Risikoprofil) + 3.5
 import time
 from collections import Counter
 
-from fixtures import fixture_ease_for_team
+from fixtures import fixture_ease_for_team, team_strength_for
 from odds import fixture_ease_odds
+from scoring import kickbase_color, estimate_ap_from_peers
 import coach
 
 POS_NAMES = {1: "TW", 2: "ABW", 3: "MF", 4: "ANG"}
@@ -74,7 +75,7 @@ def _estimate_prob(p):
 
 def analyze_manager(kb, cid, league_id, uid, name, tid_to_name, strength_map,
                     upcoming, fixture_mode, matcher, sleep=0.15,
-                    liga_avg_win_prob=0.5):
+                    liga_avg_win_prob=0.5, peer_lookup=None):
     """
     Liefert die vollständige Analyse EINES Managers: Kader mit erwarteten
     Punkten (coach.expected_points, ohne Spielverlaufsfaktor - kein KI-
@@ -86,11 +87,19 @@ def analyze_manager(kb, cid, league_id, uid, name, tid_to_name, strength_map,
     zentriert den Gegnerfaktor auf die echte Liga-Ø-Sieg-WK - ohne diesen
     Fix lag die Spieltagsprognose systematisch bei ~250-450 statt den aus
     `pspts`/Spieltagszahl ableitbaren realen ~900 (s. CLAUDE.md).
-    **Kein Peer-Vergleichswert (3.2) hier** - bewusst ausgeklammert, würde
-    zusätzlich Teamstärke+Farbe je Spieler und einen ligaweiten Peer-Lookup
-    brauchen (aus league_board.py, dort aber erst nach der vollen
-    Populations-Analyse verfügbar); Mitspieler-Kader ohne Punktehistorie
-    fallen hier auf die MW-Schätzung zurück wie schon vor diesem Fix.
+
+    **Peer-Vergleichswert jetzt verdrahtet (SPEC_punkteformel_final.md)**:
+    war bewusst ausgeklammert, weil `peer_lookup` (aus league_board.py) erst
+    NACH der vollen Populations-Analyse verfügbar war. Seit main.py den
+    Liga-Bestenlisten-Aufbau vor die Kader-Klassifizierung vorgezogen hat
+    (own_ids kommen jetzt aus dem rohen Kader statt dem fertig
+    klassifizierten), liegt `peer_lookup` bereits vor, BEVOR
+    `build_league_teams()`/`analyze_manager()` überhaupt laufen - kein
+    Zusatz-Call, nur ein durchgereichter Parameter. Ohne ihn kollabierte
+    `_punktebasis()`s MW-Sockel-Fallback für Mitspieler ohne Punktehistorie
+    auf denselben gedeckelten Wert (91,0) unabhängig von Position/Team/Farbe
+    - live belegt (Wahl, Pieringer, Taz, Ofli, El Kadiri identisch "Basis
+    91,0" trotz drei verschiedener Positionen).
     """
     squad_data = kb.get_manager_squad(league_id, uid)
     time.sleep(sleep)
@@ -107,9 +116,16 @@ def analyze_manager(kb, cid, league_id, uid, name, tid_to_name, strength_map,
         else:
             ease, opponents = fixture_ease_for_team(team_name, upcoming, strength_map)
         prob = _estimate_prob(p)
+        peer_est = None
+        if peer_lookup is not None:
+            team_strength = (team_strength_for(team_name, strength_map)
+                            if fixture_mode != "odds"
+                            else strength_map.get(matcher(team_name, list(strength_map.keys())), 0.5))
+            peer_est, _ = estimate_ap_from_peers(pos, team_strength, kickbase_color(prob), peer_lookup)
         ep, factors = coach.expected_points(
             pos, p.get("ap", 0), None, p.get("st", 0), prob, ease,
-            team_name=team_name, mv=p.get("mv", 0), liga_avg_win_prob=liga_avg_win_prob)
+            team_name=team_name, mv=p.get("mv", 0), liga_avg_win_prob=liga_avg_win_prob,
+            peer_estimate=peer_est)
         # SPEC_ranking_faktoren_llm.md 2.3: Plausibilitätsprüfung - eine
         # Erwartung <25 P bei einem blauen/grünen (voraussichtlichen
         # Startelf-)Spieler ist fast immer ein Datenproblem, kein echtes
@@ -190,7 +206,7 @@ def analyze_manager(kb, cid, league_id, uid, name, tid_to_name, strength_map,
 
 def build_league_teams(kb, cid, league_id, ranking, strength_map, upcoming,
                        fixture_mode, matcher, sleep=0.15, liga_avg_win_prob=0.5,
-                       own_uid=None, own_entry=None):
+                       own_uid=None, own_entry=None, peer_lookup=None):
     """
     Analysiert ALLE Manager der Liga (aus `ranking.us`, bereits geladen -
     kein Zusatz-Call). Liefert eine nach Prognose sortierte Liste von
@@ -222,7 +238,7 @@ def build_league_teams(kb, cid, league_id, ranking, strength_map, upcoming,
         else:
             analysis = analyze_manager(kb, cid, league_id, uid, name, tid_to_name,
                                        strength_map, upcoming, fixture_mode, matcher, sleep,
-                                       liga_avg_win_prob=liga_avg_win_prob)
+                                       liga_avg_win_prob=liga_avg_win_prob, peer_lookup=peer_lookup)
         analysis["vorsaison"] = {
             "platz": u.get("psp"), "punkte": u.get("pspts"), "siege": u.get("pswc"),
         }
