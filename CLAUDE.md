@@ -145,6 +145,181 @@ Base: `https://api.kickbase.com`. Referenz-Doku: github.com/kevinskyba/kickbase-
   **Geprüft, nicht gebaut**: Über/Unter-2,5-Tore-Quoten (Punkt 4.6) - die Spalten (`Avg>2.5`/`Avg<2.5`/`B365>2.5`/`B365<2.5`) existieren in football-data.co.uk/fixtures.csv, aber die Datei enthält aktuell (tiefe Sommerpause) nur schottische Ligen (`SC0-3`), keine `D2`/`SP1`-Zeilen - Füllgrad für unsere Ligen kann erst nach Saisonstart geprüft werden, zurückgestellt.
 - `analytics.py`: nur Kompat-Wrapper, kann weg wenn nichts mehr importiert.
 
+## REVIEW_architektur_KOMPLETT.md (2026-08-07, Architektur-Review des Livereports)
+
+**Wurzelbefund (Teil 1)**: "Score"/"Fair Value"/"erwartete Punkte" wurden je
+Report-Abschnitt unabhängig neu berechnet statt aus einer kanonischen Quelle
+gelesen - live belegt (Reichert 4 verschiedene "Score"-Werte, Zec Fair Value
+0,91 Mio vs. faktisch ~11 Mio). Der Review schlägt eine vollständige
+`PlayerEvaluation`-Struktur vor (Teil 1.3, "eine Bewertung je Spieler, überall
+gelesen"). **Bewusst NICHT als Ganzes umgesetzt** - ein Umbau, der jedes Modul
+(coach/scoring/league_board/squad_analysis/main/html_report) auf eine
+gemeinsame Datenstruktur umstellt, ist ein mehrtägiges Vorhaben mit echtem
+Regressionsrisiko, und zwar **ausgerechnet am ersten echten Spieltag
+(07.08.2026)**, an dem das Tool live genutzt wird - der Review selbst reiht
+das unter "Diese Woche", nicht "vor dem ersten Anpfiff" ein. Stattdessen:
+**gezielte Fixes an jeder konkret belegten Divergenz** (unten), die den
+Großteil des praktischen Schadens beheben, ohne die Architektur an einem
+Live-Tag komplett umzubauen. Eine echte Vereinheitlichung bleibt ein
+sinnvoller Folgeschritt (s. Baustellen-Liste).
+
+**Score-Label-Disambiguierung (Item 1, statt Rescale)**: `scoring.score_player()`
+(absolute, auf die 2. Liga kalibrierte Skala, für Kader-/Marktkarten) und
+`league_board.py`s ligarelative Perzentil-Scores (`quality_total`/`value_total`,
+für die Bestenlisten) sind laut CLAUDE.md **bewusst zwei getrennte Systeme**
+(Rescale würde die über viele Runden kalibrierten STAMM/HALTEN-Schwellen
+invalidieren, s. `league_board.py`-Eintrag oben "Bewusst NICHT angefasst") -
+aber beide hießen bisher identisch "Score", ohne dass ersichtlich war, dass
+es zwei verschiedene Zahlen sind. Sofortmaßnahme statt Vereinheitlichung:
+Labels disambiguiert - "Kader-Score" (`scoring.score_player()`, Kader-/
+Marktkarten, `main.py`+`html_report.py`+`report_builder.py`) vs. "Liga-Score
+(Qualität)"/"Liga-Score (Deal)" (`html_report.BOARD_SCORE_LABEL`,
+Bestenlisten). Dieselbe Zahl für denselben Spieler kann weiterhin zwischen
+beiden Systemen abweichen (das ist beabsichtigt, zwei unterschiedliche
+Fragen), aber jetzt immer erkennbar, WELCHES System gemeint ist.
+
+**Marginaler statt absoluter Elf-Beitrag (2.3)**: `squad_analysis.
+bridge_to_ideal_elf()` prüfte `free_slots > 0` (freier KADER-Platz, z.B. "3
+freie Kaderplätze") VOR dem Ideal-Elf-Vergleich auf derselben Position - ein
+Torwart (immer genau 1 Slot je Formation) mit freiem Kaderplatz bekam dadurch
+seine ABSOLUTE Erwartung als "+X P" angezeigt, obwohl der gesetzte Torwart
+die Elf gar nicht verlässt (live belegt: Reichert "+138 P" trotz gesetztem
+Hoffmann mit 101,7 P). Fix: der Ideal-Elf-Vergleich auf derselben Position hat
+jetzt IMMER Vorrang und liefert den echten marginalen Zugewinn
+(`ep_market - weakest["expected_points"]`); der freie-Kaderplatz-Zweig (keine
+Vergleichszahl, absolute Erwartung) greift nur noch, wenn die Position in der
+Ideal-Elf wirklich unbesetzt ist. Live verifiziert: Reichert zeigt jetzt
+korrekt "+35 P" (verdrängt Hoffmann, 102 P) statt der alten "+138 P".
+
+**Verdikt/Tier/"NICHT BIETEN"-Widerspruch (2.4, Item 7)**: `bid["verdict"]`
+(Trading-Obergrenze/Fair-Value-Prüfung in `bid_advisor.py`) und `affordable`
+(reine Kaufkraft-Prüfung in `squad_analysis.market_vs_squad()`) liefen bisher
+unabhängig - eine Karte konnte "✅ KLARE KAUFEMPFEHLUNG" ZEIGEN und im selben
+Atemzug "🚫 NICHT BIETEN" drucken, weil `finalize_headline_recommendations()`/
+`recommendation_tier()` beide nur `affordable` lesen, nie `bid["verdict"]`.
+Fix: `bid_ok = bid.get("verdict") != "nicht_bieten"` fließt jetzt in JEDE
+`affordable`-Zuweisung in `market_vs_squad()` ein - Headline und Tier-Badge
+(die beide auf `affordable` aufbauen) können das Bid-Verdikt dadurch nicht
+mehr widersprechen.
+
+**Mindestpreis-Sonderregel (2.7, Item 9)**: `bid_advisor.recommend_bid()`
+bekam nie `min_price`/`is_min_price` durchgereicht - bei Regime
+INITIALISIERUNG (typisch für Mindestpreis-Spieler: kaum Historie) gilt IMMER
+`untergrenze == trading_decke == mv`, und der Puffer ist stets > 0, wodurch
+`wunsch > max_gebot` MATHEMATISCH GARANTIERT war, unabhängig vom Spieler -
+jeder Mindestpreis-Kandidat bekam "NICHT BIETEN", obwohl am Mindestpreis das
+Verlustrisiko praktisch null ist (Verkauf bringt immer mindestens denselben
+MW zurück). Fix: neuer Parameter `min_price_player` (durchgereicht von
+`main.py`s `market_scored[].min_price_player`, `league_board.py`s
+`min_price_flag`) schaltet auf `_recommend_bid_min_price()` um - Trading-/
+Fair-Value-Bremse greift hier nicht, Verdikt immer `"bieten"`, Bewertung läuft
+ausschließlich über den sportlichen Elf-Beitrag (`bridge_to_ideal_elf`/
+`recommendation_tier`).
+
+**Fair-Value-Konsistenz + Plausibilitätsgrenze (2.2)**: drei Berechnungsstellen
+(`main.py` Kader-Loop, `main.py` Transfermarkt-Loop, `league_board.py`)
+gingen bisher unterschiedlich mit Mindestpreis-Spielern um - der
+Transfermarkt-Loop klammerte sie schon vorher bewusst aus (`"Fair Value:
+neutral - Mindestpreis"`), aber `squad_analysis.apply_fair_value_note()`
+setzte `c["fair_value"]` UNABHÄNGIG vom `min_price_player`-Flag (nur der
+Reasons-Text/das Sell-Flag wurden unterdrückt, nicht die rohe Zahl), und
+`league_board.py` berechnete `min_price_flag`, nutzte ihn aber nie zum Gaten.
+Ergebnis: derselbe Mindestpreis-Spieler zeigte "neutral" auf der Marktkarte,
+aber eine echte (meist sehr niedrige, kurven-randbedingte) Zahl auf der
+Kaderkarte/in der Bestenliste. Fix: alle drei Stellen gaten jetzt identisch
+auf `min_price_player`. Zusätzlich neue `scoring.clamp_fair_value(fair_value_mv,
+mv, factor=3)` (`FAIR_VALUE_PLAUSIBILITY_FACTOR=3`) - weicht der Fair Value um
+mehr als Faktor 3 vom Marktwert ab, ist das fast immer ein Rechenfehler
+(Kurven-Randeffekt), nicht ein echtes Signal (live belegt: Zielinski MW 3,04
+Mio → Fair Value 10,68 Mio; Zec MW 11,45 Mio → Fair Value 0,91 Mio). Wird an
+allen drei Fair-Value-Berechnungsstellen angewendet, klemmt auf `None`
+("unterdrückt") statt eine unplausible Zahl zu zeigen, mit Konsolen-Warnung.
+Live ausgelöst (La Liga): Johnny Cardoso, Guedes, Uche im Kader, plus mehrere
+Transfermarkt-Kandidaten - vorher wären das alles falsche Fair-Value-Zahlen
+gewesen.
+
+**Doppelte Banger-Karten (2.5, Item 6)**: `report["bangers"]` ist eine reine
+Teilmenge von `report["market"]` (nur nach `banger`-Flag gefiltert, nicht aus
+`compared` entfernt) - jeder Banger-Kandidat erschien dadurch zweimal:
+hervorgehoben in "💎 Banger-Ziele" UND identisch nochmal im normalen
+Transfermarkt-Grid darunter. Fix in `html_report._transfermarkt_section()`
+UND im Konsolen-Äquivalent (`main.py`s `compared[:6]`-Loop): Banger-IDs werden
+vor dem Rendern des normalen Grids ausgeschlossen. Live verifiziert (Timo
+Horn, Maurice Neubauer erscheinen nur noch in "💎 Banger-Ziele", nicht mehr
+zusätzlich im Grid darunter).
+
+**Preiskurven-Sättigung oben behoben (2.1, Item 8)**: `scoring.
+fit_price_curve()` nutzte feste 10 Dezile - das gesamte teuerste
+Preissegment (~14 Mio+) kollabierte dadurch auf EINEN Medianwert (jeder
+Spieler darüber bekam exakt dieselbe Erwartung, live belegt: Wanitzek 30,6
+Mio und Zoma 17 Mio beide "105 P"). Fix: Bucket-Zahl skaliert jetzt mit der
+Populationsgröße (`buckets = max(10, min(30, n // 10))`, bei ~250-270
+bewerteten Spielern/Liga ~25-27 statt 10 Buckets) statt fix bei 10 zu
+bleiben - weiterhin robuste Mediane je Bucket, weiterhin KEINE Regression/
+Extrapolation über die Randpunkte hinaus (das war der explizite Grund für den
+früheren Wechsel weg von der Regression, bleibt unangetastet). Live
+verifiziert: die Kurve zeigt jetzt 13 statt 10 Stützpunkte mit echter
+Differenzierung am teuren Ende (18,6 Mio → 103 P, 28,6 Mio → 121 P - vorher
+beide identisch ~105 P).
+
+**Plausibilitätswarnung auch für den eigenen Kader + HTML-Sichtbarkeit (2.6)**:
+eine Faktor-2-Plausibilitätsprüfung (SPEC_kalibrierung_fairvalue.md 1.2)
+existierte für den eigenen Kader bereits, aber NUR als Konsolen-Print - die
+Review basierte auf dem gerenderten HTML-Livereport und sah sie nie, obwohl
+der gemeldete Zec-Ausreißer (Ø 85 P, blau, angeblich E[Punkte]≈14) genau der
+Fall gewesen wäre, den sie fangen sollte. Zusätzlich fehlte für den EIGENEN
+Kader die absolute "<25 P bei blau/grün"-Warnung, die `league_teams.py` für
+MITSPIELER-Kader schon hatte (SPEC_ranking_faktoren_llm.md 2.3) - nachgezogen.
+Beide Warnungen fließen jetzt in `report["plausibility_warnings"]` und
+erscheinen im `_model_health_banner()` des HTML-Reports, nicht mehr nur in
+der Konsole. **Live-Ergebnis**: Zec zeigt in der aktuellen Berechnung
+plausible 110 P (kein Ausreißer mehr reproduzierbar, wahrscheinlich bereits
+durch den MW-Sockel-Fix aus SPEC_ranking_faktoren_llm.md 2.3 miterledigt,
+bevor dieser Review geschrieben wurde) - die neue Warnung bleibt trotzdem als
+Verteidigungslinie gegen künftige Fälle dieser Art bestehen und feuerte live
+für andere Spieler (La Liga: Guedes im eigenen Kader).
+
+**"Dein Kader heute" zeigte scheinbar fremde Manager-Namen (2.8)**: keine
+Vertauschung von Kaderdaten (das wurde geprüft und verworfen), sondern ein
+Platzierungsproblem: `_model_health_banner()` listet als Modellstabilitäts-
+Check (SPEC_lernzyklus.md 5.3, `prediction_log.diff_predictions()`) die
+Prognose-Änderungen ALLER Liga-Manager, sitzt aber ohne eigene Überschrift
+direkt unter dem KPI-Grid ("Dein Kader heute"-Kachel) - Namen wie
+"malte.srn"/"david" (andere Manager) lasen sich dadurch wie eine Aussage über
+den eigenen Kader. Fix: diese Zeilen tragen jetzt ein explizites "Liga:"-
+Präfix statt reinem Spielernamen.
+
+**KI verwechselte Prognosetabelle mit echtem Tabellenstand (2.9)**:
+`llm_insights.py`s `league_comparison`-Kontextfeld hieß `my_rank` (Rang NACH
+PROGNOSE für den kommenden Spieltag, aus `league_teams.py`) - das Modell
+interpretierte das live als bereits gespielten Tabellenstand ("Rang 8, 131,1
+Punkte Rückstand"), obwohl es vor dem ersten Spieltag der Saison noch gar
+keinen echten Tabellenstand geben kann. Fix: Feld umbenannt zu
+`my_rank_prognose` (macht es schon am Namen klar) + explizite Anweisung in
+`TASK_INSTRUCTIONS` Punkt 6, das immer als Vorhersage zu formulieren ("nach
+Prognose liegst du..."), nie als bereits erspieltes Ergebnis. Live
+verifiziert: beide Ligen formulieren jetzt korrekt "Nach der aktuellen
+Spieltagsprognose liegst du... auf Rang X" / "vor dem 1. Spieltag".
+
+**Protokollierung (3.5) - falscher Alarm**: `prediction_log.
+save_matchday_prediction()` lief bereits produktiv (`data/predictions/
+1899_md1.json` existiert, tägliche `bids_<datum>.json`) - der Review sah nur
+keine Erwähnung davon im gerenderten HTML-Report, was auch korrekt ist (die
+Protokolldateien sind ein Hintergrund-Log für den späteren Lernzyklus, per
+Design nicht Teil der sichtbaren Seite). Kein Fix nötig, nur verifiziert.
+
+**Bewusst zurückgestellt** (Teil 7, "Zeithorizont" - explizit "Danach" laut
+Review-eigener Priorisierung, nicht "vor dem ersten Anpfiff"): ein
+`restspieltage_gewicht`-Faktor, der die Trading- vs. Sport-Gewichtung über
+die Saison verschiebt (früh: Trading wichtiger, spät: nur noch Punkte
+zählen), Team-Saisonstärke aus dem Quotenmittel statt nur dem nächsten
+Gegner, Spielplanqualität über mehrere Spieltage, Über/Unter-2,5-Tore-Quoten
+als Faktor, sowie eine gemeinsame Einheit für Trading- und Sportnutzen
+(Abschnitt 7.4). Das ist eine neue, mehrdimensionale Gewichtungs-Erweiterung,
+kein Bugfix - verdient einen eigenen dedizierten Durchlauf mit echter
+Kalibrierung, nicht einen Anhang an einen bereits sehr breiten Fix-Batch am
+ersten Spieltag.
+
 ## User-Präferenzen (aus mehreren Feedback-Runden — unbedingt beibehalten)
 
 - Trading und Punkte sind gleichwertig ("geht Hand in Hand"): Teamwert maximieren → beste Spieler → Spieltage gewinnen.
@@ -168,6 +343,7 @@ Base: `https://api.kickbase.com`. Referenz-Doku: github.com/kevinskyba/kickbase-
 12. **Verbleibend aus SPEC_spieltagsmodell_v2.md**: 1.4s KI-Teil (**ein gebündelter Gemini-Call für alle 11 Manager**, ein Satz Einordnung je Manager zu Aufstellung/Gegner/Auffälligkeiten - bewusst wegen Zeitbudget in dieser Änderung zurückgestellt, technisch unkompliziert analog zu `llm_insights.py` umsetzbar, sollte als nächstes angegangen werden). `prediction_log.save_matchday_actuals()`/`deviation_report()` sind bewusst auf Manager-Ebene begrenzt (`ranking.us[].mdp`) - die Player-Level-Abweichungszerlegung aus dem Spec-Beispiel ("-48 Einsatz Guedes 14 Min...") bräuchte zusätzliche `ph`-Abrufe je Mitspieler-Kader, noch nicht gebaut. `matchday` ist für Spieltag 1 hartkodiert (`main.py`) - eine echte Spieltagszahl-Ableitung für Spieltag 2+ ist offen (Kandidat: `ranking.us[].sp>0`-Erkennung wie in `report_builder.compute_kpis`, oder `/v4/competitions/{cid}/players` Feld `day`/`sn`, unverifiziert).
 13. **Verbleibend aus SPEC_lernzyklus.md**: Stufe 2 (Regression, ab Spieltag 5) und Stufe B (KI-Anomalie-Klassifikation einmalig/systematisch/unklar) - beide brauchen echte Ist-Werte, die es vor dem ersten Spieltag nicht gibt, reine Zukunftsarbeit (Infrastruktur - Gewichtsversionierung, Protokollierung, Stufe-A-Ausreißererkennung - liegt bereit). Player-Level-Ist-Werte (Einsatzminuten, "der wertvollste Ist-Wert überhaupt" laut Spec) sind noch nicht erfasst (s. Punkt 12) - ohne sie bleibt die Statusfarbe-zu-Minuten-Kalibrierung aus Abschnitt 4.4 der Spec unbaubar. KI-Faktoren-Einfrieren (5.2a) zurückgestellt, weil `matchday_outlook` aktuell nirgends mit echten Daten an `coach.expected_points()` übergeben wird - die Instabilitätsursache existiert im Code derzeit nicht. "Letzten erfolgreichen KI-Stand mit Zeitstempel zeigen" (6.4) bräuchte eine Erweiterung der schlanken Snapshot-Persistenz. Abschnitt 4 (fehlende Faktoren: Über-/Unter-2,5-Tore-Quoten, Heimvorteil-Term, Formations-Rolle, Punktetyp-Kopplung) noch nicht geprüft/gebaut - 4.1 (Tore-Quoten) hat laut Spec potenziell den größten Hebel, zuerst prüfen ob die `fixtures.csv`-Spalten für D2/SP1 gefüllt sind.
 14. ~~SPEC_ranking_faktoren_llm.md~~ **erledigt (2026-08-06)**: die drei Prioritäten 1-3 (ein Rechenweg für die eigene Prognose, MW-Sockel gegen negative/implausible Erwartung, KI-Aufrufzähler) sowie Priorität 4 (Duelle partieweise gruppiert) sind gebaut und live verifiziert, s. `league_teams.py`-Eintrag oben. Priorität 5 (Über/Unter-2,5-Tore-Quoten) geprüft, aber zurückgestellt - `fixtures.csv` enthält in der aktuellen tiefen Sommerpause keine `D2`/`SP1`-Zeilen (nur schottische Ligen), Füllgrad für unsere Ligen erst nach Saisonstart prüfbar. **Verbleibend aus Abschnitt 4/5**: 4.1-4.5 (Detailanalyse was Spieltagspunkte wirklich treibt: Team-Dominanz ≠ Sieg-WK, Torbeteiligungen gehören in σ nicht in den Erwartungswert, Gegner-Sensitivität `k` sollte an den Punktetyp gekoppelt sein) sind noch nicht umgesetzt - explizit spekulativ/mittelfristig laut Spec. Abschnitt 5 (Bandbreite evtl. zu eng, ±10% beobachtet vs. reale Kickbase-Streuung) explizit erst nach echten Ist-Werten (Spieltag 1, 07.08.2026) validierbar - nicht vorher angehen.
+15. ~~REVIEW_architektur_KOMPLETT.md~~ **Sofortfixes erledigt (2026-08-07)**: alle 9 konkret belegten Report-Bugs (Teil 2, Punkte 2.1-2.9: Kurvensättigung, Fair-Value-Konsistenz+Plausibilitätsgrenze, marginaler Elf-Beitrag, Verdikt/Tier/NICHT-BIETEN-Widerspruch, doppelte Karten, Zec-Plausibilität+HTML-Sichtbarkeit, Mindestpreis-Sonderregel, Überschrift-Zuordnung, KI-Tabellenstand-Verwechslung) sowie die Score-Label-Disambiguierung (Item 1) sind gebaut, live gegen beide Ligen verifiziert, s. den eigenen Abschnitt oben. **Bewusst NICHT umgesetzt** (explizit als mehrtägige Folgearbeit eingestuft, nicht am ersten Spieltag): Teil 1.3 (vollständige `PlayerEvaluation`-Struktur - eine echte Vereinheitlichung aller Score-/Fair-Value-/Punkte-Berechnungen statt der jetzt disambiguierten Labels/gezielten Konsistenz-Fixes; bräuchte eine Neukalibrierung der über viele Runden austarierten STAMM/HALTEN-Schwellen, die an `scoring.score_player()`s Skala hängen - **User-Rückfrage nötig**, ob/wann dieser größere Umbau gewünscht ist) und Teil 7 (Zeithorizont/`restspieltage_gewicht`, Team-Saisonstärke aus Quotenmittel, Über/Unter-Tore-Faktor, gemeinsame Trading/Sport-Einheit - neue Gewichtungs-Erweiterung, kein Bugfix, verdient eigenen dedizierten Durchlauf mit echter Kalibrierung).
 
 ## Was NICHT tun
 

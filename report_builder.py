@@ -77,7 +77,7 @@ def build_actions(compared, squad_classified, max_items=ACTION_LIMIT):
                 "icon": "🎯", "kind": "bid", "urgent": bool(hrs and hrs < 6),
                 "text": f"Gebot auf {m['name']} ({m['team']})",
                 "amount": b["recommended_bid"], "deadline_hours": hrs,
-                "reason": f"Score {m['score']} · Kaufkraft "
+                "reason": f"Kader-Score {m['score']} · Kaufkraft "
                          f"{'reicht' if m['affordable'] else 'reicht NICHT'}",
             })
             included_ids.add(m["id"])
@@ -109,7 +109,7 @@ def build_actions(compared, squad_classified, max_items=ACTION_LIMIT):
                 "icon": "⏰", "kind": "expiring", "urgent": hrs < 6,
                 "text": f"{m['name']} ({m['team']}) läuft ab",
                 "amount": b["recommended_bid"], "deadline_hours": hrs,
-                "reason": f"Score {m['score']} · " + m["team_verdict"].split(" | ")[0],
+                "reason": f"Kader-Score {m['score']} · " + m["team_verdict"].split(" | ")[0],
             })
             included_ids.add(m["id"])
             expiring_added += 1

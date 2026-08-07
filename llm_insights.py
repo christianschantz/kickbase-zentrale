@@ -88,7 +88,7 @@ team_score: Klassestärke des Vereins aus Wettquoten
 kickbase_color: die OFFIZIELLE Kickbase-Einsatzampel (blau=gesetzt, grün=wahrscheinlich Startelf, gelb=fraglich, rot=eher nicht, grau=keine Einschätzung/fällt aus). Beantwortet NUR "spielt er?", nicht "was tue ich mit ihm?" - das ist weiterhin das Verdikt. kickbase_color_conflict ist gesetzt, wenn beide auseinanderlaufen (z.B. grün, aber Verdikt VERKAUFEN) - das IMMER kommentieren, wenn vorhanden.
 self_play_conflicts: bereits ALGORITHMISCH erkannte Fälle, in denen zwei eigene Spieler direkt gegeneinander antreten (Team A vs. Team B, beide im eigenen Kader) - nicht selbst suchen, nur einordnen/kommentieren, wenn das Array nicht leer ist.
 lineup_gaps: unbesetzte Aufstellungsslots vor der 20:29-Deadline - das Dashboard zeigt das bereits als Warnung, hier nur relevant wenn du einen externen Grund/Vorschlag beisteuern kannst.
-league_comparison: eigener Rang + Prognose-Abstand zum Spitzenreiter der Liga fürs kommende Wochenende (Modul 3, bereits berechnet) - kommentiere diese Zahlen, erfinde keine eigenen.
+league_comparison: eigener Rang NACH PROGNOSE (my_rank_prognose) + Prognose-Abstand zum Spitzenreiter der Liga fürs kommende Wochenende (Modul 3, bereits berechnet) - kommentiere diese Zahlen, erfinde keine eigenen. Das ist eine Vorhersage, KEIN echter Tabellenstand - nie als bereits erspieltes Ergebnis formulieren.
 
 VERHALTENSREGELN:
 - Verwende die gelieferten Verdikte und Begründungen als gesetzt. Deine Aufgabe ist NICHT, sie neu zu berechnen, sondern zu prüfen, ob externe Informationen (Verletzung, Trainerwechsel, Bericht) etwas ändern.
@@ -133,11 +133,18 @@ dem Input zu füllen:
    steigende Spieler eines Teams/einer Position im Input)? Nur wenn aus dem
    JSON-Kontext ein Muster erkennbar ist oder dir dazu externes Wissen
    vorliegt - nicht spekulieren.
-6. KONKURRENZVERGLEICH: league_comparison zeigt eigenen Rang und Prognose-
-   Abstand zum Spitzenreiter der Liga fürs kommende Wochenende (Modul 3,
-   bereits berechnet) - kommentiere DIESE Zahlen (z.B. woran der Rückstand
-   liegen könnte, falls aus Kader/Flags ableitbar), erfinde keine eigenen.
-   Diese Brücke zu Modul 3 ersetzt keine eigene Berechnung.
+6. KONKURRENZVERGLEICH: league_comparison zeigt den Rang NACH PROGNOSE
+   (my_rank_prognose) und den Prognose-Abstand zum Spitzenreiter für den
+   KOMMENDEN Spieltag (Modul 3, bereits berechnet) - kommentiere DIESE
+   Zahlen (z.B. woran der Rückstand liegen könnte, falls aus Kader/Flags
+   ableitbar), erfinde keine eigenen. **Wichtig**: das ist eine PROGNOSE,
+   KEIN echter Tabellenstand - schreibe niemals "du liegst auf Platz X"
+   oder "X Punkte Rückstand" als wäre das ein bereits gespieltes Ergebnis
+   (live gefunden: das Modell verwechselte die Prognosetabelle mit einer
+   echten Ligatabelle vor dem allerersten Spieltag der Saison, wo es noch
+   gar keinen echten Tabellenstand geben kann). Formuliere es explizit als
+   Erwartung/Prognose ("nach Prognose liegst du vor dem Spieltag auf
+   Rang X").
 
 Deine Aufgabe:
 1. Trage NUR bei, was du zusätzlich zum JSON-Kontext weißt oder ableiten
@@ -336,7 +343,11 @@ def build_context(report, strength_map, fixture_mode, matcher, generated_at, sea
             my_rank = league_teams.index(my_entry) + 1
             top_entry = league_teams[0]
             league_comparison = {
-                "my_rank": my_rank,
+                # "_prognose"-Suffix bewusst statt "my_rank" (REVIEW_
+                # architektur_KOMPLETT.md 2.9) - macht schon am Feldnamen
+                # klar, dass das eine Vorhersage für den kommenden
+                # Spieltag ist, kein echter, bereits erspielter Tabellenrang.
+                "my_rank_prognose": my_rank,
                 "of_managers": len(league_teams),
                 "my_prognose": my_entry["prognose"],
                 "top_manager": top_entry["name"],

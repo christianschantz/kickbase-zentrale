@@ -185,8 +185,22 @@ def fit_price_curve(players, min_price=None, censor_margin=0.10):
     Vorteil ggü. Regression: robust gegen Ausreißer, kein Modellrisiko, direkt
     als Tabelle darstellbar ("für 12 Mio bringt der Durchschnittsspieler
     92 Punkte" - wörtlich das Dezil-Ergebnis). Liefert eine sortierte Liste
-    von 10 (median_mv, median_ap)-Stützpunkten oder None bei <30 Punkten
-    (Mindestgröße für 10 einigermaßen tragfähige Dezile).
+    von (median_mv, median_ap)-Stützpunkten oder None bei <30 Punkten
+    (Mindestgröße für tragfähige Buckets).
+
+    **Bugfix Kurvensättigung oben (REVIEW_architektur_KOMPLETT.md 2.1)**:
+    feste 10 Dezile kollabierten das gesamte teuerste Preissegment auf
+    EINEN Medianwert - live gefunden: jeder Spieler über ~14 Mio bekam
+    exakt dieselbe Erwartung (~105 P), ein 17-Mio- und ein 30,6-Mio-Spieler
+    (Wanitzek) waren nicht unterscheidbar, Wanitzek erschien dadurch als
+    "+49% Schnäppchen", obwohl er der teuerste Spieler der Liga ist. Fix:
+    die Bucket-Zahl skaliert jetzt mit der Populationsgröße (≥10 Spieler/
+    Bucket im Schnitt, gedeckelt bei 30) statt fix bei 10 zu bleiben - bei
+    ~250 bewerteten Spielern/Liga verdoppelt bis verdreifacht das die
+    Auflösung, gerade am teuren Ende, wo Kaufentscheidungen am teuersten
+    sind. Immer noch robuste Mediane je Bucket, weiterhin KEINE Regression/
+    Extrapolation über die Randpunkte hinaus (unverändertes Risikoprofil -
+    das war der explizite Grund für den Wechsel weg von der Regression).
     """
     pts = sorted(((p["mv"], p["ap"]) for p in players if p.get("mv", 0) > 0
                  and not is_min_price_player(p.get("mv", 0), min_price, censor_margin)),
@@ -194,10 +208,10 @@ def fit_price_curve(players, min_price=None, censor_margin=0.10):
     n = len(pts)
     if n < 30:
         return None
-    deciles = 10
-    size = n / deciles
+    buckets = max(10, min(30, n // 10))
+    size = n / buckets
     curve = []
-    for i in range(deciles):
+    for i in range(buckets):
         chunk = pts[int(i * size):int((i + 1) * size)] or [pts[-1]]
         curve.append((_median(sorted(x[0] for x in chunk)),
                       _median(sorted(x[1] for x in chunk))))
@@ -253,6 +267,28 @@ def invert_price_curve(target_points, curve):
             t = (target_points - ap_lo) / (ap_hi - ap_lo)
             return mv_lo + t * (mv_hi - mv_lo)
     return curve[-1][0]
+
+
+FAIR_VALUE_PLAUSIBILITY_FACTOR = 3
+
+
+def clamp_fair_value(fair_value_mv, mv, factor=FAIR_VALUE_PLAUSIBILITY_FACTOR):
+    """
+    REVIEW_architektur_KOMPLETT.md 2.2: Weicht ein berechneter Fair Value um
+    mehr als `factor`x vom aktuellen Marktwert ab, ist das fast immer ein
+    Rechenfehler (z.B. ein Randeffekt der dünn besetzten Preiskurve) statt
+    ein echtes Signal - live gefunden: Zielinski MW 3,04 Mio -> Fair Value
+    10,68 Mio (+251%), Zec MW 11,45 Mio -> Fair Value 0,91 Mio (-92%). Eine
+    Zahl wie "+1160% über sportlichem Wert" untergräbt das Vertrauen in die
+    ganze Funktion mehr, als "keine Angabe" es täte. Liefert
+    (fair_value_oder_None, wurde_geklemmt) - lieber protokollieren und
+    unterdrücken als eine unplausible Zahl zeigen.
+    """
+    if fair_value_mv is None or not mv:
+        return fair_value_mv, False
+    if fair_value_mv > mv * factor or fair_value_mv < mv / factor:
+        return None, True
+    return fair_value_mv, False
 
 
 def value_residual(mv, ap, curve):

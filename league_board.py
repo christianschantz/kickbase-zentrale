@@ -50,7 +50,7 @@ from scoring import (STATUS_PENALTY, PROB_SCORE, percentile_rank,
                      fit_price_curve, value_residual, form_raw,
                      price_curve_diagnostics, kickbase_color,
                      is_min_price_player, build_peer_lookup,
-                     estimate_ap_from_peers)
+                     estimate_ap_from_peers, clamp_fair_value)
 from bid_advisor import recommend_bid, dynamic_aggressiveness
 from coach import fair_value
 
@@ -264,9 +264,18 @@ def build_league_lists(kb, cid, league_id, own_ids, strength_map, upcoming,
         # wie überall in diesem Modul, kein Zusatz-Call nötig. `ph` liegt für
         # die volle 449-Population nicht vor (Kostengrund) - ohne Historie
         # UND ohne Peer-Vergleichswert fällt es auf die MW-Schätzung zurück.
+        # REVIEW_architektur_KOMPLETT.md 2.2: min_price_flag wurde bisher nur
+        # berechnet, aber nie zum Gaten der fv_mv-Zuweisung genutzt - anders
+        # als main.py's Transfermarkt-Loop, der Mindestpreis-Spieler bewusst
+        # ausklammert ("Fair Value: neutral - Mindestpreis"). Dieselbe Regel
+        # jetzt auch hier, plus Plausibilitätsklemme (Faktor 3, s. scoring.
+        # clamp_fair_value) gegen Randeffekte der dünn besetzten Kurve.
         min_price_flag = is_min_price_player(mv, min_price)
-        fv_mv, fv_meta = fair_value(pos, mv, ap, None, st, prob, ease, team_score, curve,
-                                    liga_avg_win_prob=liga_avg_win_prob, peer_estimate=peer_est)
+        fv_mv, fv_meta = (None, None)
+        if not min_price_flag:
+            fv_mv, fv_meta = fair_value(pos, mv, ap, None, st, prob, ease, team_score, curve,
+                                        liga_avg_win_prob=liga_avg_win_prob, peer_estimate=peer_est)
+            fv_mv, _ = clamp_fair_value(fv_mv, mv)
         if not fair_value_ok:
             fv_mv = None  # Selbstprüfung verletzt -> keine Fair-Value-Ausgabe (Spec 3.3)
 
@@ -277,7 +286,8 @@ def build_league_lists(kb, cid, league_id, own_ids, strength_map, upcoming,
             bid = recommend_bid(mv, tfhmvt_proxy, aggressiveness=aggr,
                                 league_overpay=league_overpay,
                                 sporting_core=quality_total,
-                                fair_value_mv=fv_mv)
+                                fair_value_mv=fv_mv,
+                                min_price_player=min_price_flag)
 
         residual = residuals.get(pid)
         expected_ap = expected_pts.get(pid)

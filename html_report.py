@@ -102,7 +102,7 @@ def _squad_card(c):
     {color_dot}
     <span class="name">{_esc(c['name'])} <span class="pos">({_esc(c['pos'])})</span></span>
   </div>
-  <div class="stats">Score {c['score']} · MW {_mio(c['mv'])} ({c['tfhmvt']:+,.0f} €/Tag)</div>
+  <div class="stats">Kader-Score {c['score']} · MW {_mio(c['mv'])} ({c['tfhmvt']:+,.0f} €/Tag)</div>
   {fv_html}
   <ul class="reasons">{reasons}</ul>
   {opponents}
@@ -170,7 +170,10 @@ def _market_card(m, highlight=False):
     opp_txt = f"Gegner {_esc(m['opponents'][0])}" if m.get("opponents") else ""
     bridge_txt = ""
     if bridge.get("kind") == "free_slot":
-        bridge_txt = f"würde deine Ideal-Elf ergänzen: +{bridge['gain']:.0f} P"
+        # REVIEW_architektur_KOMPLETT.md 2.3: kein "+" - das ist die absolute
+        # Erwartung (keine bestehende Besetzung dieser Position zum
+        # Vergleichen), keine Differenz/Delta.
+        bridge_txt = f"würde deine Ideal-Elf ergänzen: {bridge['gain']:.0f} P (freier Kaderplatz)"
     elif bridge.get("kind") == "verdraengt":
         bridge_txt = f"würde deine Elf verstärken: verdrängt {_esc(bridge['target']['name'])} · +{bridge['gain']:.0f} P"
     elif bridge.get("kind") == "kein_platz":
@@ -198,7 +201,7 @@ def _market_card(m, highlight=False):
     {star_badge}
     <span class="expiry">⏳ {m.get('expiry_s', 0)/3600:.0f}h</span>
   </div>
-  <div class="stats">Score {m['score']} · Ø {m['ap']} P · {_mio(m['mv'])} ({m['tfhmvt']:+,.0f} €/Tag, {daily_pct:+.1%})</div>
+  <div class="stats">Kader-Score {m['score']} · Ø {m['ap']} P · {_mio(m['mv'])} ({m['tfhmvt']:+,.0f} €/Tag, {daily_pct:+.1%})</div>
   {fair_value_html}
   {bridge_html}
   {fitness}
@@ -207,6 +210,20 @@ def _market_card(m, highlight=False):
   {bid_html}
   {details_html}
 </div>"""
+
+
+# REVIEW_architektur_KOMPLETT.md Teil 1/Item 1: "Score" meinte je nach
+# Abschnitt vier verschiedene Dinge (scoring.score_player()s absolute
+# 2.-Liga-kalibrierte Skala für Kader-/Marktkarten vs. league_board.py's
+# ligarelative Perzentil-Scores quality_total/value_total für die
+# Bestenlisten) - dieselbe Zahl "74,4" auf einer Karte konnte einem
+# "81,5" auf einer anderen für DENSELBEN Spieler gegenüberstehen, ohne
+# dass ersichtlich war, dass es zwei unterschiedliche Systeme sind. Eine
+# echte Vereinheitlichung (eine Bewertung, überall gelesen) ist ein
+# größerer, hier bewusst zurückgestellter Umbau (Teil 1.3 der Review) -
+# als Sofortmaßnahme werden die Labels disambiguiert, damit klar ist,
+# WELCHER Score gemeint ist.
+BOARD_SCORE_LABEL = {"quality_score": "Liga-Score (Qualität)", "value_score": "Liga-Score (Deal)"}
 
 
 def _board_row(e, score_key):
@@ -230,7 +247,7 @@ def _board_row(e, score_key):
     return f"""<div class="{cls}">
   <span class="board-status">{icon} {STATUS_LABEL.get(status, status)}{owner}</span>
   <span class="board-name">{_esc(e['name'])} <span class="pos">({_esc(e['team'])})</span></span>
-  <span class="board-stats">Score {e[score_key]} · MW {_mio(e['mv'])} · Ø {e['ap']} P</span>{both_badge}
+  <span class="board-stats">{BOARD_SCORE_LABEL.get(score_key, "Score")} {e[score_key]} · MW {_mio(e['mv'])} · Ø {e['ap']} P</span>{both_badge}
   {residual_html}
   {bid_html}
 </div>"""
@@ -336,6 +353,12 @@ def _model_health_banner(report):
                      "40-60% verletzt) - Fair Value heute unterdrückt</div>")
     for txt in (report.get("self_play_conflicts") or [])[:5]:
         lines.append(f"<div class='risk-line warn'>⚔️ {_esc(txt)}</div>")
+    # REVIEW_architektur_KOMPLETT.md 2.6: die Plausibilitätswarnung lief
+    # bisher nur in die Konsole - die Review basierte auf dem Livereport
+    # (HTML) und sah sie nie, obwohl der Zec-Ausreißer (Ø 85 P, blau,
+    # E[Punkte]≈14) genau der Fall gewesen wäre, den sie fangen sollte.
+    for txt in (report.get("plausibility_warnings") or [])[:5]:
+        lines.append(f"<div class='risk-line warn'>⚠️ Plausibilität: {_esc(txt)}</div>")
     # SPEC_spieltagsmodell_v2.md 4.4: Abweichungszerlegung erscheint im
     # Report des Folgetags, sobald Prognose UND Ist-Werte vorliegen.
     dev = report.get("deviation_report")
@@ -347,11 +370,18 @@ def _model_health_banner(report):
     # SPEC_lernzyklus.md 5.3: Änderungsnachweis - jede nennenswerte
     # Prognose-Änderung seit dem letzten Lauf braucht eine Ursache, sonst
     # ist das ein Instabilitätssignal.
+    # REVIEW_architektur_KOMPLETT.md 2.8: diese Zeilen listen ALLE Manager
+    # der Liga (Modellstabilitäts-Check, SPEC_lernzyklus.md 5.3), nicht nur
+    # das eigene Team - ohne eigene Überschrift und direkt unter dem KPI-
+    # Grid ("Dein Kader heute") platziert, las sich das wie eine Aussage
+    # über den eigenen Kader. Live gefunden: Namen wie "malte.srn"/"david"
+    # (andere Manager) erschienen dadurch scheinbar unter "Dein Kader
+    # heute". Fix: explizites "Liga:"-Präfix statt reinem Spielernamen.
     pdiff = report.get("prediction_diff")
     if pdiff:
         for c in pdiff.get("changes", []):
             cause = _esc(c["cause"]) if c.get("cause") else "⚠️ nicht erklärbar"
-            lines.append(f"<div class='risk-line info'>📈 {_esc(c['name'])}: {c['from']:.0f} → "
+            lines.append(f"<div class='risk-line info'>📈 Liga: {_esc(c['name'])}: {c['from']:.0f} → "
                         f"{c['to']:.0f} ({c['delta']:+.0f}) - {cause}</div>")
     if not lines:
         return ""
@@ -487,11 +517,19 @@ def _transfermarkt_section(report):
     Vertiefung, s. _league_panel.
     """
     market = report.get("market", [])
-    market_html = ("".join(_market_card(m) for m in market)
+    bangers = report.get("bangers") or []
+    # REVIEW_architektur_KOMPLETT.md 2.5: `bangers` ist eine reine Teilmenge
+    # von `market` (main.py filtert nur nach `banger`-Flag, entfernt sie
+    # nicht aus `compared`) - ungefiltert erschien jeder Banger-Kandidat
+    # zweimal: einmal hervorgehoben oben, einmal identisch nochmal im
+    # normalen Grid darunter. Banger-IDs jetzt aus dem normalen Grid
+    # ausgeschlossen, ein Spieler erscheint nur noch einmal.
+    banger_ids = {b["id"] for b in bangers[:3]}
+    market_html = ("".join(_market_card(m) for m in market if m["id"] not in banger_ids)
                   or "<p class='empty'>Kein Marktangebot.</p>")
     bangers_html = ""
-    if report.get("bangers"):
-        cards = "".join(_market_card(m, highlight=True) for m in report["bangers"][:3])
+    if bangers:
+        cards = "".join(_market_card(m, highlight=True) for m in bangers[:3])
         bangers_html = f"<h4 class='board-sub'>💎 Banger-Ziele</h4><div class='grid'>{cards}</div>"
     free_slots = report.get("free_slots", 0)
     free_slots_note = f"<p class='note'>🟢 {free_slots} freie Kaderplätze</p>" if free_slots else ""

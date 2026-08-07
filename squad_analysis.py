@@ -144,8 +144,18 @@ def apply_fair_value_note(c, fair_value_mv, min_price_player=False):
     ihr Preis ist zensiert (kann nicht billiger sein), nicht marktbestimmt.
     Mutiert `c` (fügt 'fair_value'/'fair_value_sell_flag' hinzu, ggf. eine
     reasons-Zeile) und gibt es zurück.
+
+    **Bugfix (REVIEW_architektur_KOMPLETT.md 2.2)**: die Docstring-Zusage
+    "Mindestpreis-Spieler werden nie als über-/unterbewertet ausgewiesen"
+    galt bisher nur für den Reasons-Text/`fair_value_sell_flag` - die
+    ROHE ZAHL `c["fair_value"]` wurde immer gesetzt, unabhängig von
+    `min_price_player`, und von html_report._squad_card() angezeigt. Die
+    Transfermarkt-Karte (main.py) unterdrückt die Zahl für denselben
+    Spieler dagegen komplett -> zwei widersprüchliche Fair-Value-Angaben
+    für denselben Mindestpreis-Spieler in Kader- vs. Marktkarte. Fix: die
+    Zahl selbst wird jetzt genauso wie der Text unterdrückt.
     """
-    c["fair_value"] = fair_value_mv
+    c["fair_value"] = None if min_price_player else fair_value_mv
     c["fair_value_sell_flag"] = False
     if fair_value_mv is None or min_price_player or not c.get("mv") or fair_value_mv <= 0:
         return c
@@ -309,20 +319,31 @@ def _punktetyp_note(m):
 # SPEC_spieltagsmodell_v2.md 3.2: "die eigentliche Brücke zwischen
 # Transfermarkt und Trainer-Modul" - beantwortet direkt "bringt mir der
 # Spieler Punkte?" statt den Spieler nur abstrakt zu bewerten.
+#
+# **Bugfix (REVIEW_architektur_KOMPLETT.md 2.3)**: `free_slots > 0` prüfte
+# nur, ob im 20-Mann-KADER noch Platz ist - nicht, ob die POSITION in der
+# Ideal-Elf schon besetzt ist. Ein TW (immer genau 1 Slot je Formation) mit
+# freiem Kaderplatz bekam dadurch seine ABSOLUTE Erwartung als "+X P"
+# angezeigt, obwohl der gesetzte Torwart die Elf gar nicht verlässt - live
+# gefunden: Reichert "+138 P", obwohl Hoffmann mit 101,7 P bereits gesetzt
+# ist. Fix: der Ideal-Elf-Vergleich auf derselben Position hat IMMER
+# Vorrang (liefert den echten marginalen Zugewinn); der freie-Kaderplatz-
+# Zweig (absolute Erwartung, kein Vergleich) greift nur noch, wenn die
+# Position in der Ideal-Elf wirklich unbesetzt ist (`same_pos` leer -
+# praktisch nur bei einem Kader ohne jeden Spieler dieser Position).
 def bridge_to_ideal_elf(ep_market, pos, lineup_opt, free_slots):
+    if lineup_opt and lineup_opt.get("best"):
+        xi = lineup_opt["formations"][lineup_opt["best"]]["xi"]
+        same_pos = [p for p in xi if p["pos"] == pos]
+        if same_pos:
+            weakest = min(same_pos, key=lambda p: p["expected_points"])
+            gain = ep_market - weakest["expected_points"]
+            if gain > 0:
+                return {"kind": "verdraengt", "target": weakest, "gain": gain}
+            return {"kind": "kein_platz", "target": weakest, "gap": -gain}
     if free_slots > 0:
         return {"kind": "free_slot", "gain": ep_market}
-    if not lineup_opt or not lineup_opt.get("best"):
-        return {"kind": "unknown"}
-    xi = lineup_opt["formations"][lineup_opt["best"]]["xi"]
-    same_pos = [p for p in xi if p["pos"] == pos]
-    if not same_pos:
-        return {"kind": "unknown"}
-    weakest = min(same_pos, key=lambda p: p["expected_points"])
-    gain = ep_market - weakest["expected_points"]
-    if gain > 0:
-        return {"kind": "verdraengt", "target": weakest, "gain": gain}
-    return {"kind": "kein_platz", "target": weakest, "gap": -gain}
+    return {"kind": "unknown"}
 
 
 # SPEC 3.3: vierstufige Empfehlung statt binär, mit Ausschlusskriterien -
@@ -428,13 +449,22 @@ def market_vs_squad(market_scored, squad_classified, budget, max_squad,
                             sporting_core=m["meta"]["sporting_core"],
                             star=m.get("star", 0),
                             mv_history=m.get("mv_history"),
-                            fair_value_mv=m.get("fair_value"))
+                            fair_value_mv=m.get("fair_value"),
+                            min_price_player=m.get("min_price_player", False))
+        # REVIEW_architektur_KOMPLETT.md 2.4/7: `bid["verdict"]` (Trading-
+        # Obergrenze/Fair-Value-Prüfung in bid_advisor) und `affordable`
+        # (reine Kaufkraft-Prüfung hier) liefen bisher unabhängig - eine
+        # Karte konnte "✅ KLARE KAUFEMPFEHLUNG" ZEIGEN und im selben Atemzug
+        # "🚫 NICHT BIETEN" drucken. `bid_ok` fließt jetzt in JEDE
+        # affordable-Zuweisung unten ein, sodass Headline/Tier (die beide
+        # auf `affordable` aufbauen) das Bid-Verdikt nie mehr widersprechen.
+        bid_ok = bid.get("verdict") != "nicht_bieten"
 
         sold_target = None
         is_purchase = False
         if free_slots > 0:
             headline = "KAUFEN (freier Kaderplatz)"
-            affordable = capacity >= bid["recommended_bid"]
+            affordable = bid_ok and capacity >= bid["recommended_bid"]
             financing = (f"Kaufkraft {capacity:,.0f} "
                          f"(33% von Netto-Teamwert {net_value:,.0f} = max. Schulden "
                          f"{max_debt:,.0f}, Budget {budget:+,.0f})")
@@ -443,17 +473,19 @@ def market_vs_squad(market_scored, squad_classified, budget, max_squad,
             t = sporting["target"]
             headline = f"UPGRADE für {t['name']} ({t['pos']}, sportlich)"
             affordable, financing = _sell_and_recompute(t, bid)
+            affordable = affordable and bid_ok
             sold_target = t
             is_purchase = True
         elif trading["qualifies"] and trading["target"]:
             t = trading["target"]
             headline = f"TRADING-UPGRADE für {t['name']} ({t['daily_pct']:+.1%}/Tag)"
             affordable, financing = _sell_and_recompute(t, bid)
+            affordable = affordable and bid_ok
             sold_target = t
             is_purchase = True
         elif angles:
             headline = "interessant, aber kein Kaderzwang (Stamm/Trading-Holds nicht ersetzbar)"
-            affordable = capacity >= bid["recommended_bid"]
+            affordable = bid_ok and capacity >= bid["recommended_bid"]
             financing = f"Kaufkraft {capacity:,.0f}"
         else:
             headline = "KEIN BEDARF - weder Trading- noch sportlicher Mehrwert erkennbar"

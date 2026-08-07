@@ -48,7 +48,8 @@ def dynamic_aggressiveness(score):
 
 
 def recommend_bid(mv, tfhmvt, aggressiveness=1.0, league_overpay=None,
-                  sporting_core=None, star=0.0, mv_history=None, fair_value_mv=None):
+                  sporting_core=None, star=0.0, mv_history=None, fair_value_mv=None,
+                  min_price_player=False):
     """
     mv:       aktueller Marktwert
     tfhmvt:   24h-MW-Änderung (aus Spieler-Detail) - Fallback-Basis, wenn
@@ -71,11 +72,47 @@ def recommend_bid(mv, tfhmvt, aggressiveness=1.0, league_overpay=None,
                   Punkt 1.2 - vorher entstand das Gebot fast nur aus der
                   MW-Prognose, die Bewertungstiefe floss nur indirekt über
                   den Score-Aufschlag ein).
+    min_price_player: (REVIEW_architektur_KOMPLETT.md 2.7) Spieler am/nahe
+                  dem Liga-Mindestmarktwert. Bei Regime INITIALISIERUNG
+                  (typisch für Mindestpreis-Spieler: kaum Historie) gilt
+                  IMMER `untergrenze == trading_decke == mv`, und der Puffer
+                  ist stets > 0 - `wunsch > max_gebot` ist dann MATHEMATISCH
+                  GARANTIERT, unabhängig vom Spieler. Live gefunden: jeder
+                  Mindestpreis-Kandidat bekam "NICHT BIETEN", obwohl am
+                  Mindestpreis das Verlustrisiko praktisch null ist (Verkauf
+                  bringt immer mindestens denselben MW zurück). Fix: die
+                  Trading-/Fair-Value-Bremse greift hier nicht - Bewertung
+                  läuft ausschließlich über den sportlichen Elf-Beitrag
+                  (squad_analysis.bridge_to_ideal_elf/recommendation_tier).
     """
+    if min_price_player:
+        return _recommend_bid_min_price(mv, aggressiveness, league_overpay, star)
     if mv_history is not None:
         return _recommend_bid_forecast(mv, mv_history, aggressiveness, league_overpay,
                                        star, fair_value_mv)
     return _recommend_bid_legacy(mv, tfhmvt, aggressiveness, league_overpay, sporting_core, star)
+
+
+def _recommend_bid_min_price(mv, aggressiveness, league_overpay, star):
+    buffer = DEFAULT_BUFFER * aggressiveness
+    if league_overpay is not None:
+        buffer = max(buffer, league_overpay * aggressiveness)
+    bid = int(mv * (1 + buffer))
+    return {
+        "expected_mv_22h": int(mv),
+        "recommended_bid": bid,
+        "buffer_pct": round(buffer * 100, 1),
+        "win_probability": 0.7,
+        "projection_note": "Mindestpreis - Trading-/Fair-Value-Bremse greift nicht "
+                           "(Verlustrisiko praktisch null, Bewertung rein sportlich)",
+        "projection_short": None,
+        "star_ceiling": None,
+        "regime": None,
+        "verdict": "bieten",
+        "verdict_reason": None,
+        "trading_ceiling": None,
+        "fair_value": None,
+    }
 
 
 def _recommend_bid_forecast(mv, mv_history, aggressiveness, league_overpay, star, fair_value_mv=None):

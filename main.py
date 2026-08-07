@@ -25,7 +25,7 @@ from fixtures import (get_table, get_table_football_data, build_strength_map,
                       league_avg_win_prob)
 from scoring import (score_player, explain, player_reliability_profile, punktetyp_label,
                      kickbase_color, is_min_price_player, estimate_ap_from_peers,
-                     expected_points as scoring_expected_points)
+                     expected_points as scoring_expected_points, clamp_fair_value)
 from bid_advisor import learn_league_overpay
 from mv_forecast import clean_mv_series
 from odds import load_fixture_odds, load_fixture_odds_api, fixture_ease_odds
@@ -185,6 +185,7 @@ def run_league(kb, cfg, run_timestamp):
     lineup_by_id = {str(p.get("i")): p for p in (lineup_raw.get("it", []) or [])}
     squad_classified = []
     self_play_conflicts = []
+    plausibility_warnings = []
     if squad_players:
         print(f"\n👥 KADER-STATUS ({len(squad_players)}/{max_squad} Plätze, "
               f"Budget {budget:+,.0f} €):")
@@ -228,8 +229,22 @@ def run_league(kb, cfg, run_timestamp):
             # kein echtes Signal.
             ap_check = p.get("ap", 0)
             if ap_check and (ep > 2 * ap_check or ep < 0.5 * ap_check):
-                print(f"   ⚠️ Plausibilität: {c['name']} E[Punkte]={ep} weicht "
-                      f">Faktor 2 von Ø {ap_check} ab")
+                w = f"{c['name']} E[Punkte]={ep} weicht >Faktor 2 von Ø {ap_check} ab"
+                print(f"   ⚠️ Plausibilität: {w}")
+                plausibility_warnings.append(w)
+            # REVIEW_architektur_KOMPLETT.md 2.6 ("Zec ist ein ungeklärter
+            # Ausreißer"): die Faktor-2-Prüfung oben griff nicht in jedem
+            # Fall (z.B. wenn schon die Anker-`ap` selbst niedrig/unsicher
+            # ist) - dieselbe absolute Warnschwelle, die league_teams.py für
+            # MITSPIELER-Kader bereits nutzt (E[Punkte]<25 bei blau/grün =
+            # fast immer ein Datenproblem, kein echtes Signal), fehlte für
+            # den EIGENEN Kader komplett. Nachgezogen, plus jetzt auch
+            # sichtbar im HTML-Report (vorher nur Konsole - die Review
+            # basierte auf dem Livereport und sah die Konsole nicht).
+            if c["kickbase_color"] in ("blau", "grün") and ep < 25:
+                w = f"{c['name']} E[Punkte]={ep} trotz Farbe {c['kickbase_color']} (Stammspieler-Ampel)"
+                print(f"   ⚠️ Plausibilität: {w}")
+                plausibility_warnings.append(w)
             squad_classified.append(c)
         flag_formation_risk(squad_classified)
 
@@ -239,7 +254,7 @@ def run_league(kb, cfg, run_timestamp):
                     "STAMM": "⭐", "HALTEN (Trading)": "📈"}[c["verdict"]]
             color_txt = f" [{c['kickbase_color']}]" if c["kickbase_color"] else ""
             print(f"\n{icon} {c['name']} ({c['pos']}){color_txt} - {c['verdict']} "
-                  f"| Score {c['score']} | MW {c['mv']:,.0f} ({c['tfhmvt']:+,.0f}/Tag)")
+                  f"| Kader-Score {c['score']} | MW {c['mv']:,.0f} ({c['tfhmvt']:+,.0f}/Tag)")
             print(f"   {'; '.join(c['reasons'])}")
             if c["next_opponent_verified"]:
                 print(f"   Nächster Gegner: {c['next_opponent_verified']}")
@@ -404,6 +419,9 @@ def run_league(kb, cfg, run_timestamp):
                 c["pos"], c["mv"], c["ap"], None, c["st"], c["prob"], c["ease"],
                 c["team_strength"], price_curve, liga_avg_win_prob=liga_avg_win_prob,
                 peer_estimate=peer_est)
+            fv_mv, fv_clamped = clamp_fair_value(fv_mv, c["mv"])
+            if fv_clamped:
+                print(f"   ⚠️ Fair Value für {c['name']} unplausibel (>Faktor 3 vom MW) - unterdrückt")
         apply_fair_value_note(c, fv_mv, is_min_price_player(c["mv"], min_price))
 
     # ---------- 2) MARKT IM TEAM-KONTEXT ----------
@@ -442,6 +460,10 @@ def run_league(kb, cfg, run_timestamp):
                     pos_now, mv_now, p.get("ap", 0), d.get("ph"), d.get("st", 0), d.get("prob", 3),
                     ease, team_strength, price_curve, liga_avg_win_prob=liga_avg_win_prob,
                     peer_estimate=peer_est)
+                fair_value_mv, fv_clamped = clamp_fair_value(fair_value_mv, mv_now)
+                if fv_clamped:
+                    name_now = f"{p.get('fn', '')} {p.get('n', '')}".strip()
+                    print(f"   ⚠️ Fair Value für {name_now} unplausibel (>Faktor 3 vom MW) - unterdrückt")
         # SPEC_spieltagsmodell_v2.md 3.2: erwartete Punkte des Marktspielers
         # IM EIGENEN Kontext (Gegner/Team der kommenden Partie) - Grundlage
         # für die Ideal-Elf-Brücke unten (wichtigste inhaltliche Ergänzung
@@ -523,15 +545,19 @@ def run_league(kb, cfg, run_timestamp):
             b = m2["bid"]
             tick = "✅" if m2["affordable"] else "❌"
             print(f"• {m2['name']} ({m2['team']}, {m2['pos']}) Star {m2['star']:.0%} "
-                  f"| Score {m2['score']} | MW {m2['mv']:,.0f} ({m2['tfhmvt']:+,.0f}/Tag)")
+                  f"| Kader-Score {m2['score']} | MW {m2['mv']:,.0f} ({m2['tfhmvt']:+,.0f}/Tag)")
             print(f"  🎯 {m2['team_verdict']}")
             print(f"  💶 Gebot {b['recommended_bid']:,.0f} € "
                   f"(WK ~{b['win_probability']:.0%}) {tick} {m2['financing']}")
             _print_bid_extra(b)
 
-    for m in compared[:6]:
+    # REVIEW_architektur_KOMPLETT.md 2.5: Banger-Kandidaten oben bereits
+    # gezeigt - im normalen Kartenblock ausschließen, sonst dieselbe Karte
+    # zweimal (identisch zum html_report._transfermarkt_section()-Fix).
+    banger_ids_console = {b["id"] for b in bangers[:3]}
+    for m in [m for m in compared if m["id"] not in banger_ids_console][:6]:
         color_txt = f" [{m['kickbase_color']}]" if m.get("kickbase_color") else ""
-        print(f"\n• {m['name']} ({m['pos']}){color_txt} Score {m['score']} "
+        print(f"\n• {m['name']} ({m['pos']}){color_txt} Kader-Score {m['score']} "
               f"| MW {m['mv']:,.0f} ({m['tfhmvt']:+,.0f}/Tag) | Ø {m['ap']} P "
               f"| ⏳ {m['expiry_s']/3600:.0f}h")
         if m.get("min_price_player"):
@@ -590,11 +616,17 @@ def run_league(kb, cfg, run_timestamp):
     status_icon = {"EIGEN": "🟢", "MITSPIELER": "👤", "MARKT": "🛒", "FREI": "⚪",
                   "UNBEKANNT": "❓"}
 
+    # REVIEW_architektur_KOMPLETT.md Item 1: "Score" disambiguiert, s.
+    # html_report.BOARD_SCORE_LABEL - dieselbe Zahl heißt hier "Liga-Score
+    # (Qualität/Deal)", nicht der "Kader-Score" aus scoring.score_player().
+    board_score_label = {"quality_score": "Liga-Score (Qualität)", "value_score": "Liga-Score (Deal)"}
+
     def _print_board_entry(e, score_key):
         icon = status_icon.get(e["status"], "❓")
         owner_txt = f" ({e['owner']})" if e["owner"] else ""
         both = " ⭐ (auch in der anderen Liste)" if e.get("in_both") else ""
-        print(f"  {icon} {e['name']} ({e['team']}) Score {e[score_key]} | "
+        label = board_score_label.get(score_key, "Score")
+        print(f"  {icon} {e['name']} ({e['team']}) {label} {e[score_key]} | "
               f"MW {e['mv']:,.0f} | Ø {e['ap']} P | {e['status']}{owner_txt}{both}")
         if e.get("residual_pct") is not None:
             sign = "+" if e["residual_abs"] >= 0 else ""
@@ -796,6 +828,7 @@ def run_league(kb, cfg, run_timestamp):
         "lineup_swaps": swaps,
         "lineup_missing": missing_pos,
         "self_play_conflicts": self_play_conflicts,
+        "plausibility_warnings": plausibility_warnings,
         "calibration": calibration,
         "deviation_report": deviation,
         "prediction_diff": pred_diff,
