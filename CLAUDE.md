@@ -238,14 +238,28 @@ Unsicherheits-Architektur (Var_Leistung/Var_Niveau/Var_Spielausgang/
 Var_ZuNull/Var_Einsatz je Spieler, rechtsschiefe Quantilverteilung statt
 symmetrischem Intervall, Team-Kovarianzen für Vereinsbindung/Direktduell,
 Vertrauensgewichtetes Nachziehen `n/(n+n₀)`) - das ist ein eigenständiges,
-mehrtägiges statistisches Modellierungsprojekt, keine Bugfix-Serie, und die
-Spec selbst platziert die eigentliche Kalibrierung explizit "ab Spieltag 5"
-(mehrfach wörtlich so benannt) - vor echten Ist-Werten ist ohnehin nichts
-davon verifizierbar. Aktuelle `player_sigma()`/`xi_prognose()`-Bandbreite
-(symmetrisch, SPEC_spieltagsmodell_v2.md) bleibt unverändert bestehen, liefert
-aber bereits die rohen Ist-Vergleichsdaten (`ep_factors` in jeder gespeicherten
-Prognose), auf denen eine künftige Varianzzerlegung aufbauen könnte, ohne
-das Speicherformat ändern zu müssen. Abschnitt 10 (Interaktivität: Drill-down,
+mehrtägiges statistisches Modellierungsprojekt, keine Bugfix-Serie, deshalb
+heute nicht mehr begonnen. **Korrektur (User-Hinweis 2026-08-07, direkt nach
+diesem Abschnitt)**: die ursprüngliche Begründung hier ("Spec platziert die
+Kalibrierung explizit ab Spieltag 5") war UNGENAU - das "ab Spieltag 5" im
+Text bezieht sich nur auf einzelne MESSWERT-ERSETZUNGEN (M-Tabelle durch
+echte Ist-Minuten, Zu-Null-Wahrscheinlichkeiten durch echte Quote, jeweils
+weil bis dahin schlicht keine Ist-Daten existieren), NICHT auf das
+Kalibrierungs-FRAMEWORK selbst. **`SPEC_punkteformel_final.md` Abschnitt 8.3
+(Vertrauensgewichtung `n/(n+n₀)`) ist die aktuell gültige Regel und läuft
+laut Spec ausdrücklich "ab Spieltag 1, nur zunächst vorsichtig... keine
+Wartefrist, keine willkürliche Schwelle"** - die frühere "ab Spieltag 5"-
+Schwelle aus `SPEC_lernzyklus.md` betraf etwas ANDERES (Stufe 2: automatisches
+Neuschreiben der hartkodierten Gewichte-Konstanten per Regression, braucht
+laut jener Spec ≥600 Beobachtungen) und ist für die Intervall-/Unsicherheits-
+kalibrierung hier überholt/nicht einschlägig. Der eigentliche Blocker für
+Abschnitt 6-9 ist also nicht "zu früh im Kalender", sondern schlicht Umfang -
+kann nachgezogen werden, sobald Zeit dafür ist, nicht erst ab einem
+bestimmten Spieltag. Aktuelle `player_sigma()`/`xi_prognose()`-Bandbreite
+(symmetrisch, SPEC_spieltagsmodell_v2.md) bleibt bis dahin unverändert
+bestehen, liefert aber bereits die rohen Ist-Vergleichsdaten (`ep_factors`
+in jeder gespeicherten Prognose), auf denen eine künftige Varianzzerlegung
+aufbauen könnte, ohne das Speicherformat ändern zu müssen. Abschnitt 10 (Interaktivität: Drill-down,
 Aufstellung/Transfer durchspielen) und 11 (Robustheit: Entwicklungsmodus,
 Statusleiste) ebenfalls nicht begonnen - explizit UI-/Infrastruktur-Ausbau,
 kein Korrektheitsproblem am ersten Spieltag.
