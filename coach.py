@@ -118,16 +118,27 @@ OPPONENT_K = {"TW": 0.90, "ABW": 1.00, "MF": 0.50, "ANG": 0.75}
 OPPONENT_FACTOR_BOUNDS = (0.80, 1.25)
 
 
-def opponent_factor(pos, win_prob, liga_avg_win_prob=0.5):
+def opponent_factor(pos, win_prob, liga_avg_win_prob=0.5, punktetyp_idx=None):
     """
-    `1 + k·(Sieg-WK − Liga-Ø-Sieg-WK)`, geclippt auf OPPONENT_FACTOR_BOUNDS.
+    `1 + k_eff·(Sieg-WK − Liga-Ø-Sieg-WK)`, geclippt auf OPPONENT_FACTOR_BOUNDS.
     Zentriert auf die ECHTE Liga-Ø-Sieg-WK (s. fixtures.league_avg_win_prob)
     statt auf 0,5 - Fußball hat 3 Ausgänge, die reale Ø-Sieg-WK pro Team
     liegt bei ~35-40%, nicht bei 50%.
+
+    **Punktetyp-Kopplung (SPEC_spielertyp_matchkontext.md 1.1)**: `k_eff =
+    k_pos × (1 − 0,5 × (1 − punktetyp_idx))` - ein reiner Rohpunkte-Spieler
+    (punktetyp_idx≈0, s. scoring.punktetyp_index) punktet weitgehend
+    unabhängig vom Spielausgang und bekommt deshalb eine halbierte Gegner-
+    Sensitivität; ein reiner Scorer (punktetyp_idx≈1, Punkte hängen am
+    eigenen Sieg) bleibt bei der vollen `k_pos`. `punktetyp_idx=None`
+    (Standardfall ohne ausreichende Sieg/Niederlage-Stichprobe) lässt
+    `k_eff=k_pos` unverändert - keine Kopplung ohne Datenbasis.
     """
     if win_prob is None:
         return 1.0
     k = OPPONENT_K.get(pos, 0.7)
+    if punktetyp_idx is not None:
+        k = k * (1 - 0.5 * (1 - punktetyp_idx))
     lo, hi = OPPONENT_FACTOR_BOUNDS
     factor = 1 + k * (win_prob - liga_avg_win_prob)
     return max(lo, min(hi, factor))
@@ -203,11 +214,51 @@ def zu_null_probability(win_prob, pos):
     return p
 
 
-def zu_null_bonus(pos, win_prob):
-    """(bonus_punkte, p_zu_null) - 0.0/None für Positionen ohne Zu-Null-Bezug."""
+def zu_null_probability_from_context(pos, erwartete_tordifferenz, erwartete_tore):
+    """
+    SPEC_spielertyp_matchkontext.md 1.2: leitet P(zu Null) aus der erwarteten
+    TORDIFFERENZ (Asian-Handicap-Linie) und den erwarteten GESAMTTOREN
+    (Über/Unter-2,5-Quoten) her, statt nur aus der Sieg-Wahrscheinlichkeit.
+    Grund: ein 1:0-Favoritensieg (kleine Tordifferenz, wenig Tore) ist für
+    die Zu-Null-Chance wertvoller als ein 3:2-Sieg bei identischer Sieg-WK -
+    die reine win_prob-Tabelle (zu_null_probability()) kann diese beiden
+    Fälle nicht unterscheiden.
+
+    erwartete_tordifferenz: aus TEAM-Sicht (positiv = Team im Erwartungswert
+    vorne). erwartete_tore: erwartete Gesamttore der Partie.
+
+    Lineare Näherung, dieselbe Bandbreite wie die bisherige Anker-Tabelle
+    (ZU_NULL_ANCHORS, ~0,10-0,42) - Erstkalibrierung, noch nicht gegen echte
+    Spieltage geprüft.
+    """
+    dominanz = max(-2.0, min(2.0, erwartete_tordifferenz))
+    p = 0.25 + dominanz * 0.085
+    if erwartete_tore is not None:
+        # Torarme Partie erhöht P(zu Null) für BEIDE Seiten, torreiche senkt
+        # sie - 2,5 Tore (Über/Unter-Schwelle) ist der neutrale Bezugspunkt.
+        tore_delta = 2.5 - max(1.5, min(4.0, erwartete_tore))
+        p += tore_delta * 0.06
+    p = max(0.0, min(0.55, p))
+    if pos == "TW":
+        p = max(p, ZU_NULL_TW_FLOOR)
+    return p
+
+
+def zu_null_bonus(pos, win_prob, erwartete_tordifferenz=None, erwartete_tore=None):
+    """(bonus_punkte, p_zu_null) - 0.0/None für Positionen ohne Zu-Null-Bezug.
+
+    Nutzt `zu_null_probability_from_context()` (Tordifferenz+Gesamttore aus
+    Über/Unter- und Handicap-Quoten), wenn `erwartete_tordifferenz` vorliegt
+    - präziser als die reine Sieg-WK-Ankertabelle (s. dortige Docstring).
+    Ohne Match-Kontext (z.B. La Liga über the-odds-api/Tabellen-Fallback,
+    die beide keine Handicap-/Tore-Quoten liefern) fällt es unverändert auf
+    `zu_null_probability(win_prob, pos)` zurück."""
     if pos not in ZU_NULL_PRAEMIE:
         return 0.0, None
-    p = zu_null_probability(win_prob, pos)
+    if erwartete_tordifferenz is not None:
+        p = zu_null_probability_from_context(pos, erwartete_tordifferenz, erwartete_tore)
+    else:
+        p = zu_null_probability(win_prob, pos)
     return p * ZU_NULL_PRAEMIE[pos], p
 
 
@@ -308,19 +359,28 @@ def _punktebasis(ap, ph, mv, peer_estimate=None):
 
 def expected_points(pos, ap, ph, st, prob, win_prob, team_name=None,
                     matchday_outlook=None, mv=0, liga_avg_win_prob=0.5,
-                    peer_estimate=None):
-    """Liefert (erwartete_punkte, {faktoren-aufschlüsselung})."""
+                    peer_estimate=None, punktetyp_idx=None,
+                    erwartete_tordifferenz=None, erwartete_tore=None):
+    """Liefert (erwartete_punkte, {faktoren-aufschlüsselung}).
+
+    punktetyp_idx: optional (scoring.punktetyp_index) - koppelt die Gegner-
+    Sensitivität an den Punktetyp (SPEC_spielertyp_matchkontext.md 1.1),
+    s. opponent_factor().
+    erwartete_tordifferenz/erwartete_tore: optional (odds.load_fixture_odds()s
+    match_context, aus Über/Unter-2,5- und Asian-Handicap-Quoten) - präzisere
+    Zu-Null-Herleitung als die reine Sieg-WK, s. zu_null_bonus()."""
     basis, quelle = _punktebasis(ap, ph, mv, peer_estimate)
     einsatz = einsatzfaktor(st, prob)
-    gegner = opponent_factor(pos, win_prob, liga_avg_win_prob)
+    gegner = opponent_factor(pos, win_prob, liga_avg_win_prob, punktetyp_idx)
     form = form_factor(ap, ph)
     verlauf, verlauf_grund = matchday_factor(pos, team_name, matchday_outlook)
-    zu_null, p_zu_null = zu_null_bonus(pos, win_prob)
+    zu_null, p_zu_null = zu_null_bonus(pos, win_prob, erwartete_tordifferenz, erwartete_tore)
 
     erwartung = basis * einsatz * gegner * form * verlauf + zu_null
     sigma, sigma_geschaetzt = player_sigma(ph, pos, basis)
     return round(erwartung, 1), {
         "basis": round(basis, 1), "basis_quelle": quelle,
+        "punktetyp_idx": round(punktetyp_idx, 2) if punktetyp_idx is not None else None,
         "basis_geschaetzt": quelle != "real",
         "einsatzfaktor": round(einsatz, 2),
         "gegnerfaktor": round(gegner, 2), "formfaktor": round(form, 2),
@@ -362,7 +422,7 @@ def diagnose_prognose(xi):
 
 
 def fair_value(pos, mv, ap, ph, st, prob, win_prob, team_strength, curve,
-               liga_avg_win_prob=0.5, peer_estimate=None):
+               liga_avg_win_prob=0.5, peer_estimate=None, punktetyp_idx=None):
     """
     "Was ist der Spieler wert" statt "was wird er kosten"
     (SPEC_gebote_ki_team_KOMPLETT.md 1.2). Bereinigte Punkteerwartung aus
@@ -390,7 +450,7 @@ def fair_value(pos, mv, ap, ph, st, prob, win_prob, team_strength, curve,
         return None, None
 
     einsatz = einsatzfaktor(st, prob)
-    gegner = opponent_factor(pos, win_prob, liga_avg_win_prob)
+    gegner = opponent_factor(pos, win_prob, liga_avg_win_prob, punktetyp_idx)
     team = team_factor(team_strength)
     fv = base_fv * einsatz * gegner * team
     return round(fv), {"basis": round(basis, 1), "quelle": quelle}

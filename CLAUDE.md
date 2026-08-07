@@ -145,6 +145,82 @@ Base: `https://api.kickbase.com`. Referenz-Doku: github.com/kevinskyba/kickbase-
   **Geprüft, nicht gebaut**: Über/Unter-2,5-Tore-Quoten (Punkt 4.6) - die Spalten (`Avg>2.5`/`Avg<2.5`/`B365>2.5`/`B365<2.5`) existieren in football-data.co.uk/fixtures.csv, aber die Datei enthält aktuell (tiefe Sommerpause) nur schottische Ligen (`SC0-3`), keine `D2`/`SP1`-Zeilen - Füllgrad für unsere Ligen kann erst nach Saisonstart geprüft werden, zurückgestellt.
 - `analytics.py`: nur Kompat-Wrapper, kann weg wenn nichts mehr importiert.
 
+## SPEC_spielertyp_matchkontext.md (2026-08-07, Prioritäten 1-3 umgesetzt)
+
+**Punktetyp-Index in k_eff (Priorität 1)**: `scoring.punktetyp_index(profile)`
+(neu, nutzt `player_reliability_profile()`s bereits vorhandene `ph`+`mdsum`-
+Auswertung - dieselbe Datenbasis, die `punktetyp_label()` schon für den
+Transfermarkt-Anzeigetext nutzt, jetzt zusätzlich als Zahl) liefert
+`(Ø Punkte bei Sieg − Ø Punkte bei Niederlage) / Ø Punkte gesamt` - nahe 0
+Rohpunkte-Typ, deutlich positiv Scorer-Typ. `coach.opponent_factor()` nutzt
+das jetzt für `k_eff = k_pos × (1 − 0,5 × (1 − punktetyp_idx))` - ein reiner
+Rohpunkte-Spieler bekommt eine halbierte Gegner-Sensitivität, ein reiner
+Scorer die volle `k_pos`. `punktetyp_idx=None` (Standardfall ohne Sieg/
+Niederlage-Stichprobe, z.B. Mitspieler-Kader über `managers/{uid}/squad`,
+das kein `ph`/`mdsum` liefert) lässt `k_eff=k_pos` unverändert. Verdrahtet in
+`main.py`s Kader- UND Markt-Loop (dieselbe `player_reliability_profile()`-
+Instanz wiederverwendet, kein Zusatz-Call). Live verifiziert: Änderung
+zwischen zwei Läufen korrekt auf "Sieg-WK-Faktor" bei einem betroffenen
+Spieler zurückgeführt (`prediction_log.diff_predictions()`).
+
+**Matchkontext aus Über/Unter- und Handicap-Quoten (Priorität 2)**: geprüft
+und bestätigt gefüllt für D2 (2. Bundesliga) am Spieltag 1 - alle 9
+Spieltag-1-Partien haben vollständige `B365>2.5`/`B365<2.5` und `AHh`-Werte.
+La Liga (`SP1`) ist noch nicht in der `fixtures.csv` enthalten (läuft weiter
+über den the-odds-api-Fallback, der keine Über/Unter-/Handicap-Daten liefert
+- gracefully degradiert auf die alte Sieg-WK-Herleitung). Neu in `odds.py`:
+`_match_context(row)` leitet aus den Über/Unter-2,5-Quoten die erwarteten
+GESAMTTORE ab (lineare Näherung um den 2,5-Anker, ±0,5 Buchmacher-Ausschlag
+≈ ±1,5 Tore, geclippt [1,5, 4,0]) und aus der Asian-Handicap-Linie `AHh` die
+erwartete TORDIFFERENZ aus Heimsicht (`-AHh`, direkte Markt-Interpretation
+der Handicap-Linie). `load_fixture_odds()` liefert jetzt zusätzlich
+`match_context: {team: [(gegner, erwartete_tore, erwartete_tordifferenz), ...]}`
+(dritter Rückgabewert - **Signatur-Änderung**, der einzige Aufrufer in
+`main.py` ist angepasst). `odds.next_match_context()` (neu, analog zu
+`fixture_ease_odds()`) liefert Tore/Tordifferenz für die NÄCHSTE Partie
+(nicht über mehrere Spiele gemittelt - Zu-Null ist matchday-spezifisch).
+`coach.zu_null_probability_from_context(pos, erwartete_tordifferenz,
+erwartete_tore)` (neu) ersetzt die reine Sieg-WK-Ankertabelle, WENN
+Tordifferenz-Daten vorliegen: Dominanz aus der Tordifferenz (±2 Tore ≈
+±0,17 Wahrscheinlichkeitspunkte um den Anker 0,25) plus eine Dämpfung nach
+erwarteten Gesamttoren (torarme Partie erhöht P(zu Null) für BEIDE Seiten,
+torreiche senkt sie). `zu_null_bonus()` fällt ohne `erwartete_tordifferenz`
+(La Liga, Tabellen-/the-odds-api-Fallback) unverändert auf die alte
+`zu_null_probability(win_prob, pos)` zurück - keine Verhaltensänderung dort.
+Verdrahtet in `main.py`s Kader-Loop UND `league_teams.analyze_manager()`
+(kostenlos, da `match_context` ohnehin einmal pro Lauf aufgebaut wird - wie
+schon beim `peer_lookup`-Vorbild aus SPEC_punkteformel_final.md). NICHT im
+Marktloop für `fair_value()` (der nutzt bewusst keinen Zu-Null-Bonus, s.
+bestehende Docstring "matchday-spezifisch/volatil, Fair Value soll
+stabiler sein").
+
+**Verlässlichkeits-Kennzahl (Priorität 3)**: `scoring.reliability_score(profile)`
+(neu) - Anteil der Spieltage über der halben Ø-Punktzahl, aus derselben
+`player_reliability_profile()`-Datenbasis. In `main.py`s Kader-Loop berechnet
+und als `c["reliability_score"]` exponiert. **Fließt NOCH NICHT in
+`Var_Leistung` ein** - diese Größe ist Teil der in `SPEC_punkteformel_
+final.md` Abschnitt 6-9 beschriebenen Unsicherheitsarchitektur, die noch
+nicht gebaut ist (s. dortiger CLAUDE.md-Eintrag, inkl. Korrektur: nicht
+kalendarisch blockiert, nur noch nicht begonnen). Der Wert liegt bereit,
+sobald diese Architektur kommt.
+
+**Akzeptanzkriterium "läuft durch das gemeinsame PlayerEvaluation-Objekt"
+NICHT erfüllbar**: dieses Objekt existiert nicht (Teil 1.3 aus
+`REVIEW_architektur_KOMPLETT.md`, bewusst als mehrtägiger Umbau
+zurückgestellt, s. dortiger Eintrag). Alle neuen Faktoren laufen stattdessen
+durch dieselbe `ep_factors`-Dict-Struktur wie alle bisherigen Faktoren
+(Basis, Einsatz, Gegner, Form, Verlauf, Zu-Null) - konsistent mit dem
+gesamten übrigen Code, aber keine Vereinheitlichung im Sinne der Review.
+
+**Geprüft, nicht verfolgt (Abschnitt 2)**: FootyStats (kostenloser Testkey nur
+mit eingefrorener Demoliga, echte Daten ab 30£/Monat), football-data.org
+(2. Bundesliga nicht im kostenlosen Rahmen enthalten, Spielerdaten ohnehin
+kostenpflichtig), API-Football (nicht weiterverfolgt, kein zusätzlicher
+Anbieter gewünscht), Scraping-Quellen wie Understat/FBref (keine stabile
+Vertragsgrundlage, zusätzliches Risiko neben der bereits inoffiziellen
+Kickbase-Schnittstelle) - keine dieser Quellen wurde eingebunden, wie
+gefordert.
+
 ## SPEC_punkteformel_final.md (2026-08-07, Spieltag 1 - Kickoff 18:30 UTC)
 
 **Abschnitt 1 (zeitkritisch, vor Anpfiff)**: `prediction_log.save_matchday_prediction()`

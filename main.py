@@ -24,11 +24,12 @@ from fixtures import (get_table, get_table_football_data, build_strength_map,
                       fixture_ease_for_team, get_season_start_date,
                       league_avg_win_prob)
 from scoring import (score_player, explain, player_reliability_profile, punktetyp_label,
+                     punktetyp_index, reliability_score,
                      kickbase_color, is_min_price_player, estimate_ap_from_peers,
                      expected_points as scoring_expected_points, clamp_fair_value)
 from bid_advisor import learn_league_overpay
 from mv_forecast import clean_mv_series
-from odds import load_fixture_odds, load_fixture_odds_api, fixture_ease_odds
+from odds import load_fixture_odds, load_fixture_odds_api, fixture_ease_odds, next_match_context
 from fixtures import _best_match
 from squad_analysis import (classify_own_player, market_vs_squad,
                             finalize_headline_recommendations,
@@ -82,15 +83,18 @@ def load_fixture_data(cfg):
     # 1) Primär: Buchmacher-Quoten (football-data.co.uk fixtures.csv, kostenlos & keylos)
     odds_div = cfg.get("odds_div")
     if odds_div:
-        upcoming_odds, power = load_fixture_odds(odds_div)
+        upcoming_odds, power, match_context = load_fixture_odds(odds_div)
         if upcoming_odds:
             print(f"📊 Quoten geladen ({odds_div}): {len(power)} Teams, "
                   f"Top 3 laut Buchmachern: "
                   + ", ".join(sorted(power, key=power.get, reverse=True)[:3]))
-            return power, upcoming_odds, "odds"
+            return power, upcoming_odds, "odds", match_context
         print("ℹ️ Keine Quoten in fixtures.csv (Sommerpause?) -> Fallback the-odds-api.")
 
     # 1b) Fallback: the-odds-api.com (kostet Kontingent, nur wenn 1) leer ist)
+    # SPEC_spielertyp_matchkontext.md 1.2: the-odds-api liefert nur h2h-
+    # Quoten, keine Über/Unter-/Handicap-Daten -> match_context bleibt leer,
+    # Aufrufer fallen auf die reine Sieg-WK-Zu-Null-Herleitung zurück.
     odds_api_sport = cfg.get("odds_api_sport")
     if odds_api_sport and ODDS_API_KEY:
         upcoming_api, power_api = load_fixture_odds_api(odds_api_sport, ODDS_API_KEY)
@@ -98,23 +102,23 @@ def load_fixture_data(cfg):
             print(f"📊 Quoten von the-odds-api geladen ({odds_api_sport}): "
                   f"{len(power_api)} Teams, Top 3 laut Buchmachern: "
                   + ", ".join(sorted(power_api, key=power_api.get, reverse=True)[:3]))
-            return power_api, upcoming_api, "odds"
+            return power_api, upcoming_api, "odds", {}
         print("ℹ️ Auch the-odds-api ohne Spiele -> Fallback Tabelle.")
 
     # 2) Fallback: Tabellen-basiert wie bisher
     src = cfg.get("fixture_source")
     if src == "openligadb":
         season, sc = cfg.get("season", "2026"), cfg.get("openligadb_shortcut", "bl2")
-        return build_strength_map(get_table(season, sc)), get_upcoming_by_team(season, sc), "table"
+        return build_strength_map(get_table(season, sc)), get_upcoming_by_team(season, sc), "table", {}
     if src == "football-data":
         comp = cfg.get("football_data_competition", "PD")
         return (build_strength_map(get_table_football_data(comp, FOOTBALL_DATA_API_KEY)),
-                get_upcoming_by_team_football_data(comp, FOOTBALL_DATA_API_KEY), "table")
+                get_upcoming_by_team_football_data(comp, FOOTBALL_DATA_API_KEY), "table", {})
     if src == "thesportsdb":
         lid = cfg.get("tsdb_league_id", "4335")
         return (build_strength_map(get_table_tsdb(lid, cfg.get("tsdb_season", "2026-2027"))),
-                get_upcoming_by_team_tsdb(lid), "table")
-    return {}, {}, "none"
+                get_upcoming_by_team_tsdb(lid), "table", {})
+    return {}, {}, "none", {}
 
 
 def enrich_players(kb, league_id, players, strength_map, upcoming_by_team, mode):
@@ -153,7 +157,7 @@ def run_league(kb, cfg, run_timestamp):
     # cid robust aus /me ableiten statt dem hartkodierten (bei La Liga
     # unverifizierten) config-Wert zu vertrauen.
     cid = int(me.get("cpi") or cfg["competition_id"])
-    strength_map, upcoming, fixture_mode = load_fixture_data(cfg)
+    strength_map, upcoming, fixture_mode, match_context = load_fixture_data(cfg)
     if not upcoming:
         print("ℹ️ Kein Spielplan verfügbar -> Spielplan-Komponente neutral.")
 
@@ -264,10 +268,26 @@ def run_league(kb, cfg, run_timestamp):
             if peer_lookup is not None:
                 peer_est, _ = estimate_ap_from_peers(c["pos"], c["team_strength"],
                                                      c["kickbase_color"], peer_lookup)
+            # SPEC_spielertyp_matchkontext.md 1.1: Punktetyp-Index koppelt die
+            # Gegner-Sensitivität (k_eff) an Rohpunkte- vs. Scorer-Typ -
+            # dieselbe Datenbasis (ph+mdsum), die punktetyp_label() für den
+            # Transfermarkt-Text schon nutzt, jetzt auch als Faktor.
+            reliability_profile = player_reliability_profile(d)
+            p_idx = punktetyp_index(reliability_profile)
+            c["reliability_score"] = reliability_score(reliability_profile)
+            # SPEC_spielertyp_matchkontext.md 1.2: erwartete Tordifferenz +
+            # Gesamttore aus Über/Unter-/Handicap-Quoten für die NÄCHSTE
+            # Partie - präzisere Zu-Null-Herleitung als die reine Sieg-WK.
+            # Leer (None, None) außerhalb des odds-Modus oder ohne gefüllte
+            # Spalten (z.B. La Liga) - fällt dann automatisch auf die alte
+            # Sieg-WK-Ankertabelle zurück (s. coach.zu_null_bonus()).
+            erw_tore, erw_tordiff = next_match_context(d.get("tn", ""), match_context, _match_name)
             ep, ep_factors = coach.expected_points(
                 c["pos"], p.get("ap", 0), d.get("ph"), d.get("st", 0),
                 d.get("prob", 3), ease, team_name=d.get("tn", ""), mv=c["mv"],
-                liga_avg_win_prob=liga_avg_win_prob, peer_estimate=peer_est)
+                liga_avg_win_prob=liga_avg_win_prob, peer_estimate=peer_est,
+                punktetyp_idx=p_idx, erwartete_tordifferenz=erw_tordiff,
+                erwartete_tore=erw_tore)
             c["expected_points"] = ep
             c["ep_factors"] = ep_factors
             # Plausibilitätslog je Spieler (SPEC_kalibrierung_fairvalue.md
@@ -490,13 +510,17 @@ def run_league(kb, cfg, run_timestamp):
         peer_est = None
         if peer_lookup is not None:
             peer_est, _ = estimate_ap_from_peers(pos_now, team_strength, color_now, peer_lookup)
+        # SPEC_spielertyp_matchkontext.md 1.1: `profile` (oben schon für
+        # punktetyp_label() berechnet) liefert auch den numerischen Index
+        # für k_eff - kein Zusatz-Call, dieselbe Datenbasis wiederverwendet.
+        p_idx = punktetyp_index(profile)
         if fair_value_ok and price_curve:
             expected_ap_for_mv = scoring_expected_points(mv_now, price_curve)
             if not min_price_now:
                 fair_value_mv, _ = coach.fair_value(
                     pos_now, mv_now, p.get("ap", 0), d.get("ph"), d.get("st", 0), d.get("prob", 3),
                     ease, team_strength, price_curve, liga_avg_win_prob=liga_avg_win_prob,
-                    peer_estimate=peer_est)
+                    peer_estimate=peer_est, punktetyp_idx=p_idx)
                 fair_value_mv, fv_clamped = clamp_fair_value(fair_value_mv, mv_now)
                 if fv_clamped:
                     name_now = f"{p.get('fn', '')} {p.get('n', '')}".strip()
@@ -505,10 +529,12 @@ def run_league(kb, cfg, run_timestamp):
         # IM EIGENEN Kontext (Gegner/Team der kommenden Partie) - Grundlage
         # für die Ideal-Elf-Brücke unten (wichtigste inhaltliche Ergänzung
         # laut Spec: "bringt mir der Spieler Punkte?").
+        erw_tore, erw_tordiff = next_match_context(d.get("tn", ""), match_context, _match_name)
         ep_market, _ = coach.expected_points(
             pos_now, p.get("ap", 0), d.get("ph"), d.get("st", 0), d.get("prob", 3), ease,
             team_name=d.get("tn", ""), mv=mv_now, liga_avg_win_prob=liga_avg_win_prob,
-            peer_estimate=peer_est)
+            peer_estimate=peer_est, punktetyp_idx=p_idx,
+            erwartete_tordifferenz=erw_tordiff, erwartete_tore=erw_tore)
         market_scored.append({
             "id": str(p.get("i")),
             "name": f"{p.get('fn', '')} {p.get('n', '')}".strip(),
@@ -710,7 +736,7 @@ def run_league(kb, cfg, run_timestamp):
                                       upcoming, fixture_mode, _match_name,
                                       liga_avg_win_prob=liga_avg_win_prob,
                                       own_uid=kb.user_id, own_entry=own_entry,
-                                      peer_lookup=peer_lookup)
+                                      peer_lookup=peer_lookup, match_context=match_context)
     print(f"\n👥 SPIELTAGSPROGNOSE - alle {len(league_teams)} Manager "
           f"(echte gesetzte Elf, keine Bestmöglich-Annahme):")
     print(f"   {'#':>2} {'Manager':<18} {'Prognose':>18} {'Kaderstärke':>12} "

@@ -28,7 +28,7 @@ import time
 from collections import Counter
 
 from fixtures import fixture_ease_for_team, team_strength_for
-from odds import fixture_ease_odds
+from odds import fixture_ease_odds, next_match_context
 from scoring import kickbase_color, estimate_ap_from_peers
 import coach
 
@@ -75,7 +75,7 @@ def _estimate_prob(p):
 
 def analyze_manager(kb, cid, league_id, uid, name, tid_to_name, strength_map,
                     upcoming, fixture_mode, matcher, sleep=0.15,
-                    liga_avg_win_prob=0.5, peer_lookup=None):
+                    liga_avg_win_prob=0.5, peer_lookup=None, match_context=None):
     """
     Liefert die vollständige Analyse EINES Managers: Kader mit erwarteten
     Punkten (coach.expected_points, ohne Spielverlaufsfaktor - kein KI-
@@ -122,10 +122,14 @@ def analyze_manager(kb, cid, league_id, uid, name, tid_to_name, strength_map,
                             if fixture_mode != "odds"
                             else strength_map.get(matcher(team_name, list(strength_map.keys())), 0.5))
             peer_est, _ = estimate_ap_from_peers(pos, team_strength, kickbase_color(prob), peer_lookup)
+        # SPEC_spielertyp_matchkontext.md 1.2: dieselbe Tordifferenz-/Tore-
+        # Herleitung wie main.py's Kader-/Marktloop - kostenlos, da
+        # match_context bereits einmal pro Lauf aufgebaut wird.
+        erw_tore, erw_tordiff = next_match_context(team_name, match_context, matcher)
         ep, factors = coach.expected_points(
             pos, p.get("ap", 0), None, p.get("st", 0), prob, ease,
             team_name=team_name, mv=p.get("mv", 0), liga_avg_win_prob=liga_avg_win_prob,
-            peer_estimate=peer_est)
+            peer_estimate=peer_est, erwartete_tordifferenz=erw_tordiff, erwartete_tore=erw_tore)
         # SPEC_ranking_faktoren_llm.md 2.3: Plausibilitätsprüfung - eine
         # Erwartung <25 P bei einem blauen/grünen (voraussichtlichen
         # Startelf-)Spieler ist fast immer ein Datenproblem, kein echtes
@@ -206,7 +210,7 @@ def analyze_manager(kb, cid, league_id, uid, name, tid_to_name, strength_map,
 
 def build_league_teams(kb, cid, league_id, ranking, strength_map, upcoming,
                        fixture_mode, matcher, sleep=0.15, liga_avg_win_prob=0.5,
-                       own_uid=None, own_entry=None, peer_lookup=None):
+                       own_uid=None, own_entry=None, peer_lookup=None, match_context=None):
     """
     Analysiert ALLE Manager der Liga (aus `ranking.us`, bereits geladen -
     kein Zusatz-Call). Liefert eine nach Prognose sortierte Liste von
@@ -238,7 +242,8 @@ def build_league_teams(kb, cid, league_id, ranking, strength_map, upcoming,
         else:
             analysis = analyze_manager(kb, cid, league_id, uid, name, tid_to_name,
                                        strength_map, upcoming, fixture_mode, matcher, sleep,
-                                       liga_avg_win_prob=liga_avg_win_prob, peer_lookup=peer_lookup)
+                                       liga_avg_win_prob=liga_avg_win_prob, peer_lookup=peer_lookup,
+                                       match_context=match_context)
         analysis["vorsaison"] = {
             "platz": u.get("psp"), "punkte": u.get("pspts"), "siege": u.get("pswc"),
         }

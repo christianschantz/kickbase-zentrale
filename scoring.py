@@ -539,6 +539,57 @@ def player_reliability_profile(details):
     }
 
 
+def punktetyp_index(profile):
+    """
+    SPEC_spielertyp_matchkontext.md 1.1: numerischer Nachfolger von
+    punktetyp_label() für die Punkteformel (statt nur Anzeige-Text).
+
+    punktetyp_index = (Ø Punkte bei Sieg - Ø Punkte bei Niederlage) / Ø Punkte gesamt
+
+    Nahe 0 -> Rohpunkte-Typ (punktet unabhängig vom Spielausgang: Zweikämpfe,
+    Pässe, Laufleistung). Deutlich positiv -> Scorer-Typ (Punkte hängen am
+    eigenen Sieg: Tore, Vorlagen). Fließt in coach.opponent_factor()s k_eff
+    ein - ein reiner Rohpunkte-Spieler bekommt eine kleinere Gegner-
+    Sensitivität, ein reiner Scorer eine größere (bisher nur als Text
+    angezeigt, s. punktetyp_label(), nicht als Faktor genutzt).
+
+    None ohne ausreichende Datenbasis (mind. ein Sieg UND eine Niederlage im
+    Sample, s. punktetyp_label()) - Aufrufer fallen dann auf den neutralen
+    Wert 1,0 zurück (= unveränderter k_pos, s. coach.opponent_factor()).
+    """
+    if not profile or profile.get("avg_win") is None or profile.get("avg_loss") is None:
+        return None
+    pts = [g["points"] for g in profile.get("games", [])]
+    avg_gesamt = sum(pts) / len(pts) if pts else None
+    if not avg_gesamt:
+        return None
+    return (profile["avg_win"] - profile["avg_loss"]) / avg_gesamt
+
+
+def reliability_score(profile):
+    """
+    SPEC_spielertyp_matchkontext.md 1.1: grobe Verlässlichkeits-Kennzahl -
+    Anteil der Spieltage über der halben Ø-Punktzahl. Unterscheidet den
+    Spieler, der konstant mittel punktet, vom Spieler, der zwischen
+    Ausreißer und Nullrunde pendelt - beide können denselben Ø-Punkteschnitt
+    haben. Gehört laut Spec in Var_Leistung (Streuung), NICHT in die
+    Erwartung selbst - Var_Leistung ist Teil der in SPEC_punkteformel_final.md
+    Abschnitt 6-9 beschriebenen, noch nicht gebauten Unsicherheitsarchitektur
+    (s. CLAUDE.md). Bis dahin wird der Wert hier nur berechnet und in
+    ep_factors exponiert, nicht in E[Punkte]/sigma verrechnet.
+
+    None ohne Spiele im Sample.
+    """
+    if not profile or not profile.get("games"):
+        return None
+    pts = [g["points"] for g in profile["games"]]
+    avg = sum(pts) / len(pts)
+    if avg <= 0:
+        return None
+    above_half = sum(1 for p in pts if p >= avg / 2)
+    return above_half / len(pts)
+
+
 RELIABLE_RATIO = 0.6  # Ø-Punkte bei Niederlage >= 60% von Ø bei Sieg -> "verlässlich"
 
 

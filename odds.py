@@ -34,11 +34,68 @@ def _implied_probs(oh, od, oa):
     return ih / s, idr / s, ia / s
 
 
+def _implied_probs_2way(o_a, o_b):
+    """Zwei-Wege-Quoten (z.B. Über/Unter 2,5) -> Wahrscheinlichkeiten, Marge
+    entfernt. Liefert (p_a, p_b) oder None."""
+    try:
+        ia, ib = 1 / float(o_a), 1 / float(o_b)
+    except (ValueError, ZeroDivisionError, TypeError):
+        return None
+    s = ia + ib
+    return ia / s, ib / s
+
+
+# SPEC_spielertyp_matchkontext.md 1.2: Über/Unter-2,5- und Asian-Handicap-
+# Spalten aus derselben fixtures.csv, Präferenz-Reihenfolge wie ODDS_COLS.
+OU_COLS = [("B365>2.5", "B365<2.5"), ("Avg>2.5", "Avg<2.5"), ("Max>2.5", "Max<2.5")]
+
+
+def _match_context(row):
+    """
+    Erwartete Gesamttore (aus Über/Unter-2,5-Quoten) und erwartete
+    Tordifferenz aus HEIMSICHT (aus der Asian-Handicap-Linie `AHh` - der
+    Markt-Konsens für die erwartete Tordifferenz, negativ = Heimteam
+    favorisiert um diese Anzahl Tore). Beide Werte sind grobe, lineare
+    Näherungen (Erstkalibrierung, wie an anderer Stelle im Projekt üblich -
+    kein Poisson-Modell, bewusst einfach und nachvollziehbar, noch nicht
+    gegen echte Spieltage geprüft). Liefert (erwartete_tore_gesamt,
+    erwartete_tordifferenz_heim) - jeweils None ohne passende Spalte.
+    """
+    tore = None
+    for c_over, c_under in OU_COLS:
+        if row.get(c_over) and row.get(c_under):
+            probs = _implied_probs_2way(row[c_over], row[c_under])
+            if probs:
+                p_over, _ = probs
+                # 2,5 Tore ist die Über/Unter-Schwelle selbst - bei
+                # p_over=0,5 (Buchmacher neutral) ist das der Erwartungswert.
+                # Lineare Näherung: ±0,5 Buchmacher-Ausschlag verschiebt die
+                # Erwartung um ±1,5 Tore, geclippt auf eine plausible
+                # Bandbreite (torarme Partie ~1,8, torreiche ~3,5).
+                tore = max(1.5, min(4.0, 2.5 + (p_over - 0.5) * 3.0))
+                break
+    tordiff = None
+    ahh = row.get("AHh")
+    if ahh not in (None, ""):
+        try:
+            tordiff = -float(ahh)
+        except ValueError:
+            pass
+    return tore, tordiff
+
+
 def load_fixture_odds(div):
     """
     Liefert für eine Division:
-      upcoming: {team: [(gegner, siegwahrscheinlichkeit), ...]}
-      power:    {team: 0..1}  (Ø Sieg-WK, min-max-normiert)
+      upcoming:      {team: [(gegner, siegwahrscheinlichkeit), ...]}
+      power:         {team: 0..1}  (Ø Sieg-WK, min-max-normiert)
+      match_context: {team: [(gegner, erwartete_tore_gesamt,
+                      erwartete_tordifferenz_team), ...]} - SPEC_
+                      spielertyp_matchkontext.md 1.2, aus Über/Unter- und
+                      Handicap-Spalten (s. _match_context()). Leer, wenn
+                      diese Spalten für die Division nicht gefüllt sind
+                      (bei kleineren Ligen manchmal lückenhaft) - dann
+                      fallen Aufrufer auf die reine Sieg-WK zurück.
     Leere Dicts, wenn die CSV (noch) keine Spiele für die Division enthält
     (z.B. tief in der Sommerpause).
     """
@@ -46,9 +103,9 @@ def load_fixture_odds(div):
         r = requests.get(FIXTURES_URL, timeout=20)
         r.raise_for_status()
     except requests.RequestException:
-        return {}, {}
+        return {}, {}, {}
 
-    upcoming, win_probs = {}, {}
+    upcoming, win_probs, match_context = {}, {}, {}
     reader = csv.DictReader(io.StringIO(r.text))
     for row in reader:
         if (row.get("Div") or "").strip() != div:
@@ -70,14 +127,20 @@ def load_fixture_odds(div):
         win_probs.setdefault(home, []).append(ph)
         win_probs.setdefault(away, []).append(pa)
 
+        tore, tordiff_heim = _match_context(row)
+        if tore is not None or tordiff_heim is not None:
+            tordiff_away = -tordiff_heim if tordiff_heim is not None else None
+            match_context.setdefault(home, []).append((away, tore, tordiff_heim))
+            match_context.setdefault(away, []).append((home, tore, tordiff_away))
+
     if not win_probs:
-        return {}, {}
+        return {}, {}, {}
 
     avg = {t: sum(v) / len(v) for t, v in win_probs.items()}
     lo, hi = min(avg.values()), max(avg.values())
     span = (hi - lo) or 1.0
     power = {t: (v - lo) / span for t, v in avg.items()}
-    return upcoming, power
+    return upcoming, power, match_context
 
 
 ODDS_API_URL = "https://api.the-odds-api.com/v4/sports/{sport}/odds/"
@@ -161,3 +224,24 @@ def fixture_ease_odds(kb_team_name, upcoming, matcher, next_n=3):
     ease = sum(p for _, p in games) / len(games)
     display = [f"{opp} ({p:.0%} Sieg-WK)" for opp, p in games]
     return ease, display
+
+
+def next_match_context(kb_team_name, match_context, matcher):
+    """
+    SPEC_spielertyp_matchkontext.md 1.2: erwartete Gesamttore + erwartete
+    Tordifferenz (aus TEAM-Sicht) für die NÄCHSTE Partie des Teams - anders
+    als fixture_ease_odds() (Ø über mehrere kommende Spiele) wird hier nur
+    das nächste Spiel betrachtet, weil die Zu-Null-Frage matchday-spezifisch
+    ist, nicht saisonweit gemittelt werden soll. Liefert (erwartete_tore,
+    erwartete_tordifferenz) - (None, None) ohne Treffer/ohne match_context
+    (z.B. La Liga über the-odds-api/Tabellen-Fallback, die keine Handicap-/
+    Über-Unter-Daten liefern - Aufrufer fallen dann auf die reine Sieg-WK
+    zurück, s. coach.zu_null_bonus()).
+    """
+    if not kb_team_name or not match_context:
+        return None, None
+    matched = matcher(kb_team_name, list(match_context.keys()))
+    if not matched or not match_context[matched]:
+        return None, None
+    _, tore, tordiff = match_context[matched][0]
+    return tore, tordiff
