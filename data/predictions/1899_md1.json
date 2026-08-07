@@ -2,319 +2,19 @@
   "league": "1899",
   "matchday": 1,
   "kickoff_first": "2026-08-07T18:30:00+00:00",
-  "generated_at": "2026-08-07T07:51:56.762290+00:00",
+  "generated_at": "2026-08-07T08:39:30.818654+00:00",
   "anchor_expected": 897.1890756302521,
   "weights_version": 1,
   "managers": [
     {
-      "uid": "1873838",
-      "name": "christianjens",
-      "predicted": 1049.2,
-      "range": [
-        869.4,
-        1229.0
-      ],
-      "squad_strength": 1071.9,
-      "efficiency": 97.9,
-      "formation": "3-5-2",
-      "lineup": [
-        {
-          "pid": "2100",
-          "name": "Hoffmann",
-          "pos": "TW",
-          "slot": 0,
-          "expected": 102.1,
-          "team": "Braunschweig",
-          "factors": {
-            "basis": 91.0,
-            "basis_quelle": "real_mv_floor",
-            "basis_geschaetzt": true,
-            "einsatzfaktor": 1.0,
-            "gegnerfaktor": 0.86,
-            "formfaktor": 1.25,
-            "spielverlaufsfaktor": 1.0,
-            "spielverlauf_grund": null,
-            "zu_null_bonus": 3.9,
-            "p_zu_null": 0.16,
-            "sigma": 78.2,
-            "sigma_geschaetzt": false,
-            "bandbreite": [
-              24.0,
-              180.3
-            ]
-          }
-        },
-        {
-          "pid": "9796",
-          "name": "Zec",
-          "pos": "ABW",
-          "slot": 1,
-          "expected": 110.2,
-          "team": "Kiel",
-          "factors": {
-            "basis": 91.0,
-            "basis_quelle": "real_mv_floor",
-            "basis_geschaetzt": true,
-            "einsatzfaktor": 1.0,
-            "gegnerfaktor": 0.93,
-            "formfaktor": 1.25,
-            "spielverlaufsfaktor": 1.0,
-            "spielverlauf_grund": null,
-            "zu_null_bonus": 4.0,
-            "p_zu_null": 0.2,
-            "sigma": 91.2,
-            "sigma_geschaetzt": false,
-            "bandbreite": [
-              19.0,
-              201.4
-            ]
-          }
-        },
-        {
-          "pid": "1866",
-          "name": "Wahl",
-          "pos": "ABW",
-          "slot": 2,
-          "expected": 117.3,
-          "team": "Wolfsburg",
-          "factors": {
-            "basis": 91.0,
-            "basis_quelle": "mv_estimate",
-            "basis_geschaetzt": true,
-            "einsatzfaktor": 1.0,
-            "gegnerfaktor": 1.21,
-            "formfaktor": 1.0,
-            "spielverlaufsfaktor": 1.0,
-            "spielverlauf_grund": null,
-            "zu_null_bonus": 7.2,
-            "p_zu_null": 0.36,
-            "sigma": 31.8,
-            "sigma_geschaetzt": true,
-            "bandbreite": [
-              85.4,
-              149.1
-            ]
-          }
-        },
-        {
-          "pid": "6291",
-          "name": "Mathisen",
-          "pos": "ABW",
-          "slot": 3,
-          "expected": 124.8,
-          "team": "St. Pauli",
-          "factors": {
-            "basis": 96,
-            "basis_quelle": "real",
-            "basis_geschaetzt": false,
-            "einsatzfaktor": 1.0,
-            "gegnerfaktor": 1.13,
-            "formfaktor": 1.09,
-            "spielverlaufsfaktor": 1.0,
-            "spielverlauf_grund": null,
-            "zu_null_bonus": 6.3,
-            "p_zu_null": 0.31,
-            "sigma": 58.9,
-            "sigma_geschaetzt": false,
-            "bandbreite": [
-              65.9,
-              183.8
-            ]
-          }
-        },
-        {
-          "pid": "1659",
-          "name": "Rapp",
-          "pos": "MF",
-          "slot": 4,
-          "expected": 62.6,
-          "team": "Dresden",
-          "factors": {
-            "basis": 80.9,
-            "basis_quelle": "real_mv_floor",
-            "basis_geschaetzt": true,
-            "einsatzfaktor": 1.0,
-            "gegnerfaktor": 0.97,
-            "formfaktor": 0.8,
-            "spielverlaufsfaktor": 1.0,
-            "spielverlauf_grund": null,
-            "zu_null_bonus": 0.0,
-            "p_zu_null": null,
-            "sigma": 50.2,
-            "sigma_geschaetzt": false,
-            "bandbreite": [
-              12.4,
-              112.8
-            ]
-          }
-        },
-        {
-          "pid": "12335",
-          "name": "Thórdarson",
-          "pos": "MF",
-          "slot": 5,
-          "expected": 117.9,
-          "team": "Hannover",
-          "factors": {
-            "basis": 91.0,
-            "basis_quelle": "real_mv_floor",
-            "basis_geschaetzt": true,
-            "einsatzfaktor": 1.0,
-            "gegnerfaktor": 1.04,
-            "formfaktor": 1.25,
-            "spielverlaufsfaktor": 1.0,
-            "spielverlauf_grund": null,
-            "zu_null_bonus": 0.0,
-            "p_zu_null": null,
-            "sigma": 64.0,
-            "sigma_geschaetzt": false,
-            "bandbreite": [
-              53.8,
-              181.9
-            ]
-          }
-        },
-        {
-          "pid": "2398",
-          "name": "Taz",
-          "pos": "MF",
-          "slot": 6,
-          "expected": 92.9,
-          "team": "Bochum",
-          "factors": {
-            "basis": 91.0,
-            "basis_quelle": "mv_estimate",
-            "basis_geschaetzt": true,
-            "einsatzfaktor": 1.0,
-            "gegnerfaktor": 1.02,
-            "formfaktor": 1.0,
-            "spielverlaufsfaktor": 1.0,
-            "spielverlauf_grund": null,
-            "zu_null_bonus": 0.0,
-            "p_zu_null": null,
-            "sigma": 27.3,
-            "sigma_geschaetzt": true,
-            "bandbreite": [
-              65.6,
-              120.2
-            ]
-          }
-        },
-        {
-          "pid": "2305",
-          "name": "Will",
-          "pos": "MF",
-          "slot": 7,
-          "expected": 85.9,
-          "team": "Fürth",
-          "factors": {
-            "basis": 80.9,
-            "basis_quelle": "real_mv_floor",
-            "basis_geschaetzt": true,
-            "einsatzfaktor": 1.0,
-            "gegnerfaktor": 0.94,
-            "formfaktor": 1.13,
-            "spielverlaufsfaktor": 1.0,
-            "spielverlauf_grund": null,
-            "zu_null_bonus": 0.0,
-            "p_zu_null": null,
-            "sigma": 33.9,
-            "sigma_geschaetzt": false,
-            "bandbreite": [
-              52.0,
-              119.8
-            ]
-          }
-        },
-        {
-          "pid": "7484",
-          "name": "Bernhardsson",
-          "pos": "MF",
-          "slot": 8,
-          "expected": 73.5,
-          "team": "Kiel",
-          "factors": {
-            "basis": 95,
-            "basis_quelle": "real",
-            "basis_geschaetzt": false,
-            "einsatzfaktor": 1.0,
-            "gegnerfaktor": 0.97,
-            "formfaktor": 0.8,
-            "spielverlaufsfaktor": 1.0,
-            "spielverlauf_grund": null,
-            "zu_null_bonus": 0.0,
-            "p_zu_null": null,
-            "sigma": 28.5,
-            "sigma_geschaetzt": true,
-            "bandbreite": [
-              45.0,
-              102.0
-            ]
-          }
-        },
-        {
-          "pid": "3027",
-          "name": "Pieringer",
-          "pos": "ANG",
-          "slot": 9,
-          "expected": 105.3,
-          "team": "Heidenheim",
-          "factors": {
-            "basis": 91.0,
-            "basis_quelle": "mv_estimate",
-            "basis_geschaetzt": true,
-            "einsatzfaktor": 1.0,
-            "gegnerfaktor": 1.16,
-            "formfaktor": 1.0,
-            "spielverlaufsfaktor": 1.0,
-            "spielverlauf_grund": null,
-            "zu_null_bonus": 0.0,
-            "p_zu_null": null,
-            "sigma": 36.4,
-            "sigma_geschaetzt": true,
-            "bandbreite": [
-              68.9,
-              141.7
-            ]
-          }
-        },
-        {
-          "pid": "15340",
-          "name": "El Kadiri",
-          "pos": "ANG",
-          "slot": 10,
-          "expected": 56.7,
-          "team": "Darmstadt",
-          "factors": {
-            "basis": 91.0,
-            "basis_quelle": "mv_estimate",
-            "basis_geschaetzt": true,
-            "einsatzfaktor": 0.6,
-            "gegnerfaktor": 1.04,
-            "formfaktor": 1.0,
-            "spielverlaufsfaktor": 1.0,
-            "spielverlauf_grund": null,
-            "zu_null_bonus": 0.0,
-            "p_zu_null": null,
-            "sigma": 36.4,
-            "sigma_geschaetzt": true,
-            "bandbreite": [
-              20.3,
-              93.1
-            ]
-          }
-        }
-      ]
-    },
-    {
       "uid": "3267926",
       "name": "SvenNumeroUno",
-      "predicted": 1048.1,
+      "predicted": 1048.4,
       "range": [
-        947.3,
-        1148.9
+        947.6,
+        1149.2
       ],
-      "squad_strength": 1050.3,
+      "squad_strength": 1050.4,
       "efficiency": 99.8,
       "formation": "4-4-2",
       "lineup": [
@@ -349,7 +49,7 @@
           "name": "Zeefuik",
           "pos": "ABW",
           "slot": 1,
-          "expected": 81.0,
+          "expected": 81.3,
           "team": "Hertha BSC",
           "factors": {
             "basis": 86.0,
@@ -360,13 +60,13 @@
             "formfaktor": 1.0,
             "spielverlaufsfaktor": 1.0,
             "spielverlauf_grund": null,
-            "zu_null_bonus": 4.1,
+            "zu_null_bonus": 4.2,
             "p_zu_null": 0.21,
             "sigma": 30.1,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              50.9,
-              111.1
+              51.2,
+              111.4
             ]
           }
         },
@@ -401,7 +101,7 @@
           "name": "Pfeiffer",
           "pos": "ABW",
           "slot": 3,
-          "expected": 100.1,
+          "expected": 100.3,
           "team": "Darmstadt",
           "factors": {
             "basis": 95,
@@ -413,12 +113,12 @@
             "spielverlaufsfaktor": 1.0,
             "spielverlauf_grund": null,
             "zu_null_bonus": 5.3,
-            "p_zu_null": 0.26,
+            "p_zu_null": 0.27,
             "sigma": 33.2,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              66.9,
-              133.4
+              67.1,
+              133.6
             ]
           }
         },
@@ -443,8 +143,8 @@
             "sigma": 31.8,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              79.9,
-              143.6
+              80.0,
+              143.7
             ]
           }
         },
@@ -479,7 +179,7 @@
           "name": "Çokaj",
           "pos": "MF",
           "slot": 6,
-          "expected": 88.2,
+          "expected": 88.0,
           "team": "Bochum",
           "factors": {
             "basis": 91.0,
@@ -495,8 +195,8 @@
             "sigma": 27.3,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              60.9,
-              115.5
+              60.7,
+              115.3
             ]
           }
         },
@@ -531,7 +231,7 @@
           "name": "Costly",
           "pos": "MF",
           "slot": 8,
-          "expected": 71.7,
+          "expected": 71.8,
           "team": "Heidenheim",
           "factors": {
             "basis": 68.4,
@@ -557,7 +257,7 @@
           "name": "Hofmann",
           "pos": "ANG",
           "slot": 9,
-          "expected": 102.8,
+          "expected": 102.5,
           "team": "Bochum",
           "factors": {
             "basis": 105,
@@ -573,8 +273,8 @@
             "sigma": 42.0,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              60.8,
-              144.8
+              60.5,
+              144.5
             ]
           }
         },
@@ -609,13 +309,13 @@
     {
       "uid": "3536521",
       "name": "PaulBowa",
-      "predicted": 1027.3,
+      "predicted": 1027.4,
       "range": [
-        931.9,
-        1122.7
+        932.0,
+        1122.8
       ],
-      "squad_strength": 1035.3,
-      "efficiency": 99.2,
+      "squad_strength": 1035.1,
+      "efficiency": 99.3,
       "formation": "4-4-2",
       "lineup": [
         {
@@ -649,7 +349,7 @@
           "name": "Olsen",
           "pos": "ABW",
           "slot": 1,
-          "expected": 74.9,
+          "expected": 74.5,
           "team": "Bochum",
           "factors": {
             "basis": 70.5,
@@ -660,13 +360,13 @@
             "formfaktor": 1.0,
             "spielverlaufsfaktor": 1.0,
             "spielverlauf_grund": null,
-            "zu_null_bonus": 5.2,
+            "zu_null_bonus": 5.1,
             "p_zu_null": 0.26,
             "sigma": 24.7,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              50.2,
-              99.5
+              49.8,
+              99.2
             ]
           }
         },
@@ -691,7 +391,7 @@
             "sigma": 31.6,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              63.7,
+              63.8,
               126.9
             ]
           }
@@ -786,7 +486,7 @@
             "basis_quelle": "mv_estimate",
             "basis_geschaetzt": true,
             "einsatzfaktor": 0.95,
-            "gegnerfaktor": 1.1,
+            "gegnerfaktor": 1.11,
             "formfaktor": 1.0,
             "spielverlaufsfaktor": 1.0,
             "spielverlauf_grund": null,
@@ -805,7 +505,7 @@
           "name": "Sessa",
           "pos": "MF",
           "slot": 7,
-          "expected": 70.8,
+          "expected": 70.9,
           "team": "Hertha BSC",
           "factors": {
             "basis": 76.8,
@@ -821,8 +521,8 @@
             "sigma": 23.0,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              47.8,
-              93.8
+              47.9,
+              93.9
             ]
           }
         },
@@ -883,7 +583,7 @@
           "name": "Hornby",
           "pos": "ANG",
           "slot": 10,
-          "expected": 138.5,
+          "expected": 138.6,
           "team": "Wolfsburg",
           "factors": {
             "basis": 126,
@@ -899,8 +599,8 @@
             "sigma": 50.4,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              88.1,
-              188.9
+              88.2,
+              189.0
             ]
           }
         }
@@ -1027,7 +727,7 @@
           "name": "Meffert",
           "pos": "MF",
           "slot": 4,
-          "expected": 83.6,
+          "expected": 83.5,
           "team": "Kiel",
           "factors": {
             "basis": 91.0,
@@ -1043,8 +743,8 @@
             "sigma": 27.3,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              56.3,
-              110.9
+              56.2,
+              110.8
             ]
           }
         },
@@ -1157,7 +857,7 @@
           "name": "Glatzel",
           "pos": "ANG",
           "slot": 9,
-          "expected": 100.0,
+          "expected": 100.1,
           "team": "Wolfsburg",
           "factors": {
             "basis": 91.0,
@@ -1173,8 +873,8 @@
             "sigma": 36.4,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              63.6,
-              136.4
+              63.7,
+              136.5
             ]
           }
         },
@@ -1207,14 +907,314 @@
       ]
     },
     {
+      "uid": "1873838",
+      "name": "christianjens",
+      "predicted": 1013.1,
+      "range": [
+        837.0,
+        1189.2
+      ],
+      "squad_strength": 1071.2,
+      "efficiency": 94.6,
+      "formation": "4-5-1",
+      "lineup": [
+        {
+          "pid": "2100",
+          "name": "Hoffmann",
+          "pos": "TW",
+          "slot": 0,
+          "expected": 102.1,
+          "team": "Braunschweig",
+          "factors": {
+            "basis": 91.0,
+            "basis_quelle": "real_mv_floor",
+            "basis_geschaetzt": true,
+            "einsatzfaktor": 1.0,
+            "gegnerfaktor": 0.86,
+            "formfaktor": 1.25,
+            "spielverlaufsfaktor": 1.0,
+            "spielverlauf_grund": null,
+            "zu_null_bonus": 3.9,
+            "p_zu_null": 0.16,
+            "sigma": 78.2,
+            "sigma_geschaetzt": false,
+            "bandbreite": [
+              24.0,
+              180.3
+            ]
+          }
+        },
+        {
+          "pid": "9796",
+          "name": "Zec",
+          "pos": "ABW",
+          "slot": 1,
+          "expected": 109.9,
+          "team": "Kiel",
+          "factors": {
+            "basis": 91.0,
+            "basis_quelle": "real_mv_floor",
+            "basis_geschaetzt": true,
+            "einsatzfaktor": 1.0,
+            "gegnerfaktor": 0.93,
+            "formfaktor": 1.25,
+            "spielverlaufsfaktor": 1.0,
+            "spielverlauf_grund": null,
+            "zu_null_bonus": 4.0,
+            "p_zu_null": 0.2,
+            "sigma": 91.2,
+            "sigma_geschaetzt": false,
+            "bandbreite": [
+              18.7,
+              201.2
+            ]
+          }
+        },
+        {
+          "pid": "1866",
+          "name": "Wahl",
+          "pos": "ABW",
+          "slot": 2,
+          "expected": 117.3,
+          "team": "Wolfsburg",
+          "factors": {
+            "basis": 91.0,
+            "basis_quelle": "mv_estimate",
+            "basis_geschaetzt": true,
+            "einsatzfaktor": 1.0,
+            "gegnerfaktor": 1.21,
+            "formfaktor": 1.0,
+            "spielverlaufsfaktor": 1.0,
+            "spielverlauf_grund": null,
+            "zu_null_bonus": 7.2,
+            "p_zu_null": 0.36,
+            "sigma": 31.8,
+            "sigma_geschaetzt": true,
+            "bandbreite": [
+              85.5,
+              149.2
+            ]
+          }
+        },
+        {
+          "pid": "6291",
+          "name": "Mathisen",
+          "pos": "ABW",
+          "slot": 3,
+          "expected": 124.8,
+          "team": "St. Pauli",
+          "factors": {
+            "basis": 96,
+            "basis_quelle": "real",
+            "basis_geschaetzt": false,
+            "einsatzfaktor": 1.0,
+            "gegnerfaktor": 1.13,
+            "formfaktor": 1.09,
+            "spielverlaufsfaktor": 1.0,
+            "spielverlauf_grund": null,
+            "zu_null_bonus": 6.3,
+            "p_zu_null": 0.31,
+            "sigma": 58.9,
+            "sigma_geschaetzt": false,
+            "bandbreite": [
+              65.9,
+              183.8
+            ]
+          }
+        },
+        {
+          "pid": "7337",
+          "name": "Manu",
+          "pos": "ABW",
+          "slot": 4,
+          "expected": 79.4,
+          "team": "Cottbus",
+          "factors": {
+            "basis": 81.8,
+            "basis_quelle": "mv_estimate",
+            "basis_geschaetzt": true,
+            "einsatzfaktor": 1.0,
+            "gegnerfaktor": 0.92,
+            "formfaktor": 1.0,
+            "spielverlaufsfaktor": 1.0,
+            "spielverlauf_grund": null,
+            "zu_null_bonus": 3.9,
+            "p_zu_null": 0.2,
+            "sigma": 28.6,
+            "sigma_geschaetzt": true,
+            "bandbreite": [
+              50.8,
+              108.0
+            ]
+          }
+        },
+        {
+          "pid": "1659",
+          "name": "Rapp",
+          "pos": "MF",
+          "slot": 5,
+          "expected": 62.6,
+          "team": "Dresden",
+          "factors": {
+            "basis": 80.9,
+            "basis_quelle": "real_mv_floor",
+            "basis_geschaetzt": true,
+            "einsatzfaktor": 1.0,
+            "gegnerfaktor": 0.97,
+            "formfaktor": 0.8,
+            "spielverlaufsfaktor": 1.0,
+            "spielverlauf_grund": null,
+            "zu_null_bonus": 0.0,
+            "p_zu_null": null,
+            "sigma": 50.2,
+            "sigma_geschaetzt": false,
+            "bandbreite": [
+              12.4,
+              112.8
+            ]
+          }
+        },
+        {
+          "pid": "12335",
+          "name": "Thórdarson",
+          "pos": "MF",
+          "slot": 6,
+          "expected": 117.9,
+          "team": "Hannover",
+          "factors": {
+            "basis": 91.0,
+            "basis_quelle": "real_mv_floor",
+            "basis_geschaetzt": true,
+            "einsatzfaktor": 1.0,
+            "gegnerfaktor": 1.04,
+            "formfaktor": 1.25,
+            "spielverlaufsfaktor": 1.0,
+            "spielverlauf_grund": null,
+            "zu_null_bonus": 0.0,
+            "p_zu_null": null,
+            "sigma": 64.0,
+            "sigma_geschaetzt": false,
+            "bandbreite": [
+              53.9,
+              181.9
+            ]
+          }
+        },
+        {
+          "pid": "2398",
+          "name": "Taz",
+          "pos": "MF",
+          "slot": 7,
+          "expected": 92.6,
+          "team": "Bochum",
+          "factors": {
+            "basis": 91.0,
+            "basis_quelle": "mv_estimate",
+            "basis_geschaetzt": true,
+            "einsatzfaktor": 1.0,
+            "gegnerfaktor": 1.02,
+            "formfaktor": 1.0,
+            "spielverlaufsfaktor": 1.0,
+            "spielverlauf_grund": null,
+            "zu_null_bonus": 0.0,
+            "p_zu_null": null,
+            "sigma": 27.3,
+            "sigma_geschaetzt": true,
+            "bandbreite": [
+              65.3,
+              119.9
+            ]
+          }
+        },
+        {
+          "pid": "11679",
+          "name": "Crimaldi",
+          "pos": "MF",
+          "slot": 8,
+          "expected": 27.8,
+          "team": "Bochum",
+          "factors": {
+            "basis": 45.5,
+            "basis_quelle": "mv_estimate",
+            "basis_geschaetzt": true,
+            "einsatzfaktor": 0.6,
+            "gegnerfaktor": 1.02,
+            "formfaktor": 1.0,
+            "spielverlaufsfaktor": 1.0,
+            "spielverlauf_grund": null,
+            "zu_null_bonus": 0.0,
+            "p_zu_null": null,
+            "sigma": 13.7,
+            "sigma_geschaetzt": true,
+            "bandbreite": [
+              14.1,
+              41.5
+            ]
+          }
+        },
+        {
+          "pid": "7484",
+          "name": "Bernhardsson",
+          "pos": "MF",
+          "slot": 9,
+          "expected": 73.4,
+          "team": "Kiel",
+          "factors": {
+            "basis": 95,
+            "basis_quelle": "real",
+            "basis_geschaetzt": false,
+            "einsatzfaktor": 1.0,
+            "gegnerfaktor": 0.97,
+            "formfaktor": 0.8,
+            "spielverlaufsfaktor": 1.0,
+            "spielverlauf_grund": null,
+            "zu_null_bonus": 0.0,
+            "p_zu_null": null,
+            "sigma": 28.5,
+            "sigma_geschaetzt": true,
+            "bandbreite": [
+              44.9,
+              101.9
+            ]
+          }
+        },
+        {
+          "pid": "3027",
+          "name": "Pieringer",
+          "pos": "ANG",
+          "slot": 10,
+          "expected": 105.3,
+          "team": "Heidenheim",
+          "factors": {
+            "basis": 91.0,
+            "basis_quelle": "mv_estimate",
+            "basis_geschaetzt": true,
+            "einsatzfaktor": 1.0,
+            "gegnerfaktor": 1.16,
+            "formfaktor": 1.0,
+            "spielverlaufsfaktor": 1.0,
+            "spielverlauf_grund": null,
+            "zu_null_bonus": 0.0,
+            "p_zu_null": null,
+            "sigma": 36.4,
+            "sigma_geschaetzt": true,
+            "bandbreite": [
+              68.9,
+              141.7
+            ]
+          }
+        }
+      ]
+    },
+    {
       "uid": "3279775",
       "name": "david",
-      "predicted": 959.3,
+      "predicted": 960.4,
       "range": [
-        863.4,
-        1055.2
+        864.5,
+        1056.3
       ],
-      "squad_strength": 917.5,
+      "squad_strength": 918.3,
       "efficiency": 104.6,
       "formation": "5-2-3",
       "lineup": [
@@ -1275,7 +1275,7 @@
           "name": "Siersleben",
           "pos": "ABW",
           "slot": 2,
-          "expected": 107.0,
+          "expected": 107.1,
           "team": "Heidenheim",
           "factors": {
             "basis": 86.9,
@@ -1327,7 +1327,7 @@
           "name": "Dárdai",
           "pos": "ABW",
           "slot": 4,
-          "expected": 85.5,
+          "expected": 85.8,
           "team": "Hertha BSC",
           "factors": {
             "basis": 91.0,
@@ -1338,13 +1338,13 @@
             "formfaktor": 1.0,
             "spielverlaufsfaktor": 1.0,
             "spielverlauf_grund": null,
-            "zu_null_bonus": 4.1,
+            "zu_null_bonus": 4.2,
             "p_zu_null": 0.21,
             "sigma": 31.8,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              53.7,
-              117.4
+              54.0,
+              117.7
             ]
           }
         },
@@ -1353,7 +1353,7 @@
           "name": "Eitschberger",
           "pos": "ABW",
           "slot": 5,
-          "expected": 80.0,
+          "expected": 80.3,
           "team": "Hertha BSC",
           "factors": {
             "basis": 84.8,
@@ -1364,13 +1364,13 @@
             "formfaktor": 1.0,
             "spielverlaufsfaktor": 1.0,
             "spielverlauf_grund": null,
-            "zu_null_bonus": 4.1,
+            "zu_null_bonus": 4.2,
             "p_zu_null": 0.21,
             "sigma": 29.7,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              50.3,
-              109.7
+              50.6,
+              110.0
             ]
           }
         },
@@ -1386,7 +1386,7 @@
             "basis_quelle": "mv_estimate",
             "basis_geschaetzt": true,
             "einsatzfaktor": 0.95,
-            "gegnerfaktor": 1.1,
+            "gegnerfaktor": 1.11,
             "formfaktor": 1.0,
             "spielverlaufsfaktor": 1.0,
             "spielverlauf_grund": null,
@@ -1447,7 +1447,7 @@
             "sigma": 28.7,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              50.2,
+              50.3,
               107.7
             ]
           }
@@ -1483,7 +1483,7 @@
           "name": "Reese",
           "pos": "ANG",
           "slot": 10,
-          "expected": 137.4,
+          "expected": 137.5,
           "team": "Wolfsburg",
           "factors": {
             "basis": 125,
@@ -1499,8 +1499,8 @@
             "sigma": 50.0,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              87.4,
-              187.4
+              87.5,
+              187.5
             ]
           }
         }
@@ -1509,12 +1509,12 @@
     {
       "uid": "3946513",
       "name": "nico",
-      "predicted": 957.2,
+      "predicted": 957.4,
       "range": [
-        869.3,
-        1045.1
+        869.5,
+        1045.3
       ],
-      "squad_strength": 968.8,
+      "squad_strength": 969.1,
       "efficiency": 98.8,
       "formation": "4-3-3",
       "lineup": [
@@ -1539,8 +1539,8 @@
             "sigma": 22.8,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              88.9,
-              134.4
+              89.0,
+              134.5
             ]
           }
         },
@@ -1575,7 +1575,7 @@
           "name": "Aydin",
           "pos": "ABW",
           "slot": 2,
-          "expected": 76.4,
+          "expected": 76.5,
           "team": "Braunschweig",
           "factors": {
             "basis": 91.0,
@@ -1617,8 +1617,8 @@
             "sigma": 31.8,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              79.9,
-              143.6
+              80.0,
+              143.7
             ]
           }
         },
@@ -1653,7 +1653,7 @@
           "name": "Michelbrink",
           "pos": "MF",
           "slot": 5,
-          "expected": 70.4,
+          "expected": 70.5,
           "team": "Cottbus",
           "factors": {
             "basis": 77.1,
@@ -1679,7 +1679,7 @@
           "name": "Weißhaupt",
           "pos": "MF",
           "slot": 6,
-          "expected": 82.2,
+          "expected": 82.3,
           "team": "Darmstadt",
           "factors": {
             "basis": 84.4,
@@ -1695,8 +1695,8 @@
             "sigma": 25.3,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              56.9,
-              107.5
+              57.0,
+              107.6
             ]
           }
         },
@@ -1809,12 +1809,12 @@
     {
       "uid": "3267999",
       "name": "malte.srn",
-      "predicted": 950.3,
+      "predicted": 949.6,
       "range": [
-        849.6,
-        1051.0
+        848.9,
+        1050.3
       ],
-      "squad_strength": 950.2,
+      "squad_strength": 949.5,
       "efficiency": 100.0,
       "formation": "4-4-2",
       "lineup": [
@@ -1875,7 +1875,7 @@
           "name": "Steinwender",
           "pos": "ABW",
           "slot": 2,
-          "expected": 94.3,
+          "expected": 93.8,
           "team": "Bochum",
           "factors": {
             "basis": 90.1,
@@ -1886,13 +1886,13 @@
             "formfaktor": 1.0,
             "spielverlaufsfaktor": 1.0,
             "spielverlauf_grund": null,
-            "zu_null_bonus": 5.2,
+            "zu_null_bonus": 5.1,
             "p_zu_null": 0.26,
             "sigma": 31.5,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              62.7,
-              125.8
+              62.3,
+              125.3
             ]
           }
         },
@@ -1927,7 +1927,7 @@
           "name": "Sekine",
           "pos": "ABW",
           "slot": 4,
-          "expected": 82.6,
+          "expected": 82.4,
           "team": "Kiel",
           "factors": {
             "basis": 88.6,
@@ -1943,8 +1943,8 @@
             "sigma": 31.0,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              51.6,
-              113.6
+              51.4,
+              113.4
             ]
           }
         },
@@ -2109,13 +2109,13 @@
     {
       "uid": "1925277",
       "name": "Robin04",
-      "predicted": 945.4,
+      "predicted": 945.6,
       "range": [
-        839.8,
-        1051.0
+        840.0,
+        1051.2
       ],
-      "squad_strength": 955.8,
-      "efficiency": 98.9,
+      "squad_strength": 955.6,
+      "efficiency": 99.0,
       "formation": "4-3-3",
       "lineup": [
         {
@@ -2149,7 +2149,7 @@
           "name": "Kleinhansl",
           "pos": "ABW",
           "slot": 1,
-          "expected": 60.7,
+          "expected": 60.8,
           "team": "Darmstadt",
           "factors": {
             "basis": 55.5,
@@ -2161,12 +2161,12 @@
             "spielverlaufsfaktor": 1.0,
             "spielverlauf_grund": null,
             "zu_null_bonus": 5.3,
-            "p_zu_null": 0.26,
+            "p_zu_null": 0.27,
             "sigma": 19.4,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              41.3,
-              80.1
+              41.4,
+              80.2
             ]
           }
         },
@@ -2175,7 +2175,7 @@
           "name": "Wittek",
           "pos": "ABW",
           "slot": 2,
-          "expected": 108.0,
+          "expected": 107.5,
           "team": "Bochum",
           "factors": {
             "basis": 104,
@@ -2186,13 +2186,13 @@
             "formfaktor": 1.0,
             "spielverlaufsfaktor": 1.0,
             "spielverlauf_grund": null,
-            "zu_null_bonus": 5.2,
+            "zu_null_bonus": 5.1,
             "p_zu_null": 0.26,
             "sigma": 36.4,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              71.6,
-              144.4
+              71.1,
+              143.9
             ]
           }
         },
@@ -2253,7 +2253,7 @@
           "name": "Pohlmann",
           "pos": "MF",
           "slot": 5,
-          "expected": 76.0,
+          "expected": 76.1,
           "team": "Fürth",
           "factors": {
             "basis": 85.5,
@@ -2279,7 +2279,7 @@
           "name": "Duijvestijn",
           "pos": "MF",
           "slot": 6,
-          "expected": 88.6,
+          "expected": 88.7,
           "team": "Darmstadt",
           "factors": {
             "basis": 91.0,
@@ -2295,8 +2295,8 @@
             "sigma": 27.3,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              61.3,
-              115.9
+              61.4,
+              116.0
             ]
           }
         },
@@ -2321,7 +2321,7 @@
             "sigma": 11.8,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              24.5,
+              24.6,
               48.2
             ]
           }
@@ -2414,7 +2414,7 @@
         806.0,
         980.2
       ],
-      "squad_strength": 894.0,
+      "squad_strength": 893.9,
       "efficiency": 99.9,
       "formation": "4-4-2",
       "lineup": [
@@ -2501,7 +2501,7 @@
           "name": "Nekic",
           "pos": "ABW",
           "slot": 3,
-          "expected": 84.7,
+          "expected": 84.5,
           "team": "Kiel",
           "factors": {
             "basis": 91.0,
@@ -2517,8 +2517,8 @@
             "sigma": 31.8,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              52.9,
-              116.6
+              52.7,
+              116.4
             ]
           }
         },
@@ -2605,7 +2605,7 @@
           "name": "Akiyama",
           "pos": "MF",
           "slot": 7,
-          "expected": 88.6,
+          "expected": 88.7,
           "team": "Darmstadt",
           "factors": {
             "basis": 91.0,
@@ -2621,8 +2621,8 @@
             "sigma": 27.3,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              61.3,
-              115.9
+              61.4,
+              116.0
             ]
           }
         },
@@ -2709,12 +2709,12 @@
     {
       "uid": "3536626",
       "name": "Moosi",
-      "predicted": 889.7,
+      "predicted": 890.0,
       "range": [
-        801.4,
-        978.0
+        801.7,
+        978.3
       ],
-      "squad_strength": 909.6,
+      "squad_strength": 910.0,
       "efficiency": 97.8,
       "formation": "5-3-2",
       "lineup": [
@@ -2749,7 +2749,7 @@
           "name": "Lannert",
           "pos": "ABW",
           "slot": 1,
-          "expected": 74.6,
+          "expected": 74.7,
           "team": "Darmstadt",
           "factors": {
             "basis": 69.4,
@@ -2761,12 +2761,12 @@
             "spielverlaufsfaktor": 1.0,
             "spielverlauf_grund": null,
             "zu_null_bonus": 5.3,
-            "p_zu_null": 0.26,
+            "p_zu_null": 0.27,
             "sigma": 24.3,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              50.3,
-              98.9
+              50.4,
+              99.0
             ]
           }
         },
@@ -2947,8 +2947,8 @@
             "sigma": 22.9,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              47.2,
-              92.9
+              47.1,
+              92.8
             ]
           }
         },
@@ -2957,7 +2957,7 @@
           "name": "Brekalo",
           "pos": "ANG",
           "slot": 9,
-          "expected": 82.6,
+          "expected": 82.9,
           "team": "Hertha BSC",
           "factors": {
             "basis": 91.0,
@@ -2973,8 +2973,8 @@
             "sigma": 36.4,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              46.2,
-              119.0
+              46.5,
+              119.3
             ]
           }
         },
@@ -3009,10 +3009,10 @@
     {
       "uid": "3912376",
       "name": "tizi05",
-      "predicted": 771.1,
+      "predicted": 771.2,
       "range": [
-        692.5,
-        849.7
+        692.6,
+        849.8
       ],
       "squad_strength": null,
       "efficiency": null,
@@ -3049,7 +3049,7 @@
           "name": "Heuer",
           "pos": "ABW",
           "slot": 1,
-          "expected": 78.7,
+          "expected": 78.8,
           "team": "Fürth",
           "factors": {
             "basis": 91.0,
@@ -3127,7 +3127,7 @@
           "name": "Seguin",
           "pos": "MF",
           "slot": 4,
-          "expected": 83.9,
+          "expected": 84.1,
           "team": "Hertha BSC",
           "factors": {
             "basis": 91.0,
@@ -3143,8 +3143,8 @@
             "sigma": 27.3,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              56.6,
-              111.2
+              56.8,
+              111.4
             ]
           }
         },
@@ -3257,7 +3257,7 @@
           "name": "Pannewig",
           "pos": "MF",
           "slot": 9,
-          "expected": 62.0,
+          "expected": 61.9,
           "team": "Bochum",
           "factors": {
             "basis": 64,
@@ -3273,8 +3273,8 @@
             "sigma": 19.2,
             "sigma_geschaetzt": true,
             "bandbreite": [
-              42.8,
-              81.2
+              42.7,
+              81.1
             ]
           }
         },
