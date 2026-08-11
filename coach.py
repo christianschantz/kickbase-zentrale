@@ -313,6 +313,16 @@ def _bandwidth(erwartung, sigma=None):
     return (round(erwartung * lo, 1), round(erwartung * hi, 1))
 
 
+# AUSWERTUNG_spieltag1.md: Vertrauensgewichtung für die Basis selbst (nicht
+# nur für die Unsicherheitskalibrierung aus SPEC_punkteformel_final.md 8.3,
+# deren n₀≈50 für eine andere, langsamere Größe gedacht ist - hier geht es
+# darum, wie schnell EIN Spielers eigener `ap` das Vertrauen des Wertes
+# "typisch für ihn" verdient). Kleiner gewählt als das globale n₀, weil ein
+# einzelner Spieler viel schneller eine eigene Formkurve aufbaut als das
+# Gesamtmodell eine neue Kalibrierung rechtfertigt.
+PUNKTEBASIS_N0 = 8
+
+
 def _punktebasis(ap, ph, mv, peer_estimate=None):
     """
     Reiner Anker (SPEC_kalibrierung_fairvalue.md: "Basis unverändert - das
@@ -327,34 +337,47 @@ def _punktebasis(ap, ph, mv, peer_estimate=None):
        Instanz - verhindert "Basis 0" für Ligawechsler ohne jeden Kontext
        (verstößt sonst gegen "fehlende Daten ≠ schlechter Spieler")
 
-    **Untergrenze + MW-Sockel bei dünner/negativer Historie (2026-08-05,
-    SPEC_ranking_faktoren_llm.md 2.3)**: `ap` ist Kickbases echter, aber
-    manchmal dünner Saisonschnitt - live gefunden: ein 25-Mio-Stürmer
-    (Reese) landete mit rohem `ap`≈14 weit unter jedem plausiblen Topspieler-
-    Niveau, ein anderer Spieler (Gouram) sogar mit NEGATIVEM `ap` unter der
-    Nulllinie, beides ungebremst durchgereicht bis in die Prognose. Fix:
-    `ap` wird nie unter die MW-implizierte Schätzung gedrückt
-    (`basis = max(ap, mv_implied_form(mv)×130)`) - "fehlende ODER dünne
-    Daten ≠ schlechter Spieler" (CLAUDE.md-Grundsatz), der Markt (Community-
-    Marktwert) ist ein besserer Bodenwert als ein einzelner, evtl. auf
-    wenigen Spieltagen beruhender Rohwert. Löst nebenbei die explizite
-    Anforderung "kein negativer Erwartungswert" (mv_implied_form ist per
-    Definition ≥0), ohne einen künstlichen harten Nullpunkt einzuziehen.
+    **Vertrauensgewichtung bei DÜNNER Historie (2026-08-10, AUSWERTUNG_
+    spieltag1.md - live gefunden am Tag nach Spieltag 1)**: `ap` wurde
+    bisher ab dem ERSTEN echten Spieltag (n=1) voll vertraut, egal wie
+    extrem der Einzelwert war - live belegt: Wanitzek erzielte an Spieltag 1
+    320 Punkte in einem einzigen Spiel (Ausreißer), `ap` sprang dadurch
+    sofort auf 320 - und wurde für die Spieltag-2-Prognose UNGEBREMST als
+    "typischer" Wert übernommen (Vorhersage in den Hunderten statt im
+    üblichen Rahmen). Genau der vom User vermutete Mechanismus ("wurden die
+    Punkte nochmal draufgerechnet") - keine Dopplung im Code, aber
+    funktional identisch: ein Einzelspitzenwert wird zur neuen Normalität.
+    Fix: `ap` wird jetzt mit `n/(n+n₀)` (SPEC_punkteformel_final.md 8.3,
+    hier mit kleinerem `n₀`=`PUNKTEBASIS_N0` für die Einzelspieler-Ebene)
+    gegen einen stabileren Referenzwert geblendet (`peer_estimate`, sonst
+    der MW-Sockel) - bei n=1 zählt der reale Wert nur zu ~11%, bei n=8 zur
+    Hälfte, erst danach überwiegt der eigene Schnitt zunehmend. Wächst mit
+    jedem weiteren echten Spieltag automatisch, keine Wartefrist.
+
+    Die alte MW-Sockel-Untergrenze (SPEC_ranking_faktoren_llm.md 2.3, schützt
+    gegen negative/sehr niedrige `ap`) bleibt für dünne Stichproben (n <
+    PUNKTEBASIS_N0) zusätzlich als Boden bestehen - der geblendete Wert darf
+    dort nicht darunter fallen.
 
     Liefert (basis, quelle) mit quelle in
-    {"real", "real_mv_floor", "peer", "mv_estimate"}.
+    {"real", "real_blend_n<N>", "peer", "mv_estimate"}.
     """
     from scoring import mv_implied_form
-    has_data = bool(ap) or any(e.get("hp") and e.get("p") is not None for e in (ph or []))
+    n_real = sum(1 for e in (ph or []) if e.get("hp") and e.get("p") is not None)
     mv_floor = mv_implied_form(mv or 0) * 130
-    if has_data:
-        basis_real = ap or 0
-        if basis_real >= mv_floor:
-            return basis_real, "real"
-        return mv_floor, "real_mv_floor"
-    if peer_estimate is not None:
-        return max(peer_estimate, 0.0), "peer"
-    return mv_floor, "mv_estimate"
+    if n_real == 0:
+        if peer_estimate is not None:
+            return max(peer_estimate, 0.0), "peer"
+        return mv_floor, "mv_estimate"
+
+    if n_real >= PUNKTEBASIS_N0:
+        return (ap or 0), "real"
+
+    reference = peer_estimate if peer_estimate is not None else mv_floor
+    weight = n_real / (n_real + PUNKTEBASIS_N0)
+    basis = weight * (ap or 0) + (1 - weight) * reference
+    basis = max(basis, mv_floor)
+    return basis, f"real_blend_n{n_real}"
 
 
 def expected_points(pos, ap, ph, st, prob, win_prob, team_name=None,

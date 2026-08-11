@@ -22,7 +22,7 @@ from fixtures import (get_table, get_table_football_data, build_strength_map,
                       get_upcoming_by_team, get_upcoming_by_team_football_data,
                       get_table_tsdb, get_upcoming_by_team_tsdb,
                       fixture_ease_for_team, get_season_start_date,
-                      league_avg_win_prob)
+                      get_current_matchday, league_avg_win_prob)
 from scoring import (score_player, explain, player_reliability_profile, punktetyp_label,
                      punktetyp_index, reliability_score,
                      kickbase_color, is_min_price_player, estimate_ap_from_peers,
@@ -173,11 +173,17 @@ def run_league(kb, cfg, run_timestamp):
     # nicht mehr geschätzt) - nur für openligadb-Quellen (2. Bundesliga)
     # verfügbar, football-data.org liefert bei uns kein Datumsfeld dafür.
     season_start_date = None
+    current_matchday = None
     if cfg.get("fixture_source") == "openligadb":
         season_start_date = get_season_start_date(
             cfg.get("season", "2026"), cfg.get("openligadb_shortcut", "bl2"))
         if season_start_date:
             print(f"📅 Saisonstart (verifiziert): {season_start_date:%d.%m.%Y %H:%M} UTC")
+        # AUSWERTUNG_spieltag1.md-Folgefund: dieselbe Quelle wie
+        # season_start_date, nur die Spieltagsnummer statt des Datums -
+        # löst das alte "matchday für Spieltag 1 hartkodiert"-TODO.
+        current_matchday = get_current_matchday(
+            cfg.get("season", "2026"), cfg.get("openligadb_shortcut", "bl2"))
 
     # ---------- 1) EIGENER KADER ----------
     squad_raw = kb.get_squad(league_id)
@@ -803,13 +809,17 @@ def run_league(kb, cfg, run_timestamp):
 
     # ---------- SPEC_spieltagsmodell_v2.md 4.4: Rückkopplungs-Protokollierung
     # (zeitkritisch - vor dem ersten Anpfiff scharfgeschaltet) ----------
-    # TODO: `matchday` ist für Spieltag 1 hartkodiert - eine echte
-    # Spieltagszahl-Ableitung (z.B. über ranking.us[].sp>0-Erkennung wie in
-    # report_builder.compute_kpis, oder /v4/competitions/{cid}/players
-    # Feld day/sn/mdsn/nsn, noch unverifiziert) ist ein Folgeschritt für
-    # Spieltag 2+, hier bewusst nicht vorgezogen (nicht validierbar ohne
-    # echten zweiten Spieltag).
-    matchday = 1
+    # AUSWERTUNG_spieltag1.md: `matchday` kam bisher aus einer Konstante -
+    # live gefunden, dass das nach Spieltag 1 zu STILLER Fehlbeschriftung
+    # führt (kickoff_first rückte automatisch auf Spieltag 2 vor, der
+    # Freeze öffnete sich erneut, `1899_md1.json` wurde mit Spieltag-2-
+    # Prognosen überschrieben, aber weiter "matchday: 1" genannt - hat die
+    # Retrospektive für Spieltag 1 im Nachhinein unbrauchbar gemacht).
+    # `get_current_matchday()` (fixtures.py, dieselbe OpenLigaDB-Quelle wie
+    # season_start_date) liefert jetzt die echte Nummer; Fallback 1 nur,
+    # wenn die Quelle nichts liefert (z.B. La Liga, unverifiziert) oder die
+    # Saison noch nicht begonnen hat.
+    matchday = current_matchday or 1
     kickoff_first = season_start_date  # None für La Liga (kein Datumsfeld verfügbar)
     # SPEC_lernzyklus.md 5.3: die VORHERIGE Prognose vor dem Überschreiben
     # laden - Grundlage für den Änderungsnachweis unten.
@@ -833,18 +843,33 @@ def run_league(kb, cfg, run_timestamp):
         for m in compared if m.get("bid") and "KEIN BEDARF" not in m["team_verdict"]
     ]
     save_daily_bids(name, run_timestamp.strftime("%Y-%m-%d"), bid_entries, run_timestamp)
-    actuals_path = save_matchday_actuals(name, matchday, ranking, run_timestamp)
-    if actuals_path:
-        print(f"💾 Spieltags-Ist-Werte protokolliert: {actuals_path}")
-    deviation = deviation_report(name, matchday)
-    if deviation:
-        print(f"\n📊 ABWEICHUNGSZERLEGUNG · Spieltag {matchday}: "
-              f"Ø Fehler {deviation['mean_error_pct']}% · "
-              f"{deviation['in_corridor']}/{deviation['n']} Manager im Prognosekorridor")
-        for r in sorted(deviation["rows"], key=lambda x: (-abs(x["diff"]), x["uid"]))[:5]:
-            flag = " ⚠️ Ausreißer (>3× Median-Fehler)" if r.get("anomaly") else ""
-            print(f"   {r['name']}: Prognose {r['predicted']:.0f} · tatsächlich "
-                  f"{r['actual']:.0f} · Differenz {r['diff']:+.0f}{flag}")
+    # AUSWERTUNG_spieltag1.md-Folgefund: Datei B (Ist-Werte) und die
+    # Abweichungszerlegung gehören zum zuletzt ABGESCHLOSSENEN Spieltag,
+    # nicht zum kommenden (=`matchday`, das die Prognose oben verwendet) -
+    # beide liefen bisher unter demselben `matchday`-Wert, was live gefunden
+    # zu einem Fehlvergleich führte: sobald `matchday` nach Spieltag 1 auf 2
+    # vorrückte, verglich deviation_report() die neue Spieltag-2-Prognose
+    # gegen `ranking.us[].mdp`, das zu dem Zeitpunkt immer noch Spieltag 1s
+    # echtes Ergebnis zeigte (Spieltag 2 war ja noch nicht gespielt) - ein
+    # inhaltlich sinnloser, aber unauffällig falscher Vergleich.
+    # `save_matchday_actuals()`s eigene `mdp>0`-Prüfung greift das nicht ab,
+    # weil sie nur "hat IRGENDEIN Spieltag begonnen" prüft, nicht "ist GENAU
+    # DIESER Spieltag beendet". Fix: separater Spieltagszähler für Datei B.
+    last_completed_matchday = (current_matchday - 1) if current_matchday and current_matchday > 1 else None
+    deviation = None
+    if last_completed_matchday:
+        actuals_path = save_matchday_actuals(name, last_completed_matchday, ranking, run_timestamp)
+        if actuals_path:
+            print(f"💾 Spieltags-Ist-Werte protokolliert: {actuals_path}")
+        deviation = deviation_report(name, last_completed_matchday)
+        if deviation:
+            print(f"\n📊 ABWEICHUNGSZERLEGUNG · Spieltag {last_completed_matchday}: "
+                  f"Ø Fehler {deviation['mean_error_pct']}% · "
+                  f"{deviation['in_corridor']}/{deviation['n']} Manager im Prognosekorridor")
+            for r in sorted(deviation["rows"], key=lambda x: (-abs(x["diff"]), x["uid"]))[:5]:
+                flag = " ⚠️ Ausreißer (>3× Median-Fehler)" if r.get("anomaly") else ""
+                print(f"   {r['name']}: Prognose {r['predicted']:.0f} · tatsächlich "
+                      f"{r['actual']:.0f} · Differenz {r['diff']:+.0f}{flag}")
 
     actions = build_actions(compared, squad_classified)
     squad_action_items = build_squad_action_items(squad_classified)

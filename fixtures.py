@@ -65,6 +65,33 @@ def get_season_start_date(season="2026", shortcut="bl2"):
     return min(dates) if dates else None
 
 
+def get_current_matchday(season="2026", shortcut="bl2"):
+    """
+    AUSWERTUNG_spieltag1.md-Folgefund (2026-08-10): `main.py`s `matchday`
+    war für Spieltag 1 hartkodiert (dokumentiertes TODO seit
+    SPEC_spieltagsmodell_v2.md) - live gefunden, dass das NACH Spieltag 1
+    zu einem echten Problem wird, nicht nur Kosmetik: `kickoff_first`
+    (get_season_start_date()) rückt automatisch auf den nächsten
+    unbespielten Spieltag vor, der Freeze in
+    prediction_log.save_matchday_prediction() öffnet sich dadurch erneut -
+    die Datei `<liga>_md1.json` wurde durch tägliche Läufe STILL mit
+    Spieltag-2-Prognosen überschrieben, aber weiterhin "matchday: 1"
+    beschriftet. Das hat die Retrospektive für Spieltag 1 (data/predictions/
+    1899_md1.json enthielt zum Auswertungszeitpunkt bereits Spieltag-2-
+    Daten) faktisch unbrauchbar gemacht.
+
+    Liefert die `groupOrderID` (OpenLigaDB-Spieltagsnummer) der frühesten
+    NICHT beendeten Partie - dieselbe Datengrundlage wie
+    get_season_start_date(), nur der Spieltag statt des Datums. None ohne
+    Treffer (z.B. Saisonende) oder für nicht-OpenLigaDB-Quellen (nur für
+    die 2. Bundesliga verifiziert, analog zu get_season_start_date()).
+    """
+    matches = _get_json(OL_MATCHES.format(shortcut=shortcut, season=season)) or []
+    order_ids = [m["group"]["groupOrderID"] for m in matches
+                if not m.get("matchIsFinished") and m.get("group")]
+    return min(order_ids) if order_ids else None
+
+
 def get_upcoming_by_team(season="2026", shortcut="bl2", next_n=3):
     """
     Kompletten Saison-Spielplan laden und pro Team die nächsten n noch nicht

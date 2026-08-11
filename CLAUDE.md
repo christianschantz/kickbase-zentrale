@@ -144,6 +144,94 @@ Base: `https://api.kickbase.com`. Referenz-Doku: github.com/kevinskyba/kickbase-
   **(4) KI-Aufrufzähler (Punkt 6.1, "erste Maßnahme vor jeder Anbieterdiskussion")**: `llm_insights._log_call()`/`call_summary()` zählen jeden tatsächlichen Gemini-HTTP-Request (getrennt nach `list_models`/`generate_content`, inkl. Retries) in einem modul-globalen Log; `main.py` druckt die Summe nach beiden Ligen. `_list_models()` zusätzlich modul-global gecacht (`_models_cache`) - lief vorher pro Liga neu, obwohl sich das Modellangebot innerhalb eines Prozesslaufs nicht ändert. Untersuchung bestätigte die Spec-Annahme: die Architektur ruft bereits nur "ein gebündelter Call je Liga" (`generate_insights()` wird genau 1x pro `run_league()` aufgerufen) - der gemeldete 429 RPM lag vermutlich an Retries innerhalb eines transienten Fehlers, nicht an einer versteckten Schleife; die Zählung macht das jetzt sichtbar/belegbar statt geraten.
   **Geprüft, nicht gebaut**: Über/Unter-2,5-Tore-Quoten (Punkt 4.6) - die Spalten (`Avg>2.5`/`Avg<2.5`/`B365>2.5`/`B365<2.5`) existieren in football-data.co.uk/fixtures.csv, aber die Datei enthält aktuell (tiefe Sommerpause) nur schottische Ligen (`SC0-3`), keine `D2`/`SP1`-Zeilen - Füllgrad für unsere Ligen kann erst nach Saisonstart geprüft werden, zurückgestellt.
 - `analytics.py`: nur Kompat-Wrapper, kann weg wenn nichts mehr importiert.
+- `retrospective.py` (neu 2026-08-07) + `retrospective_data.py` (neu 2026-08-10):
+  Wasserfall-Zerlegung (s. SPEC_punkteformel_final.md-Eintrag) plus Player-
+  Level-Ist-Werte-Fetcher (`fetch_player_actuals()`, cached in
+  `data/actuals/<liga>_md<N>_players.json` - teuer, ~1 Request/Spieler,
+  deshalb idempotent). `analyze_matchday1.py` (neu, einmaliger Analyselauf,
+  kein Teil der main.py-Pipeline) nutzt beide für die AUSWERTUNG_spieltag1.md-
+  Untersuchung, s. eigener Abschnitt unten.
+
+## AUSWERTUNG_spieltag1.md (2026-08-10/11) — der eigentliche Basis-Bug
+
+**Auftrag**: User meldete "Prognosen waren systematisch zu optimistisch"
+nach Spieltag 1. Die Retrospektive-Untersuchung ergab etwas ANDERES als
+erwartet - kein zu hoher, sondern (an mehreren unabhängigen Messpunkten)
+ein zu NIEDRIGER Ausgangswert, UND einen echten, live gefundenen Bug, der
+Tage nach Spieltag 1 sichtbar wurde und den User erst dazu brachte,
+nachzufragen ("auf der Seite standen wahnsinnig hohe Predictions, ~1500 P
+bei manchen Spielern").
+
+**Schritt 1 - Ursprüngliche Prämisse widerlegt**: Drei unabhängige Prüfungen
+zeigten das GEGENTEIL von "zu optimistisch": (a) `ranking.us[].mdp`
+(offiziell) Ø 1054,5 P Spieltag 1 vs. `pspts/34`-Anker 897,2 P (+17,5%),
+(b) Team-Totals: 9/11 Manager schnitten BESSER ab als prognostiziert, (c)
+eigener Kader spielerweise verglichen: Summe der 9 vorhersagbaren Spieler
+1061 real vs. 867 prognostiziert (+22%). Ursache für den Gesamteindruck laut
+User (im Nachhinein identifiziert, s.u.) war NICHT diese Abweichung, sondern
+ein separates, tatsächlich vorhandenes Symptom mit Verzögerung.
+
+**Schritt 2 - Datenlücke gefunden, macht Spieltag-1-Retrospektive
+unbrauchbar**: der letzte `main.py`-Lauf vor Anpfiff (13:11 UTC) war NICHT
+der letzte vor der echten Aufstellungs-Deadline (~18:29-18:30 UTC) - ALLE
+11 Manager (inkl. des eigenen Teams, 2 Swaps) änderten ihre Startelf danach
+noch. `data/predictions/1899_md1.json` enthält dadurch veraltete Elf-
+Zusammensetzungen; ein spielerweiser Soll-Ist-Vergleich für Spieltag 1 ist
+im Nachhinein nicht mehr sauber möglich (Lehre für künftige Spieltage:
+main.py mehrfach bis kurz vor die reale Deadline laufen lassen, nicht nur
+einmal Stunden vorher).
+
+**Schritt 3 - der eigentliche, noch AKTIVE Bug gefunden**: der User konnte
+den Ursprung seines Eindrucks konkret benennen (Report-Auszug mit
+Teamprognosen von 1544/1402/1277 P und Einzelspieler-Projektionen wie
+"Wanitzek 278,9 P" für EIN Spiel). Ursache: `coach._punktebasis()` vertraute
+`ap` (Kickbases echtem Punkteschnitt) ab dem ERSTEN echten Spieltag (n=1)
+zu 100% - live belegt: Wanitzek erzielte an Spieltag 1 320 Punkte in einem
+Einzelspiel (Ausreißer nach oben, `ph=[{"hp":true,"p":320}]`), `ap` sprang
+dadurch sofort auf 320 und wurde für Spieltag 2 UNGEBREMST als "typischer"
+Wert übernommen - genau der vom User vermutete Mechanismus ("wurden Punkte
+nochmal draufgerechnet"), nur ohne echte Dopplung im Code: ein einzelner
+Ausreißer-Spitzenwert wurde zur neuen Normalität für die nächste Prognose.
+
+**Fix (`coach.py`, `PUNKTEBASIS_N0=8`)**: `_punktebasis()` blendet `ap` jetzt
+mit `n/(n+n₀)` (SPEC_punkteformel_final.md 8.3-Prinzip, hier mit kleinerem
+`n₀` für die EINZELSPIELER-Ebene statt der globalen Kalibrierung) gegen
+einen stabileren Referenzwert (`peer_estimate`, sonst MW-Sockel) - bei n=1
+zählt der reale Wert nur ~11%, bei n=8 zur Hälfte, danach überwiegt der
+eigene Schnitt zunehmend automatisch, keine Wartefrist. Live verifiziert:
+alle Team-Totals wieder im plausiblen Bereich (600-1100 P statt 600-1544 P).
+
+**Begleitfund 1 - `matchday`-Hartkodierung war kein Kosmetikproblem**: das
+alte TODO ("matchday für Spieltag 1 hartkodiert, Ableitung erst ab
+Spieltag 2 möglich") wurde live zum echten Problem: `kickoff_first`
+(`fixtures.get_season_start_date()`) rückte nach Spieltag 1 automatisch auf
+Spieltag 2 vor, der Freeze in `save_matchday_prediction()` öffnete sich
+dadurch erneut - `1899_md1.json` wurde durch tägliche Läufe (8./9./10.8.)
+STILL mit Spieltag-2-Prognosen überschrieben, aber weiter "matchday: 1"
+genannt. Fix: `fixtures.get_current_matchday()` (neu, dieselbe OpenLigaDB-
+Quelle wie `get_season_start_date()`, liefert die `groupOrderID` der
+frühesten unbeendeten Partie) ersetzt die Konstante. Ab jetzt schreibt jeder
+Lauf in die korrekt benannte Datei (`1899_md2.json` bestätigt live).
+
+**Begleitfund 2 - Datei B/Abweichungszerlegung verglich falschen Spieltag**:
+direkte Folge von Begleitfund 1s Fix - `save_matchday_actuals()`/
+`deviation_report()` liefen bisher unter demselben `matchday`-Wert wie die
+Prognose (dem KOMMENDEN Spieltag), prüften aber nur "hat irgendein Spieltag
+begonnen" (`mdp>0`), nicht "ist GENAU DIESER Spieltag beendet". Sobald
+`matchday` korrekt auf 2 vorrückte, verglich der Report die neue Spieltag-2-
+Prognose gegen `ranking.us[].mdp`, das noch Spieltag 1s echtes Ergebnis
+zeigte (Spieltag 2 war ja noch nicht gespielt) - unauffällig falsch. Fix:
+separater `last_completed_matchday = current_matchday - 1`-Zähler für Datei
+B/Abweichungszerlegung, `matchday` bleibt für Datei A (Prognose) zuständig.
+Live verifiziert: "ABWEICHUNGSZERLEGUNG · Spieltag 1" vergleicht jetzt
+wieder korrekt gegen Spieltag 1s echte Werte.
+
+**Nicht angefasst**: die alte `1899_md1.json`-Vorkickoff-Version ist durch
+die tägliche Überschreibung (Begleitfund 1) nicht mehr rekonstruierbar - der
+echte, unverfälschte Spieltag-1-Snapshot ist dauerhaft verloren (deckt sich
+mit der eigenen Warnung in SPEC_punkteformel_final.md: "ein einziger
+fehlender Snapshot ist nicht nachholbar" - hier war es kein fehlender, aber
+ein nachträglich überschriebener). Keine Rekonstruktion versucht.
 
 ## SPEC_spielertyp_matchkontext.md (2026-08-07, Prioritäten 1-3 umgesetzt)
 
