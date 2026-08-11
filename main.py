@@ -44,6 +44,7 @@ import coach
 from league_teams import build_league_teams
 from prediction_log import (save_matchday_prediction, save_daily_bids, save_matchday_actuals,
                             deviation_report, load_matchday_prediction, diff_predictions)
+from retrospective_data import build_waterfall_report
 
 LEAGUE_BOARD_TOP_N = 10  # Top N je Position in der Liga-Bestenliste (B5)
 
@@ -343,9 +344,16 @@ def run_league(kb, cfg, run_timestamp):
     # Wechselvorschläge (swaps_from_ideal) werden als Delta dazu abgeleitet,
     # nicht mehr unabhängig über "stärkster Bankspieler" berechnet (das
     # konnte sich widersprechen).
-    lineup_opt = coach.optimize_lineup(squad_classified) if squad_classified else None
     lineup_status = (coach.current_lineup_status(lineup_raw, squad_classified)
                      if squad_classified else None)
+    # Bugfix ("Effizienz" 106% live gefunden, PaulBowa Formation 4-2-4):
+    # optimize_lineup() muss die ECHT gesetzte Formation immer mit
+    # durchsuchen, sonst kann die reale Elf das rechnerische "Optimum"
+    # schlagen, wenn ihre Formation nicht in den 7 Standardformationen steckt.
+    real_formation = (coach.derive_formation(lineup_status["xi"])
+                      if lineup_status and lineup_status["xi"] else None)
+    lineup_opt = (coach.optimize_lineup(squad_classified, also_try=real_formation)
+                 if squad_classified else None)
     swaps = (coach.swaps_from_ideal(lineup_status, lineup_opt)
             if lineup_status and lineup_opt else [])
     missing_pos = (coach.missing_positions(lineup_status, lineup_opt)
@@ -871,6 +879,36 @@ def run_league(kb, cfg, run_timestamp):
                 print(f"   {r['name']}: Prognose {r['predicted']:.0f} · tatsächlich "
                       f"{r['actual']:.0f} · Differenz {r['diff']:+.0f}{flag}")
 
+        # User-Feedback ("mir fehlt komplett die Transparenz über die
+        # Abweichungen"): die obige Zeile zeigt nur eine nackte Ø-Fehler-% -
+        # die echte Wasserfall-Zerlegung (Einsatz/Ausgang/Zu-Null/Leistung)
+        # lag in retrospective.py bereits fertig und verifiziert bereit
+        # (AUSWERTUNG_spieltag1.md), war aber nie an main.py angebunden.
+        try:
+            retrospective_teams = build_waterfall_report(
+                kb, league_id, name, last_completed_matchday, liga_avg_win_prob)
+        except Exception as e:
+            print(f"⚠️ Wasserfall-Zerlegung fehlgeschlagen: {e}")
+            retrospective_teams = None
+        if retrospective_teams:
+            printable = sorted(
+                (t for t in retrospective_teams if "differenz" in t),
+                key=lambda x: (-abs(x["differenz"]), x["uid"]))
+            if printable:
+                print(f"\n📉 WASSERFALL-ZERLEGUNG · Spieltag {last_completed_matchday} "
+                      f"(warum wich die Prognose ab - Einsatz/Ausgang/Zu-Null sind erklärt, "
+                      f"nur 'Leistung' bleibt echte Unsicherheit):")
+                for t in printable[:5]:
+                    flag = "" if t.get("checksum_ok") else " ⚠️ Prüfsumme verletzt"
+                    print(f"   {t['name']}: Prognose {t['prognose']:.0f} → Ist {t['ist']:.0f} "
+                          f"({t['differenz']:+.0f}){flag}")
+                    print(f"      Einsatz {t['delta_einsatz']:+.0f} · "
+                          f"Ausgang {t['delta_ausgang']:+.0f} · "
+                          f"Zu-Null {t['delta_zunull']:+.0f} · "
+                          f"Leistung {t['delta_leistung']:+.0f}")
+    else:
+        retrospective_teams = None
+
     actions = build_actions(compared, squad_classified)
     squad_action_items = build_squad_action_items(squad_classified)
     targets = build_targets(board)
@@ -921,6 +959,8 @@ def run_league(kb, cfg, run_timestamp):
         "plausibility_warnings": plausibility_warnings,
         "calibration": calibration,
         "deviation_report": deviation,
+        "retrospective": retrospective_teams,
+        "last_completed_matchday": last_completed_matchday,
         "prediction_diff": pred_diff,
         "fair_value_ok": fair_value_ok,
         "risks": risks,

@@ -359,14 +359,11 @@ def _model_health_banner(report):
     # E[Punkte]≈14) genau der Fall gewesen wäre, den sie fangen sollte.
     for txt in (report.get("plausibility_warnings") or [])[:5]:
         lines.append(f"<div class='risk-line warn'>⚠️ Plausibilität: {_esc(txt)}</div>")
-    # SPEC_spieltagsmodell_v2.md 4.4: Abweichungszerlegung erscheint im
-    # Report des Folgetags, sobald Prognose UND Ist-Werte vorliegen.
-    dev = report.get("deviation_report")
-    if dev:
-        lines.append(
-            f"<div class='risk-line info'>📊 Abweichungszerlegung Spieltag {dev['matchday']}: "
-            f"Ø Fehler {dev['mean_error_pct']}% · {dev['in_corridor']}/{dev['n']} "
-            f"Manager im Prognosekorridor</div>")
+    # SPEC_spieltagsmodell_v2.md 4.4 / User-Feedback "Transparenz über die
+    # Abweichungen": die bisherige nackte Ø-Fehler-%-Zeile ist jetzt durch
+    # die vollständige Wasserfall-Zerlegung ersetzt (`_retrospective_section()`,
+    # GANZ OBEN im Report) - hier keine doppelte, weniger aussagekräftige
+    # Kurzfassung mehr.
     # SPEC_lernzyklus.md 5.3: Änderungsnachweis - jede nennenswerte
     # Prognose-Änderung seit dem letzten Lauf braucht eine Ursache, sonst
     # ist das ein Instabilitätssignal.
@@ -386,6 +383,50 @@ def _model_health_banner(report):
     if not lines:
         return ""
     return f"<div class='risk-banner'>{''.join(lines)}</div>"
+
+
+def _retrospective_section(report):
+    """
+    User-Feedback ("mir fehlt komplett die Transparenz über die
+    Abweichungen"): die alte `_model_health_banner()`-Zeile zeigte nur eine
+    nackte Ø-Fehler-% ohne Erklärung, obwohl retrospective.py bereits eine
+    vollständige Wasserfall-Zerlegung (Einsatz/Ausgang/Zu-Null/Leistung)
+    lieferte (AUSWERTUNG_spieltag1.md), nur nie an den Report angebunden.
+    Bewusst GANZ OBEN platziert (AUSWERTUNG_spieltag1.md Abschnitt 5: "die
+    Retrospektive gehört ganz oben, vor Markt und Kader") - der Rückblick
+    auf den letzten Spieltag ist die Vertrauensgrundlage für die aktuelle
+    Prognose.
+    """
+    matchday = report.get("last_completed_matchday")
+    dev = report.get("deviation_report")
+    teams = report.get("retrospective")
+    if not matchday or (not dev and not teams):
+        return ""
+    header = f"<h3 class='section-h'>🔍 Rückblick: Spieltag {matchday}</h3>"
+    printable = [t for t in (teams or []) if "differenz" in t]
+    if not printable:
+        # Wasserfall-Zerlegung nicht verfügbar (z.B. Player-Fetch fehlgeschlagen) -
+        # zumindest die grobe Manager-Ebene-Abweichung zeigen statt nichts.
+        if not dev:
+            return ""
+        return (f"{header}<p class='note'>Ø Fehler {dev['mean_error_pct']}% · "
+               f"{dev['in_corridor']}/{dev['n']} Manager im Prognosekorridor "
+               f"(detaillierte Zerlegung heute nicht verfügbar)</p>")
+    rows = []
+    for t in sorted(printable, key=lambda x: -abs(x["differenz"])):
+        checksum_warn = ("<span class='team-warn'>⚠️ Prüfsumme verletzt</span>"
+                         if not t.get("checksum_ok") else "")
+        rows.append(f"""<div class="team-row">
+  <span class="team-name">{_esc(t['name'])}</span>
+  <span class="team-stat">{t['prognose']:.0f} → {t['ist']:.0f} P <span class="team-sub">Prognose → Ist</span></span>
+  <span class="team-stat">{t['differenz']:+.0f} P <span class="team-sub">Differenz</span></span>
+  {checksum_warn}
+  <div class="meta">🩹 Einsatz {t['delta_einsatz']:+.0f} · ⚔️ Ausgang {t['delta_ausgang']:+.0f} · 🧤 Zu-Null {t['delta_zunull']:+.0f} · 🎲 Leistung {t['delta_leistung']:+.0f} (unerklärt)</div>
+</div>""")
+    note = ("<p class='note'>Einsatz/Ausgang/Zu-Null sind ALGORITHMISCH erklärte Anteile der "
+           "Abweichung (echter Status/Ergebnis/Zu-Null-Ausgang statt der Vorab-Schätzung) - "
+           "nur 'Leistung' ist die unerklärte Restgröße.</p>")
+    return f"{header}{note}<div class='team-table'>{''.join(rows)}</div>"
 
 
 def _watchlist(targets):
@@ -690,6 +731,8 @@ def _league_panel(report, panel_id):
 
   <h3 class="section-h">📋 Heute zu erledigen</h3>
   {_action_list(report.get("actions", []))}
+
+  {_retrospective_section(report)}
 
   {_llm_block(report.get("llm_insights"), report.get("llm_status", "ok"), report.get("llm_diag"))}
 

@@ -64,6 +64,83 @@ def _extract_actual(detail, matchday):
            "ap_now": detail.get("ap"), "pos": detail.get("pos")}
 
 
+def _win_prob_ist(result):
+    return {"Sieg": 1.0, "Unentschieden": 0.5, "Niederlage": 0.0}.get(result)
+
+
+def build_ist(player_actual, pos, punktetyp_idx, liga_avg_win_prob_now):
+    """
+    Übersetzt einen _extract_actual()-Eintrag in das ist-Dict, das
+    retrospective.waterfall_player() erwartet (M_ist/G_ist/Z_ist/Punkte).
+    Identische Herleitung wie im ursprünglichen analyze_matchday1.py-
+    Einmallauf (AUSWERTUNG_spieltag1.md): M_ist grob binär (gespielt ja/
+    nein, echte Einsatzminuten nicht abrufbar), G_ist über dieselbe
+    opponent_factor()-Formel wie die Prognose, aber mit dem REALISIERTEN
+    Ausgang statt der Sieg-WK, Z_ist ein bekannter Fakt (Team zu Null
+    gespielt oder nicht) statt einer Wahrscheinlichkeit.
+    """
+    import coach
+    m_ist = 1.0 if player_actual["played"] else 0.0
+    win_prob_ist = _win_prob_ist(player_actual.get("team_result"))
+    if win_prob_ist is not None:
+        g_ist = coach.opponent_factor(pos, win_prob_ist, liga_avg_win_prob_now, punktetyp_idx)
+    else:
+        g_ist = None  # Ergebnis unbekannt -> fällt in der Kaskade auf die Prognose zurück
+    z_ist = None
+    if pos in coach.ZU_NULL_PRAEMIE and player_actual.get("team_conceded") is not None:
+        z_ist = coach.ZU_NULL_PRAEMIE[pos] if player_actual["team_conceded"] == 0 else 0.0
+    ist = {"einsatzfaktor": m_ist, "punkte": player_actual["punkte_ist"]}
+    if g_ist is not None:
+        ist["gegnerfaktor"] = g_ist
+    if z_ist is not None:
+        ist["zu_null_bonus"] = z_ist
+    return ist
+
+
+def build_waterfall_report(kb, league_id, league_name, matchday, liga_avg_win_prob_now, prediction=None):
+    """
+    Echte Wasserfall-Zerlegung (Einsatz/Ausgang/Zu-Null/Leistung) für ALLE
+    Manager eines ABGESCHLOSSENEN Spieltags - main.py-taugliche
+    Zusammenfassung von fetch_player_actuals()+build_ist()+
+    retrospective.waterfall_manager(), erstmals als analyze_matchday1.py-
+    Einmallauf gebaut (AUSWERTUNG_spieltag1.md), hier für den TÄGLICHEN
+    Report nutzbar gemacht - User-Feedback "mir fehlt komplett die
+    Transparenz über die Abweichungen", die bisherige `deviation_report()`-
+    Zeile zeigte nur eine nackte Ø-Fehler-% ohne jede Erklärung, obwohl der
+    Zerlegungsmechanismus in retrospective.py bereits fertig und per
+    Trockenlauf verifiziert bereitlag.
+
+    Kostet ~1 API-Call je EINZIGARTIGEM Startelf-Spieler über alle Manager
+    (typisch ~100-120/Liga bei 11 Managern, analog league_board.py) - aber
+    NUR beim ERSTEN Aufruf für einen Spieltag (fetch_player_actuals() cached
+    nach data/actuals/<liga>_md<N>_players.json, jeder weitere Tageslauf
+    liest nur noch die Datei, kein Zusatz-Call).
+
+    None ohne gespeicherte Prognosedatei (Datei A) für diesen Spieltag -
+    z.B. La Liga vor 2026-08-05 oder wenn kickoff_first nie bekannt war.
+    """
+    import retrospective
+    if prediction is None:
+        from prediction_log import load_matchday_prediction
+        prediction = load_matchday_prediction(league_name, matchday)
+    if not prediction:
+        return None
+    actuals = fetch_player_actuals(kb, league_id, league_name, matchday, prediction)
+    teams = []
+    for m in prediction.get("managers", []):
+        ist_by_player = {}
+        for p in m.get("lineup", []):
+            pa = actuals.get(p["pid"])
+            if not pa:
+                continue
+            punktetyp_idx = p.get("factors", {}).get("punktetyp_idx")
+            ist_by_player[p["pid"]] = build_ist(pa, p["pos"], punktetyp_idx, liga_avg_win_prob_now)
+        team = retrospective.waterfall_manager(m, ist_by_player)
+        team["uid"], team["name"] = m["uid"], m["name"]
+        teams.append(team)
+    return teams
+
+
 def fetch_player_actuals(kb, league_id, league_name, matchday, prediction, sleep=0.25):
     """
     Liefert {pid: {...}} für ALLE Spieler in

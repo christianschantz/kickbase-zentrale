@@ -499,19 +499,52 @@ def _best_eleven_for_formation(players_by_pos, formation):
     return {"formation": formation, "xi": xi, "total_points": round(total, 1)}
 
 
-def optimize_lineup(squad_with_points):
+def derive_formation(xi):
+    """
+    Zählt die Positionen einer konkreten Elf (`pos`-Feld je Spieler) zu
+    einem Formations-Dict wie in FORMATIONS. Für optimize_lineup()s
+    `also_try` gedacht - die ECHTE gesetzte Formation eines Managers, auch
+    wenn sie nicht in den 7 Standard-Formationen enthalten ist.
+    """
+    counts = {"TW": 0, "ABW": 0, "MF": 0, "ANG": 0}
+    for p in xi:
+        if p.get("pos") in counts:
+            counts[p["pos"]] += 1
+    return counts
+
+
+def optimize_lineup(squad_with_points, also_try=None):
     """
     squad_with_points: Liste von Dicts mit mind. id/name/pos/expected_points.
     Liefert {"formations": {name: {...}}, "best": name, "best_total": float}
     - beste Formation nach Gesamtpunkten, Alternativen mit allen Ergebnissen
     zum Differenzvergleich.
+
+    `also_try`: optionales zusätzliches Formations-Dict (typischerweise die
+    ECHT gesetzte Formation, s. derive_formation()) - **Bugfix (live
+    gefunden: "Effizienz" 106% bei PaulBowa, Formation 4-2-4)**. Ohne diesen
+    Parameter sucht die Optimierung NUR unter den 7 Standard-Formationen -
+    setzt ein Manager eine andere (z.B. 4-2-4, vier Stürmerslots statt
+    maximal drei in jeder Standardformation), kann seine reale Elf mehr
+    Punkte erzielen als das rechnerische "Optimum", weil dessen Suchraum
+    unvollständig war. "Kaderstärke" soll aber per Definition das
+    theoretische Maximum sein (Effizienz ≤ 100% immer) - `also_try` stellt
+    sicher, dass die reale Formation IMMER Teil des Suchraums ist, mit der
+    bestmöglichen Spielerauswahl für genau diese Slotverteilung (nicht der
+    realen Spielerauswahl selbst, die kann weiterhin schwächer sein als das
+    Optimum für dieselbe Formation).
     """
     by_pos = {}
     for p in squad_with_points:
         by_pos.setdefault(p["pos"], []).append(p)
 
+    formations_to_try = dict(FORMATIONS)
+    if also_try and also_try not in formations_to_try.values():
+        label = "-".join(str(also_try.get(p, 0)) for p in ("ABW", "MF", "ANG"))
+        formations_to_try[f"{label} (gesetzt)"] = also_try
+
     results = {}
-    for name, formation in FORMATIONS.items():
+    for name, formation in formations_to_try.items():
         r = _best_eleven_for_formation(by_pos, formation)
         if r:
             results[name] = r

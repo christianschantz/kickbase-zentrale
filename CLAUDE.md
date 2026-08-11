@@ -233,6 +233,76 @@ mit der eigenen Warnung in SPEC_punkteformel_final.md: "ein einziger
 fehlender Snapshot ist nicht nachholbar" - hier war es kein fehlender, aber
 ein nachträglich überschriebener). Keine Rekonstruktion versucht.
 
+## Nachbesserung nach AUSWERTUNG_spieltag1.md (2026-08-11): Effizienz-Bug + echte Retrospektive-Transparenz
+
+Zwei User-Feedbacks nach dem ersten Live-Blick auf den Report mit den
+AUSWERTUNG-Fixes: (a) "mir fehlt komplett die Transparenz über die
+Abweichungen" (die neue `ABWEICHUNGSZERLEGUNG`-Zeile zeigte nur eine nackte
+Ø-Fehler-% ohne jede Erklärung), (b) Verwirrung über einen Manager mit 106%
+"Effizienz" (Prognose/Kaderstärke) - logisch unmöglich, wenn Kaderstärke das
+theoretische Maximum sein soll.
+
+**(b) Effizienz-Bug (`coach.py`)**: `optimize_lineup()` durchsuchte NUR die 7
+hartkodierten `FORMATIONS` (3-4-3 bis 5-4-1). PaulBowas echte Formation war
+4-2-4 (vier Sturm-Slots) - keine der 7 Standardformationen erlaubt mehr als
+drei ANG-Slots, der Suchraum war für seinen Kader strukturell unvollständig,
+seine reale (nicht optimierte) Elf schlug das rechnerische "Optimum" locker
+(961,6 P Ist vs. 904 P "Kaderstärke" = 106%). Fix: `coach.derive_formation(xi)`
+(neu) zählt die Positionen einer konkreten Elf zu einem Formations-Dict;
+`optimize_lineup(squad, also_try=formation)` (neuer Parameter) nimmt dieses
+Dict zusätzlich zu den 7 Standardformationen in den Suchraum auf - die
+Spielerauswahl bleibt weiterhin die BESTMÖGLICHE für diese Slotverteilung
+(nicht die reale Auswahl selbst), aber die reale Formation ist jetzt
+GARANTIERT Teil des Vergleichs, wodurch Kaderstärke ≥ Prognose mathematisch
+sichergestellt ist (Effizienz kann nicht mehr >100% werden). Beide Aufrufer
+angepasst: `main.py` (eigener Kader, `real_formation` aus
+`lineup_status["xi"]`) und `league_teams.py` (Mitspieler, aus `xi`). Live
+verifiziert: PaulBowa zeigt jetzt 99% statt 106%, alle anderen 15 Manager
+(beide Ligen) liegen konsistent bei 91-100%.
+
+**(a) Echte Wasserfall-Zerlegung im Report verankert**: `retrospective.py`
+(Zerlegungsmechanik) und `retrospective_data.py`s `fetch_player_actuals()`
+(Player-Level-Ist-Werte) lagen seit AUSWERTUNG_spieltag1.md fertig und per
+Trockenlauf verifiziert bereit, waren aber nie an die tägliche Pipeline
+angebunden - nur `analyze_matchday1.py` (Einmal-Analyseskript) nutzte sie.
+Neu in `retrospective_data.py`: `build_ist()`/`_win_prob_ist()` (Übersetzung
+eines Ist-Datensatzes in M_ist/G_ist/Z_ist, identische Herleitung wie im
+ursprünglichen Analyseskript - dort unverändert belassen, keine Duplikation
+der Aufrufstelle) und `build_waterfall_report(kb, league_id, league_name,
+matchday, liga_avg_win_prob_now, prediction=None)` (neu, die main.py-taugliche
+Zusammenfassung: lädt Datei A, holt/cached Player-Actuals, baut je Manager
+die volle `retrospective.waterfall_manager()`-Zerlegung). `main.py` ruft das
+jetzt direkt nach `deviation_report()` für `last_completed_matchday` auf
+(Konsole: Top 5 nach Abweichung, mit Einsatz/Ausgang/Zu-Null/Leistung-
+Aufschlüsselung + Prüfsummen-Warnung falls verletzt). Report-Dict um
+`"retrospective"` (die Team-Liste) und `"last_completed_matchday"` erweitert.
+`html_report.py`: neue `_retrospective_section()`, bewusst GANZ OBEN platziert
+(gleich nach der Handlungsleiste, vor KPI-Grid/KI-Kommentar - deckt sich mit
+AUSWERTUNG_spieltag1.md Abschnitt 5: "Retrospektive gehört ganz oben, vor
+Markt und Kader"). Die alte nackte Ø-Fehler-%-Zeile in
+`_model_health_banner()` wurde entfernt (redundant zur neuen Sektion, keine
+doppelte/widersprüchliche Kurzfassung mehr).
+
+**Kosten/Caching**: `build_waterfall_report()` kostet ~1 API-Call je
+einzigartigem Startelf-Spieler über alle Manager (analog `league_board.py`,
+typisch ~100-120/Liga) - aber NUR beim ERSTEN Aufruf für einen Spieltag
+(`fetch_player_actuals()` cached nach `data/actuals/<liga>_md<N>_players.json`,
+jeder weitere Tageslauf liest nur die Datei).
+
+**Live-Ergebnis Spieltag 1 (2. Bundesliga) mit echten Zahlen, wichtige
+Einordnung**: die neue Wasserfall-"Ist"-Summe (aus einzeln summierten
+Spieler-`ph`-Werten) weicht spürbar von der offiziellen `ranking.mdp`-Summe
+ab (z.B. nico: Wasserfall-Ist 1007 vs. offiziell 909; Adrian: 886 vs. 813,
+durchweg höher). Das ist NICHT ein neuer Rechenfehler - alle Prüfsummen
+gingen exakt auf (`checksum_ok` bei keinem der 11 Manager verletzt), die
+Zerlegungsmechanik selbst ist korrekt. Ursache ist die bereits in
+AUSWERTUNG_spieltag1.md dokumentierte Datenlücke: `1899_md1.json`s
+gespeicherte Startelf ist die VERALTETE 13:11-UTC-Momentaufnahme, nicht die
+echte ~18:30-UTC-Deadline-Aufstellung (alle 11 Manager änderten danach noch).
+Die Wasserfall-Zerlegung rechnet also mit teils falschen Spielern für
+Spieltag 1 - für Spieltag 2+ (echte Deadline-nahe Snapshots ab jetzt) sollte
+sich das von selbst auflösen, keine weitere Korrektur nötig, nur beobachten.
+
 ## SPEC_spielertyp_matchkontext.md (2026-08-07, Prioritäten 1-3 umgesetzt)
 
 **Punktetyp-Index in k_eff (Priorität 1)**: `scoring.punktetyp_index(profile)`

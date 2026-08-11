@@ -157,7 +157,11 @@ def analyze_manager(kb, cid, league_id, uid, name, tid_to_name, strength_map,
     prognose_range = xi_result["bandbreite"]
     duel_hints = coach.duel_hints_for_xi(xi, matcher)
 
-    lineup_opt = coach.optimize_lineup(players) if players else None
+    # Bugfix ("Effizienz" >100% live gefunden bei realen 4-2-4-Formationen):
+    # die echte gesetzte Formation muss immer Teil des Suchraums sein.
+    real_formation = coach.derive_formation(xi) if xi else None
+    lineup_opt = (coach.optimize_lineup(players, also_try=real_formation)
+                 if players else None)
     kaderstaerke_reason = None
     if lineup_opt and lineup_opt["best"]:
         kaderstaerke = lineup_opt["best_total"]
