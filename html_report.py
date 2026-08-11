@@ -385,6 +385,13 @@ def _model_health_banner(report):
     return f"<div class='risk-banner'>{''.join(lines)}</div>"
 
 
+def _datenluecke_html(t):
+    if "delta_datenluecke" not in t:
+        return ""
+    return (f" · 🕳️ Datenlücke {t['delta_datenluecke']:+.0f} "
+           f"(Spieler-Summe {t['ist_spielersumme']:.0f} P statt offizieller {t['ist']:.0f} P)")
+
+
 def _retrospective_section(report):
     """
     User-Feedback ("mir fehlt komplett die Transparenz über die
@@ -421,11 +428,15 @@ def _retrospective_section(report):
   <span class="team-stat">{t['prognose']:.0f} → {t['ist']:.0f} P <span class="team-sub">Prognose → Ist</span></span>
   <span class="team-stat">{t['differenz']:+.0f} P <span class="team-sub">Differenz</span></span>
   {checksum_warn}
-  <div class="meta">🩹 Einsatz {t['delta_einsatz']:+.0f} · ⚔️ Ausgang {t['delta_ausgang']:+.0f} · 🧤 Zu-Null {t['delta_zunull']:+.0f} · 🎲 Leistung {t['delta_leistung']:+.0f} (unerklärt)</div>
+  <div class="meta">🩹 Einsatz {t['delta_einsatz']:+.0f} · ⚔️ Ausgang {t['delta_ausgang']:+.0f} · 🧤 Zu-Null {t['delta_zunull']:+.0f} · 🎲 Leistung {t['delta_leistung']:+.0f} (unerklärt){_datenluecke_html(t)}</div>
 </div>""")
-    note = ("<p class='note'>Einsatz/Ausgang/Zu-Null sind ALGORITHMISCH erklärte Anteile der "
-           "Abweichung (echter Status/Ergebnis/Zu-Null-Ausgang statt der Vorab-Schätzung) - "
-           "nur 'Leistung' ist die unerklärte Restgröße.</p>")
+    note = ("<p class='note'>'Ist' ist der OFFIZIELLE Spieltagspunktestand, kein aus "
+           "Einzelspielern zusammengerechneter Wert. Einsatz/Ausgang/Zu-Null sind "
+           "ALGORITHMISCH erklärte Anteile der Abweichung (echter Status/Ergebnis/"
+           "Zu-Null-Ausgang statt der Vorab-Schätzung), 'Leistung' die unerklärte "
+           "Restgröße. 'Datenlücke' (wenn angezeigt) bedeutet: die für die Prognose "
+           "gespeicherte Aufstellung war noch nicht die tatsächliche Deadline-Aufstellung "
+           "- kein Modellfehler, sondern eine veraltete Momentaufnahme.</p>")
     return f"{header}{note}<div class='team-table'>{''.join(rows)}</div>"
 
 

@@ -884,9 +884,17 @@ def run_league(kb, cfg, run_timestamp):
         # die echte Wasserfall-Zerlegung (Einsatz/Ausgang/Zu-Null/Leistung)
         # lag in retrospective.py bereits fertig und verifiziert bereit
         # (AUSWERTUNG_spieltag1.md), war aber nie an main.py angebunden.
+        # Bugfix (live vom User gemeldet: "Adrian hat keine 1093 Punkte
+        # gemacht, sondern 813"): der offizielle Spieltagspunktestand
+        # (bereits oben für deviation_report() geladen) ist die Autorität -
+        # die aus Einzelspielern summierte Ist-Zahl kann davon abweichen
+        # (Spieltag 1: veraltete Aufstellungs-Momentaufnahme, s. CLAUDE.md).
+        official_actuals = ({r["uid"]: r["actual"] for r in deviation["rows"]}
+                            if deviation else None)
         try:
             retrospective_teams = build_waterfall_report(
-                kb, league_id, name, last_completed_matchday, liga_avg_win_prob)
+                kb, league_id, name, last_completed_matchday, liga_avg_win_prob,
+                official_actuals=official_actuals)
         except Exception as e:
             print(f"⚠️ Wasserfall-Zerlegung fehlgeschlagen: {e}")
             retrospective_teams = None
@@ -902,10 +910,15 @@ def run_league(kb, cfg, run_timestamp):
                     flag = "" if t.get("checksum_ok") else " ⚠️ Prüfsumme verletzt"
                     print(f"   {t['name']}: Prognose {t['prognose']:.0f} → Ist {t['ist']:.0f} "
                           f"({t['differenz']:+.0f}){flag}")
+                    dl = f" · Datenlücke {t['delta_datenluecke']:+.0f}" if "delta_datenluecke" in t else ""
                     print(f"      Einsatz {t['delta_einsatz']:+.0f} · "
                           f"Ausgang {t['delta_ausgang']:+.0f} · "
                           f"Zu-Null {t['delta_zunull']:+.0f} · "
-                          f"Leistung {t['delta_leistung']:+.0f}")
+                          f"Leistung {t['delta_leistung']:+.0f}{dl}")
+                    if "delta_datenluecke" in t:
+                        print(f"      ℹ️ Datenlücke = Aufstellungs-Momentaufnahme war nicht "
+                              f"die finale (offizieller Wert {t['ist']:.0f} P übernommen, "
+                              f"Spieler-Summe war {t['ist_spielersumme']:.0f} P)")
     else:
         retrospective_teams = None
 

@@ -97,7 +97,8 @@ def build_ist(player_actual, pos, punktetyp_idx, liga_avg_win_prob_now):
     return ist
 
 
-def build_waterfall_report(kb, league_id, league_name, matchday, liga_avg_win_prob_now, prediction=None):
+def build_waterfall_report(kb, league_id, league_name, matchday, liga_avg_win_prob_now,
+                           prediction=None, official_actuals=None):
     """
     Echte Wasserfall-Zerlegung (Einsatz/Ausgang/Zu-Null/Leistung) für ALLE
     Manager eines ABGESCHLOSSENEN Spieltags - main.py-taugliche
@@ -118,6 +119,15 @@ def build_waterfall_report(kb, league_id, league_name, matchday, liga_avg_win_pr
 
     None ohne gespeicherte Prognosedatei (Datei A) für diesen Spieltag -
     z.B. La Liga vor 2026-08-05 oder wenn kickoff_first nie bekannt war.
+
+    official_actuals: optional {uid: offizielle Spieltagspunkte} (aus
+    `ranking.us[].mdp`, main.py hat das für deviation_report() ohnehin schon
+    geladen) - **Bugfix, live vom User gemeldet**: die aus Einzelspielern
+    summierte "Ist"-Punktzahl kann von der offiziellen Zahl abweichen (für
+    Spieltag 1 nachweislich, s. retrospective.waterfall_manager()-
+    Docstring) - wird `official_actuals` mitgegeben, gewinnt der offizielle
+    Wert, die Differenz landet transparent in `delta_datenluecke` statt
+    unkommentiert falsch angezeigt zu werden.
     """
     import retrospective
     if prediction is None:
@@ -135,7 +145,8 @@ def build_waterfall_report(kb, league_id, league_name, matchday, liga_avg_win_pr
                 continue
             punktetyp_idx = p.get("factors", {}).get("punktetyp_idx")
             ist_by_player[p["pid"]] = build_ist(pa, p["pos"], punktetyp_idx, liga_avg_win_prob_now)
-        team = retrospective.waterfall_manager(m, ist_by_player)
+        official = (official_actuals or {}).get(str(m["uid"]))
+        team = retrospective.waterfall_manager(m, ist_by_player, official_actual=official)
         team["uid"], team["name"] = m["uid"], m["name"]
         teams.append(team)
     return teams

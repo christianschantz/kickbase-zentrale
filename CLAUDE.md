@@ -300,8 +300,53 @@ AUSWERTUNG_spieltag1.md dokumentierte Datenlücke: `1899_md1.json`s
 gespeicherte Startelf ist die VERALTETE 13:11-UTC-Momentaufnahme, nicht die
 echte ~18:30-UTC-Deadline-Aufstellung (alle 11 Manager änderten danach noch).
 Die Wasserfall-Zerlegung rechnet also mit teils falschen Spielern für
-Spieltag 1 - für Spieltag 2+ (echte Deadline-nahe Snapshots ab jetzt) sollte
-sich das von selbst auflösen, keine weitere Korrektur nötig, nur beobachten.
+Spieltag 1. **Korrektur (2026-08-11, direkt im Anschluss)**: die Annahme
+"sollte sich ab Spieltag 2 von selbst auflösen" war VERFRÜHT - der User
+meldete unmittelbar danach konkret falsche Zahlen ("Adrian hat keine 1093
+Punkte gemacht, sondern 813"), was zeigte, dass die abweichende
+Spieler-Summe nicht nur ein MD1-Sonderfall ist, sondern IMMER auftreten
+kann (jede Aufstellungsänderung nach dem letzten Vor-Deadline-Lauf, nicht
+nur die MD1-spezifische Datenlücke) und bis dahin unkommentiert als "Ist"
+gezeigt wurde. Echter Fix statt Abwarten, s. eigener Abschnitt unten.
+
+## Nachbesserung: Wasserfall-"Ist" stimmte nicht mit dem echten Punktestand überein (2026-08-11)
+
+User-Meldung direkt nach der ersten Live-Ansicht der neuen Wasserfall-
+Sektion: "beim rückblick zu spieltag 1 stimmt der reale punktewert nicht.
+adrian hat bspw. keine 1093 punkte gemacht sondern 813" - konkret und
+verifizierbar falsch, kein Missverständnis.
+
+**Ursache**: die Wasserfall-"Ist"-Zahl war die SUMME der einzeln über
+`get_player_details()` abgerufenen Spielerpunkte für die in Datei A
+gespeicherte Aufstellung - für Spieltag 1 nachweislich die veraltete
+13:11-UTC-Momentaufnahme (s.o.), nicht die echte Deadline-Aufstellung.
+Der bereits vorhandene, unabhängig berechnete OFFIZIELLE Wert
+(`ranking.us[].mdp`, exakt das, was `deviation_report()`/die
+`ABWEICHUNGSZERLEGUNG`-Zeile schon korrekt anzeigte - Adrian dort bereits
+813) wurde für die neue Sektion nie herangezogen.
+
+**Fix**: `retrospective.waterfall_manager()` bekommt einen neuen optionalen
+Parameter `official_actual` - ist er gesetzt und weicht von der
+Spieler-Summe ab, gewinnt IMMER der offizielle Wert für `team["ist"]`/
+`team["differenz"]`, die Differenz landet transparent in einer neuen
+`delta_datenluecke`-Kategorie (NICHT in `delta_leistung` versteckt - eine
+veraltete Aufstellungs-Momentaufnahme ist kein Leistungssignal). Die
+Prüfsumme wird um genau diesen Term erweitert, bleibt also weiterhin exakt
+verifizierbar. `retrospective_data.build_waterfall_report()` reicht dafür
+einen neuen Parameter `official_actuals` (uid→Punkte) durch;
+`main.py` baut das Dict aus denselben `deviation["rows"]`, die
+`deviation_report()` ohnehin schon lädt (kein Zusatz-Call). Konsole und
+`html_report._retrospective_section()` zeigen die Datenlücke jetzt explizit
+("🕳️ Datenlücke -73 (Spieler-Summe 886 P statt offizieller 813 P)"), Note-
+Text stellt klar: "'Ist' ist der OFFIZIELLE Spieltagspunktestand, kein aus
+Einzelspielern zusammengerechneter Wert."
+
+Live verifiziert (2. Bundesliga, Spieltag 1): Adrian zeigt jetzt exakt
+813 P (vorher fälschlich 886/1093), alle anderen Manager analog korrigiert,
+keine Prüfsummen-Verletzung. Dieselbe Absicherung greift jetzt bei JEDEM
+künftigen Spieltag automatisch, nicht nur für den bekannten MD1-Sonderfall -
+weicht eine gespeicherte Aufstellung aus irgendeinem Grund von der echten
+ab, wird das ab sofort sichtbar statt unkommentiert falsch angezeigt.
 
 ## SPEC_spielertyp_matchkontext.md (2026-08-07, Prioritäten 1-3 umgesetzt)
 

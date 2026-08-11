@@ -79,7 +79,7 @@ def waterfall_player(factors, ist):
     return result
 
 
-def waterfall_manager(prediction_entry, ist_by_player):
+def waterfall_manager(prediction_entry, ist_by_player, official_actual=None):
     """
     prediction_entry: ein `managers[]`-Eintrag aus einer gespeicherten
     Datei A (data/predictions/<liga>_md<N>.json, s. prediction_log.
@@ -88,6 +88,21 @@ def waterfall_manager(prediction_entry, ist_by_player):
                     "zu_null_bonus":.., "punkte":..}, ...} - Spieler ohne
     Eintrag fallen komplett auf ihre Prognose zurück (kein Beitrag zur
     Differenz, `ist` bleibt unbekannt für diesen Spieler).
+
+    official_actual: der ECHTE, offizielle Spieltagspunktestand des
+    Managers (`ranking.us[].mdp`, via prediction_log.deviation_report()/
+    save_matchday_actuals() bereits vorhanden - main.py reicht ihn durch).
+    **Bugfix, live vom User gemeldet ("Adrian hat keine 1093 Punkte gemacht,
+    sondern 813")**: die Spieler-Summe (`sum(r["ist"])`) beruht auf der in
+    Datei A gespeicherten Aufstellung - für Spieltag 1 nachweislich die
+    VERALTETE Vorkickoff-Momentaufnahme (s. AUSWERTUNG_spieltag1.md), nicht
+    die echte Deadline-Aufstellung. Die Spieler-Summe kann dadurch spürbar
+    vom offiziellen Wert abweichen, wurde bisher aber unkommentiert als
+    "Ist" ausgegeben. Ist `official_actual` bekannt, wird er jetzt als
+    AUTORITATIVER "ist"/"differenz"-Wert übernommen; die Lücke zwischen ihm
+    und der Spieler-Summe landet explizit in `delta_datenluecke` (eigene
+    Kategorie, NICHT in `delta_leistung` versteckt - eine falsche
+    Aufstellungs-Momentaufnahme ist kein Leistungssignal).
 
     Liefert je Spieler die Zerlegung (`rows`) plus eine Team-Aggregation
     (Summe der drei bekannten Kategorien immer; `delta_leistung`/`differenz`/
@@ -116,15 +131,24 @@ def waterfall_manager(prediction_entry, ist_by_player):
         # unten (wie es ein stilles Weglassen täte).
         ist_total = round(sum(r.get("ist", r["e0"]) for r in rows), 2)
         delta_leistung = round(sum(r.get("delta_leistung", 0.0) for r in have_ist), 2)
-        differenz = round(ist_total - prognose, 2)
         checksum = round(team["delta_einsatz"] + team["delta_ausgang"]
                          + team["delta_zunull"] + delta_leistung, 2)
+        # Rundungstoleranz proportional zur Spielerzahl (jede Einzelzeile
+        # ist bereits auf 2 Nachkommastellen gerundet).
+        tol = 0.02 * max(1, len(rows))
+
+        if official_actual is not None and abs(official_actual - ist_total) > tol:
+            datenluecke = round(official_actual - ist_total, 2)
+            team["delta_datenluecke"] = datenluecke
+            team["ist_spielersumme"] = ist_total  # Debug/Nachvollziehbarkeit
+            ist_total = round(official_actual, 2)
+            checksum = round(checksum + datenluecke, 2)
+
+        differenz = round(ist_total - prognose, 2)
         team.update({
             "prognose": prognose, "ist": ist_total, "differenz": differenz,
             "delta_leistung": delta_leistung,
-            # Rundungstoleranz proportional zur Spielerzahl (jede Einzelzeile
-            # ist bereits auf 2 Nachkommastellen gerundet).
-            "checksum_ok": abs(checksum - differenz) < 0.02 * max(1, len(rows)),
+            "checksum_ok": abs(checksum - differenz) < tol,
         })
     return team
 
