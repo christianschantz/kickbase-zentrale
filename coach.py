@@ -299,18 +299,36 @@ def player_sigma(ph, pos, basis):
     return max(MIN_SIGMA, basis * factor), True
 
 
-def _bandwidth(erwartung, sigma=None):
+# Ziel-Konfidenzniveau für die Bandbreiten (User-Vorgabe "80% WK"): 1,2816×σ
+# ist der zweiseitige z-Wert für 80% Flächenanteil unter der Normalverteilung
+# (nicht 1,0×σ ≈ 68%, wie hier vorher fälschlich verwendet - Bugfix
+# 2026-08-12, live vom User bemängelt). Noch NICHT empirisch validiert (nur
+# 1 Spieltag Ist-Daten bisher) - die tatsächliche Korridor-Trefferquote
+# wird über prediction_log.deviation_report()/detect_anomalies() sichtbar
+# gemacht, sobald genug Spieltage vorliegen; bis dahin ist dies der
+# rechnerisch korrekte Ausgangspunkt für das vereinbarte Ziel, nicht das
+# Endergebnis einer Kalibrierung.
+BANDWIDTH_Z = 1.2816
+
+
+def _bandwidth(erwartung, sigma):
     """
-    Einzelspieler-Bandbreite: E ± 1,0×σ (≈68% der Fälle laut Normalnäherung,
-    SPEC_spieltagsmodell_v2.md 1.1). `sigma=None` (Aufrufer ohne Historie/
-    Kontext) fällt auf die alte grobe ±-Prozent-Näherung zurück. Die
-    Team-Bandbreite (mit Direktduell-Dämpfung + Klumpen-Korrelation) baut
-    `xi_prognose()` separat aus den Einzel-Sigmas auf.
+    Einzelspieler-Bandbreite: E ± BANDWIDTH_Z×σ (~80% der Fälle laut
+    Normalnäherung - der vereinbarte Zielwert, SPEC_spieltagsmodell_v2.md
+    1.1 nutzte ursprünglich 1,0×σ/~68%, was nie explizit gegen ein Ziel-
+    Konfidenzniveau geprüft wurde). Die Team-Bandbreite (mit Direktduell-
+    Dämpfung + Klumpen-Korrelation) baut `xi_prognose()` separat aus den
+    Einzel-Sigmas auf, mit demselben `BANDWIDTH_Z`.
+
+    **Bugfix (2026-08-12)**: der frühere `sigma=None`-Fallback-Zweig
+    (grobe ±-Prozent-Näherung für Aufrufer ohne Sigma) referenzierte eine
+    nirgends definierte Variable `widened` - ein latenter NameError, der nur
+    deshalb nie auftrat, weil der einzige verbliebene Aufrufer (`expected_
+    points()`) `sigma` immer über `player_sigma()` liefert (nie None, dort
+    mit `MIN_SIGMA`-Untergrenze). Toter, kaputter Code entfernt statt repariert.
     """
-    if sigma is not None:
-        return (round(max(0.0, erwartung - sigma), 1), round(erwartung + sigma, 1))
-    lo, hi = (0.55, 1.60) if widened else (0.65, 1.45)
-    return (round(erwartung * lo, 1), round(erwartung * hi, 1))
+    return (round(max(0.0, erwartung - BANDWIDTH_Z * sigma), 1),
+           round(erwartung + BANDWIDTH_Z * sigma, 1))
 
 
 # AUSWERTUNG_spieltag1.md: Vertrauensgewichtung für die Basis selbst (nicht
@@ -790,7 +808,10 @@ def xi_prognose(xi, matcher):
 
     return {
         "total": round(total, 1),
-        "bandbreite": (round(max(0.0, total - sigma_team), 1), round(total + sigma_team, 1)),
+        # BANDWIDTH_Z (~80% Konfidenz, s. _bandwidth()-Docstring) - vorher
+        # 1,0×σ (~68%), Bugfix 2026-08-12.
+        "bandbreite": (round(max(0.0, total - BANDWIDTH_Z * sigma_team), 1),
+                       round(total + BANDWIDTH_Z * sigma_team, 1)),
         "duels": matches,
     }
 

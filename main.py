@@ -21,8 +21,7 @@ from fixtures import (get_table, get_table_football_data, build_strength_map,
                       team_strength_for,
                       get_upcoming_by_team, get_upcoming_by_team_football_data,
                       get_table_tsdb, get_upcoming_by_team_tsdb,
-                      fixture_ease_for_team, get_season_start_date,
-                      get_current_matchday, league_avg_win_prob)
+                      fixture_ease_for_team, get_season_info, league_avg_win_prob)
 from scoring import (score_player, explain, player_reliability_profile, punktetyp_label,
                      punktetyp_index, reliability_score,
                      kickbase_color, is_min_price_player, estimate_ap_from_peers,
@@ -176,15 +175,16 @@ def run_league(kb, cfg, run_timestamp):
     season_start_date = None
     current_matchday = None
     if cfg.get("fixture_source") == "openligadb":
-        season_start_date = get_season_start_date(
+        # Bugfix (2026-08-12): season_start_date UND current_matchday kommen
+        # jetzt aus EINEM gemeinsamen Fetch (get_season_info()) statt zwei
+        # unabhängigen Calls - ein live gefundener Bot-Lauf hatte die beiden
+        # Werte sonst inkonsistent gespeichert (matchday=1 vom Fallback,
+        # kickoff_first aber korrekt vom nächsten echten Spieltag), s.
+        # fixtures.get_season_info()-Docstring.
+        season_start_date, current_matchday = get_season_info(
             cfg.get("season", "2026"), cfg.get("openligadb_shortcut", "bl2"))
         if season_start_date:
             print(f"📅 Saisonstart (verifiziert): {season_start_date:%d.%m.%Y %H:%M} UTC")
-        # AUSWERTUNG_spieltag1.md-Folgefund: dieselbe Quelle wie
-        # season_start_date, nur die Spieltagsnummer statt des Datums -
-        # löst das alte "matchday für Spieltag 1 hartkodiert"-TODO.
-        current_matchday = get_current_matchday(
-            cfg.get("season", "2026"), cfg.get("openligadb_shortcut", "bl2"))
 
     # ---------- 1) EIGENER KADER ----------
     squad_raw = kb.get_squad(league_id)
@@ -865,11 +865,35 @@ def run_league(kb, cfg, run_timestamp):
     # DIESER Spieltag beendet". Fix: separater Spieltagszähler für Datei B.
     last_completed_matchday = (current_matchday - 1) if current_matchday and current_matchday > 1 else None
     deviation = None
+    retrospective_note = None
     if last_completed_matchday:
         actuals_path = save_matchday_actuals(name, last_completed_matchday, ranking, run_timestamp)
         if actuals_path:
             print(f"💾 Spieltags-Ist-Werte protokolliert: {actuals_path}")
         deviation = deviation_report(name, last_completed_matchday)
+
+        # Datenqualitäts-Gate (2026-08-12, User-Feedback "PaulBowa hat 1500
+        # Punkte als Prognose - das kann nicht die Vorab-Prognose sein"):
+        # live gefunden, dass `data/predictions/1899_md1.json` durch einen
+        # Bot-Lauf NACH dem ursprünglichen get_current_matchday()-Fix
+        # trotzdem nochmal korrumpiert wurde (s. fixtures.get_season_info()-
+        # Docstring - der eigentliche root cause, jetzt behoben). Eine
+        # gespeicherte Prognosedatei für `last_completed_matchday` ist nur
+        # verwertbar, wenn ihr `kickoff_first` VOR dem aktuellen, gerade neu
+        # gefetchten `season_start_date` liegt (der VORHERIGE Spieltag muss
+        # chronologisch vor dem AKTUELLEN angepfiffen haben) - verletzt das,
+        # enthält die Datei nachweislich Daten eines SPÄTEREN Spieltags,
+        # nur falsch beschriftet, und darf nicht als "Vorab-Prognose"
+        # gezeigt werden.
+        stale_prediction = False
+        raw_pred = load_matchday_prediction(name, last_completed_matchday)
+        if raw_pred and season_start_date and raw_pred.get("kickoff_first"):
+            from datetime import datetime
+            try:
+                pred_kickoff = datetime.fromisoformat(raw_pred["kickoff_first"])
+                stale_prediction = pred_kickoff >= season_start_date
+            except ValueError:
+                pass
 
         # User-Feedback ("es ist immer noch inkonsistent... unklar welcher
         # der beiden Werte die finalen Spieltagspunkte sind"): früher gab es
@@ -881,37 +905,46 @@ def run_league(kb, cfg, run_timestamp):
         # Reihenfolge, was wie Willkür wirkte. Jetzt EINE Quelle der
         # Wahrheit: `deviation` wird nur noch für den offiziellen Ist-Wert
         # (Autorität, s.u.) genutzt, nicht mehr eigenständig gedruckt.
-        official_actuals = ({r["uid"]: r["actual"] for r in deviation["rows"]}
-                            if deviation else None)
-        try:
-            retrospective_teams = build_waterfall_report(
-                kb, league_id, name, last_completed_matchday, liga_avg_win_prob,
-                official_actuals=official_actuals)
-        except Exception as e:
-            print(f"⚠️ Wasserfall-Zerlegung fehlgeschlagen: {e}")
+        printable = []
+        if stale_prediction:
+            retrospective_note = (
+                f"Rückblick Spieltag {last_completed_matchday} nicht verwertbar: die "
+                f"gespeicherte Vorab-Prognose ist nachweislich korrumpiert (kickoff_first "
+                f"{raw_pred['kickoff_first']} liegt NACH dem aktuellen Saisonstart "
+                f"{season_start_date.isoformat()} - enthält Daten eines späteren Spieltags, "
+                f"falsch beschriftet). Bekannter, jetzt behobener Bug, s. CLAUDE.md.")
+            print(f"\n⚠️ {retrospective_note}")
             retrospective_teams = None
-        if retrospective_teams:
-            # Sortiert nach höchster ABSOLUTER Abweichung (User-Wunsch) -
-            # die einzige Sortierung im ganzen Rückblick, keine zweite,
-            # abweichend sortierte Liste mehr daneben.
-            printable = sorted(
-                (t for t in retrospective_teams if "differenz" in t),
-                key=lambda x: (-abs(x["differenz"]), x["uid"]))
-        elif deviation:
-            # Wasserfall-Zerlegung nicht verfügbar (z.B. Player-Fetch
-            # fehlgeschlagen) - wenigstens den offiziellen Wert zeigen,
-            # explizit als Fallback gekennzeichnet, kein zweites System.
-            printable = [{"uid": r["uid"], "name": r["name"], "prognose": r["predicted"],
-                         "ist": r["actual"], "differenz": r["diff"], "checksum_ok": True}
-                        for r in sorted(deviation["rows"], key=lambda x: (-abs(x["diff"]), x["uid"]))]
         else:
-            printable = []
+            official_actuals = ({r["uid"]: r["actual"] for r in deviation["rows"]}
+                                if deviation else None)
+            try:
+                retrospective_teams = build_waterfall_report(
+                    kb, league_id, name, last_completed_matchday, liga_avg_win_prob,
+                    official_actuals=official_actuals)
+            except Exception as e:
+                print(f"⚠️ Wasserfall-Zerlegung fehlgeschlagen: {e}")
+                retrospective_teams = None
+            if retrospective_teams:
+                # Sortiert nach höchster ABSOLUTER Abweichung (User-Wunsch) -
+                # die einzige Sortierung im ganzen Rückblick, keine zweite,
+                # abweichend sortierte Liste mehr daneben.
+                printable = sorted(
+                    (t for t in retrospective_teams if "differenz" in t),
+                    key=lambda x: (-abs(x["differenz"]), x["uid"]))
+            elif deviation:
+                # Wasserfall-Zerlegung nicht verfügbar (z.B. Player-Fetch
+                # fehlgeschlagen) - wenigstens den offiziellen Wert zeigen,
+                # explizit als Fallback gekennzeichnet, kein zweites System.
+                printable = [{"uid": r["uid"], "name": r["name"], "prognose": r["predicted"],
+                             "ist": r["actual"], "differenz": r["diff"], "checksum_ok": True}
+                            for r in sorted(deviation["rows"], key=lambda x: (-abs(x["diff"]), x["uid"]))]
         if printable:
             print(f"\n📉 RÜCKBLICK · Spieltag {last_completed_matchday} - Vorab-Prognose vs. "
-                  f"tatsächlicher (offizieller) Punktestand, sortiert nach größter Abweichung:")
-            for t in printable[:5]:
+                  f"tatsächlicher (offizieller) Punktestand, Rang nach größter Abweichung:")
+            for i, t in enumerate(printable[:5], 1):
                 flag = "" if t.get("checksum_ok") else " ⚠️ Prüfsumme verletzt"
-                print(f"   {t['name']}: Vorab-Prognose {t['prognose']:.0f} P → "
+                print(f"   {i}. {t['name']}: Vorab-Prognose {t['prognose']:.0f} P → "
                       f"tatsächlich erzielt {t['ist']:.0f} P (Differenz {t['differenz']:+.0f}){flag}")
                 if "delta_einsatz" in t:
                     dl = f" · Datenlücke {t['delta_datenluecke']:+.0f}" if "delta_datenluecke" in t else ""
@@ -977,6 +1010,7 @@ def run_league(kb, cfg, run_timestamp):
         "calibration": calibration,
         "deviation_report": deviation,
         "retrospective": retrospective_teams,
+        "retrospective_note": retrospective_note,
         "last_completed_matchday": last_completed_matchday,
         "prediction_diff": pred_diff,
         "fair_value_ok": fair_value_ok,

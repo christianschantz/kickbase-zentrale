@@ -413,6 +413,85 @@ Fix -> live verifiziert -> hier dokumentiert), keine Blackbox. Jede so
 motivierte Konstantenänderung wird in CLAUDE.md mit Vorher/Nachher-Beleg
 festgehalten (dieser Eintrag ist das Muster dafür).
 
+## Root-Cause der Rückblick-Korruption + 80%-Bandbreite (2026-08-12)
+
+User-Feedback, unmittelbar nach dem vorigen Fix: die Vorab-Prognose im
+Rückblick zeigte weiterhin PaulBowas ~1500-Punkte-Ausreißer ("das kann
+nicht die Prognose vor Spieltagsbeginn sein"), die Sortierung war weiter
+unklar, und es fehlte Transparenz darüber, wie Erkenntnisse in die
+"Intervall 80% WK" (die Prognose-Bandbreite) einfließen.
+
+**Root Cause endlich gefunden, nicht nur ein weiterer Workaround**: die
+vorige Analyse (AUSWERTUNG_spieltag1.md, Begleitfund 1) hatte den
+`matchday`-Hartkodierungs-Bug bereits als behoben eingestuft
+(`fixtures.get_current_matchday()`). Live-Beweis, dass das NUR TEILWEISE
+stimmte: `git log` zeigt einen Bot-Commit `e960536` ("Tages-Snapshot
+2026-08-11", 17:04:55 UTC) - NACH jenem Fix -, der `1899_md1.json` TROTZDEM
+nochmal mit `"matchday": 1` + `"kickoff_first": "2026-08-14..."`
+überschrieben hat (ein späterer, damals noch nicht angepfiffener Spieltag).
+Ursache: `get_season_start_date()` und `get_current_matchday()` waren zwei
+UNABHÄNGIGE Funktionen mit je einem eigenen HTTP-Request an denselben
+OpenLigaDB-Endpoint - schlug der `current_matchday`-Call für einen
+einzelnen Lauf transient fehl (lieferte `None`), fiel `main.py`s
+`matchday = current_matchday or 1` auf den hartkodierten Default zurück,
+während der GETRENNTE `season_start_date`-Call im selben Lauf normal
+durchging und korrekt den nächsten echten Spieltag lieferte - zwei intern
+widersprüchliche Werte aus zwei Calls, unkommentiert gespeichert. Lehre:
+**ein Fix, der nur den beobachteten Einzelfall symptomatisch behebt, ohne
+die strukturelle Ursache (zwei unabhängige, divergieren-könnende Datenquellen
+für zusammengehörige Werte) zu beseitigen, kann wieder auftreten** - genau
+das ist hier passiert, "behoben" war verfrüht.
+
+**Fix**: `fixtures.get_season_info(season, shortcut)` (ersetzt
+`get_season_start_date()`+`get_current_matchday()`) holt die Match-Liste
+EINMAL und leitet `(season_start_date, current_matchday)` aus DENSELBEN
+Rohdaten ab - entweder beide konsistent oder (bei Fetch-Fehler) beide
+`None` (dann schreibt `save_matchday_prediction()` gar nichts, statt zu
+raten). Macht die Divergenz-Klasse strukturell unmöglich, nicht nur den
+einen beobachteten Fall.
+
+**Zusätzliche Verteidigungslinie für die bereits korrumpierte Alt-Datei**
+(`1899_md1.json` bleibt wie in AUSWERTUNG_spieltag1.md festgestellt
+dauerhaft unrekonstruierbar): `main.py` prüft vor jeder Rückblick-Anzeige,
+ob die geladene Prognosedatei überhaupt plausibel zum AKTUELLEN Saisonstand
+passt - `kickoff_first` der Datei für `last_completed_matchday` MUSS vor
+dem gerade frisch gefetchten `season_start_date` (nächster echter
+Spieltag) liegen, sonst enthält sie nachweislich Daten eines späteren
+Spieltags. Verletzt das, wird NICHTS Erfundenes gezeigt, nur eine
+Klartext-Warnung ("Rückblick Spieltag 1 nicht verwertbar: ... bekannter,
+jetzt behobener Bug"), in Konsole UND `html_report._retrospective_section()`
+(`report["retrospective_note"]`). Live verifiziert: Spieltag 1 zeigt jetzt
+korrekt die Warnung statt der ~1500-Punkte-Fantasiezahlen; sobald main.py
+nach dem Fix eine SAUBERE Vorab-Prognose für einen künftigen Spieltag
+speichert, füllt sich der Rückblick automatisch wieder mit echten Zahlen.
+
+**Rang-Sichtbarkeit**: sowohl Konsole als auch HTML zeigen jetzt explizite
+Rangnummern (1., 2., 3. ...) VOR jedem Manager, plus einen Klartext-Hinweis
+("Rang 1 = größte Abweichung ... nicht nach Punktzahl selbst") - die
+Sortierung selbst war bereits korrekt (nach größter absoluter Abweichung),
+aber ohne sichtbare Nummerierung wirkte sie für den User nicht wie eine
+erkennbare Rangfolge.
+
+**80%-Bandbreite (`coach.py`)**: die Prognose-Bandbreite (`±X P` neben
+jeder Punkteprognose) nutzte `E ± 1,0×σ` (~68% Fläche unter der
+Normalverteilung laut eigenem Docstring), obwohl der User sich an ein
+vereinbartes Ziel von 80% erinnerte. Fix: neue Konstante `BANDWIDTH_Z =
+1.2816` (der zweiseitige z-Wert für exakt 80%) ersetzt den impliziten
+Faktor 1,0 in `_bandwidth()` UND `xi_prognose()`s Team-Bandbreite (beide
+Stellen synchron). **Nebenfund beim Anfassen der Funktion**: der alte
+`sigma=None`-Fallback-Zweig in `_bandwidth()` referenzierte eine nirgends
+definierte Variable `widened` - ein latenter `NameError`, der nur deshalb
+nie auftrat, weil der einzige verbliebene Aufrufer (`expected_points()`)
+`sigma` immer über `player_sigma()` liefert (mit `MIN_SIGMA`-Untergrenze,
+nie `None`). Toter, kaputter Code entfernt statt repariert. **Ehrlich
+eingeordnet**: 80% ist der rechnerisch korrekte Ausgangspunkt für das
+vereinbarte Ziel, aber noch NICHT empirisch validiert (nur 1, davon jetzt
+als korrumpiert erkannter Spieltag an Ist-Daten) - ob die reale
+Korridor-Trefferquote (`prediction_log.deviation_report()`) sich diesem
+Zielwert annähert, zeigt sich erst über mehrere echte Spieltage; keine
+automatische Rückkopplung von der Trefferquote auf `BANDWIDTH_Z` gebaut
+(bräuchte wie die Gewichts-Rekalibrierung genug Beobachtungen, s.o.).
+
 ## SPEC_spielertyp_matchkontext.md (2026-08-07, Prioritäten 1-3 umgesetzt)
 
 **Punktetyp-Index in k_eff (Priorität 1)**: `scoring.punktetyp_index(profile)`

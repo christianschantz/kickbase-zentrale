@@ -420,11 +420,22 @@ def _retrospective_section(report):
     einheitlich nach größter ABSOLUTER Abweichung (User-Wunsch).
     """
     matchday = report.get("last_completed_matchday")
+    stale_note = report.get("retrospective_note")
     dev = report.get("deviation_report")
     teams = report.get("retrospective")
-    if not matchday or (not dev and not teams):
+    if not matchday or (not stale_note and not dev and not teams):
         return ""
     header = f"<h3 class='section-h'>🔍 Rückblick: Spieltag {matchday}</h3>"
+    # Datenqualitäts-Gate (2026-08-12, User-Feedback "PaulBowa hat 1500
+    # Punkte als Prognose"): main.py hat die gespeicherte Vorab-Prognose
+    # bereits gegen den aktuellen Saisonstart geprüft und als korrumpiert
+    # verworfen (bekannter, jetzt behobener get_season_info()-Bug, s.
+    # CLAUDE.md) - dann NICHTS Erfundenes zeigen, nur den Grund, keine
+    # irrelevante Sortier-Erklärung für eine Tabelle, die es nicht gibt.
+    if stale_note:
+        return f"{header}<p class='note warn'>⚠️ {_esc(stale_note)}</p>"
+    header += ("<p class='note'>Rang 1 = größte Abweichung zwischen Vorab-Prognose und "
+              "tatsächlich erzieltem Punktestand (nicht nach Punktzahl selbst).</p>")
     printable = [t for t in (teams or []) if "differenz" in t]
     simplified = False
     if not printable:
@@ -438,7 +449,7 @@ def _retrospective_section(report):
         printable = [{"name": r["name"], "prognose": r["predicted"], "ist": r["actual"],
                      "differenz": r["diff"], "checksum_ok": True} for r in dev["rows"]]
     rows = []
-    for t in sorted(printable, key=lambda x: -abs(x["differenz"])):
+    for i, t in enumerate(sorted(printable, key=lambda x: -abs(x["differenz"])), 1):
         checksum_warn = ("<span class='team-warn'>⚠️ Prüfsumme verletzt</span>"
                          if not t.get("checksum_ok") else "")
         detail_html = "" if simplified else (
@@ -446,6 +457,7 @@ def _retrospective_section(report):
             f"⚔️ Ausgang {t['delta_ausgang']:+.0f} · 🧤 Zu-Null {t['delta_zunull']:+.0f} · "
             f"🎲 Leistung {t['delta_leistung']:+.0f} (unerklärt){_datenluecke_html(t)}</div>")
         rows.append(f"""<div class="team-row">
+  <span class="team-rank">{i}</span>
   <span class="team-name">{_esc(t['name'])}</span>
   <span class="team-stat">{t['prognose']:.0f} P <span class="team-sub">Vorab-Prognose</span></span>
   <span class="team-stat">{t['ist']:.0f} P <span class="team-sub">tatsächlich erzielt</span></span>

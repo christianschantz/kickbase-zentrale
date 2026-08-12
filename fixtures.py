@@ -39,57 +39,52 @@ def get_table(season="2026", shortcut="bl2"):
     return table
 
 
-def get_season_start_date(season="2026", shortcut="bl2"):
+def get_season_info(season="2026", shortcut="bl2"):
     """
-    Frühestes Datum aus den noch nicht gespielten Partien des Saison-
-    Spielplans - in der Saisonvorbereitung (noch kein Spiel gelaufen)
-    entspricht das Spieltag 1. Live verifiziert (2026-08-05): 2. Bundesliga
-    Spieltag 1 = 2026-08-07 18:30 UTC. Liefert ein UTC-datetime oder None
-    (z.B. wenn `shortcut` keine OpenLigaDB-Liga ist - nur für die 2.
-    Bundesliga verifiziert, La Liga läuft über football-data.org ohne
-    Datumsfeld in unserer bisherigen Anbindung).
+    Liefert (season_start_date, current_matchday) - frühestes Datum bzw.
+    `groupOrderID` der frühesten NICHT beendeten Partie, aus EINEM
+    gemeinsamen Fetch. Live verifiziert (2026-08-05): 2. Bundesliga
+    Spieltag 1 = 2026-08-07 18:30 UTC. Beide None (nicht raten) wenn
+    `shortcut` keine OpenLigaDB-Liga ist oder der Abruf fehlschlägt (z.B.
+    La Liga, football-data.org ohne Datumsfeld in unserer Anbindung).
+
+    **Bugfix (2026-08-12, "der eigentliche Nachfolgefund" zu
+    AUSWERTUNG_spieltag1.md)**: `get_season_start_date()` und
+    `get_current_matchday()` waren bis hierhin ZWEI UNABHÄNGIGE Funktionen,
+    jede mit einem eigenen HTTP-Request an denselben Endpoint. Live
+    gefunden: ein GitHub-Actions-Bot-Lauf schrieb NACH dem ursprünglichen
+    get_current_matchday()-Fix (der genau dieses Problem eigentlich lösen
+    sollte) TROTZDEM wieder "matchday": 1 zusammen mit
+    "kickoff_first": eines SPÄTEREN Spieltags in `1899_md1.json` -
+    Diagnose: der `current_matchday`-Call schlug für DIESEN einen Lauf
+    transient fehl (lieferte None -> Fallback auf den hartkodierten
+    Default 1 in main.py), während der UNABHÄNGIGE `season_start_date`-Call
+    im selben Lauf normal durchging und korrekt auf den nächsten,
+    tatsächlich anstehenden Spieltag zeigte - zwei Werte aus zwei Calls,
+    die intern nicht mehr zusammenpassten, aber beide unkommentiert
+    gespeichert wurden. Ein gemeinsamer Fetch macht diese Divergenz
+    STRUKTURELL unmöglich: entweder beide Werte sind konsistent (aus
+    denselben Rohdaten abgeleitet) oder beide sind None.
     """
     from datetime import datetime
-    matches = _get_json(OL_MATCHES.format(shortcut=shortcut, season=season)) or []
-    dates = []
+    matches = _get_json(OL_MATCHES.format(shortcut=shortcut, season=season))
+    if matches is None:
+        return None, None
+    dates, order_ids = [], []
     for m in matches:
         if m.get("matchIsFinished"):
             continue
         raw = m.get("matchDateTimeUTC")
-        if not raw:
-            continue
-        try:
-            dates.append(datetime.fromisoformat(raw.replace("Z", "+00:00")))
-        except ValueError:
-            continue
-    return min(dates) if dates else None
-
-
-def get_current_matchday(season="2026", shortcut="bl2"):
-    """
-    AUSWERTUNG_spieltag1.md-Folgefund (2026-08-10): `main.py`s `matchday`
-    war für Spieltag 1 hartkodiert (dokumentiertes TODO seit
-    SPEC_spieltagsmodell_v2.md) - live gefunden, dass das NACH Spieltag 1
-    zu einem echten Problem wird, nicht nur Kosmetik: `kickoff_first`
-    (get_season_start_date()) rückt automatisch auf den nächsten
-    unbespielten Spieltag vor, der Freeze in
-    prediction_log.save_matchday_prediction() öffnet sich dadurch erneut -
-    die Datei `<liga>_md1.json` wurde durch tägliche Läufe STILL mit
-    Spieltag-2-Prognosen überschrieben, aber weiterhin "matchday: 1"
-    beschriftet. Das hat die Retrospektive für Spieltag 1 (data/predictions/
-    1899_md1.json enthielt zum Auswertungszeitpunkt bereits Spieltag-2-
-    Daten) faktisch unbrauchbar gemacht.
-
-    Liefert die `groupOrderID` (OpenLigaDB-Spieltagsnummer) der frühesten
-    NICHT beendeten Partie - dieselbe Datengrundlage wie
-    get_season_start_date(), nur der Spieltag statt des Datums. None ohne
-    Treffer (z.B. Saisonende) oder für nicht-OpenLigaDB-Quellen (nur für
-    die 2. Bundesliga verifiziert, analog zu get_season_start_date()).
-    """
-    matches = _get_json(OL_MATCHES.format(shortcut=shortcut, season=season)) or []
-    order_ids = [m["group"]["groupOrderID"] for m in matches
-                if not m.get("matchIsFinished") and m.get("group")]
-    return min(order_ids) if order_ids else None
+        if raw:
+            try:
+                dates.append(datetime.fromisoformat(raw.replace("Z", "+00:00")))
+            except ValueError:
+                pass
+        if m.get("group"):
+            order_ids.append(m["group"]["groupOrderID"])
+    season_start = min(dates) if dates else None
+    current_matchday = min(order_ids) if order_ids else None
+    return season_start, current_matchday
 
 
 def get_upcoming_by_team(season="2026", shortcut="bl2", next_n=3):
