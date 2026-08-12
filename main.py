@@ -870,25 +870,17 @@ def run_league(kb, cfg, run_timestamp):
         if actuals_path:
             print(f"💾 Spieltags-Ist-Werte protokolliert: {actuals_path}")
         deviation = deviation_report(name, last_completed_matchday)
-        if deviation:
-            print(f"\n📊 ABWEICHUNGSZERLEGUNG · Spieltag {last_completed_matchday}: "
-                  f"Ø Fehler {deviation['mean_error_pct']}% · "
-                  f"{deviation['in_corridor']}/{deviation['n']} Manager im Prognosekorridor")
-            for r in sorted(deviation["rows"], key=lambda x: (-abs(x["diff"]), x["uid"]))[:5]:
-                flag = " ⚠️ Ausreißer (>3× Median-Fehler)" if r.get("anomaly") else ""
-                print(f"   {r['name']}: Prognose {r['predicted']:.0f} · tatsächlich "
-                      f"{r['actual']:.0f} · Differenz {r['diff']:+.0f}{flag}")
 
-        # User-Feedback ("mir fehlt komplett die Transparenz über die
-        # Abweichungen"): die obige Zeile zeigt nur eine nackte Ø-Fehler-% -
-        # die echte Wasserfall-Zerlegung (Einsatz/Ausgang/Zu-Null/Leistung)
-        # lag in retrospective.py bereits fertig und verifiziert bereit
-        # (AUSWERTUNG_spieltag1.md), war aber nie an main.py angebunden.
-        # Bugfix (live vom User gemeldet: "Adrian hat keine 1093 Punkte
-        # gemacht, sondern 813"): der offizielle Spieltagspunktestand
-        # (bereits oben für deviation_report() geladen) ist die Autorität -
-        # die aus Einzelspielern summierte Ist-Zahl kann davon abweichen
-        # (Spieltag 1: veraltete Aufstellungs-Momentaufnahme, s. CLAUDE.md).
+        # User-Feedback ("es ist immer noch inkonsistent... unklar welcher
+        # der beiden Werte die finalen Spieltagspunkte sind"): früher gab es
+        # HIER zusätzlich eine eigene "ABWEICHUNGSZERLEGUNG"-Kurzzeile mit
+        # einer UNABHÄNGIG berechneten Prognose/Ist-Zahl (aus
+        # deviation_report()) NEBEN der u.g. Wasserfall-Zerlegung (eigene
+        # Prognose-Summe aus den Faktoren) - beide Zahlen wichen minimal
+        # voneinander ab (Rundung) und zeigten teils eine andere Top-5-
+        # Reihenfolge, was wie Willkür wirkte. Jetzt EINE Quelle der
+        # Wahrheit: `deviation` wird nur noch für den offiziellen Ist-Wert
+        # (Autorität, s.u.) genutzt, nicht mehr eigenständig gedruckt.
         official_actuals = ({r["uid"]: r["actual"] for r in deviation["rows"]}
                             if deviation else None)
         try:
@@ -899,22 +891,34 @@ def run_league(kb, cfg, run_timestamp):
             print(f"⚠️ Wasserfall-Zerlegung fehlgeschlagen: {e}")
             retrospective_teams = None
         if retrospective_teams:
+            # Sortiert nach höchster ABSOLUTER Abweichung (User-Wunsch) -
+            # die einzige Sortierung im ganzen Rückblick, keine zweite,
+            # abweichend sortierte Liste mehr daneben.
             printable = sorted(
                 (t for t in retrospective_teams if "differenz" in t),
                 key=lambda x: (-abs(x["differenz"]), x["uid"]))
-            if printable:
-                print(f"\n📉 WASSERFALL-ZERLEGUNG · Spieltag {last_completed_matchday} "
-                      f"(warum wich die Prognose ab - Einsatz/Ausgang/Zu-Null sind erklärt, "
-                      f"nur 'Leistung' bleibt echte Unsicherheit):")
-                for t in printable[:5]:
-                    flag = "" if t.get("checksum_ok") else " ⚠️ Prüfsumme verletzt"
-                    print(f"   {t['name']}: Prognose {t['prognose']:.0f} → Ist {t['ist']:.0f} "
-                          f"({t['differenz']:+.0f}){flag}")
+        elif deviation:
+            # Wasserfall-Zerlegung nicht verfügbar (z.B. Player-Fetch
+            # fehlgeschlagen) - wenigstens den offiziellen Wert zeigen,
+            # explizit als Fallback gekennzeichnet, kein zweites System.
+            printable = [{"uid": r["uid"], "name": r["name"], "prognose": r["predicted"],
+                         "ist": r["actual"], "differenz": r["diff"], "checksum_ok": True}
+                        for r in sorted(deviation["rows"], key=lambda x: (-abs(x["diff"]), x["uid"]))]
+        else:
+            printable = []
+        if printable:
+            print(f"\n📉 RÜCKBLICK · Spieltag {last_completed_matchday} - Vorab-Prognose vs. "
+                  f"tatsächlicher (offizieller) Punktestand, sortiert nach größter Abweichung:")
+            for t in printable[:5]:
+                flag = "" if t.get("checksum_ok") else " ⚠️ Prüfsumme verletzt"
+                print(f"   {t['name']}: Vorab-Prognose {t['prognose']:.0f} P → "
+                      f"tatsächlich erzielt {t['ist']:.0f} P (Differenz {t['differenz']:+.0f}){flag}")
+                if "delta_einsatz" in t:
                     dl = f" · Datenlücke {t['delta_datenluecke']:+.0f}" if "delta_datenluecke" in t else ""
-                    print(f"      Einsatz {t['delta_einsatz']:+.0f} · "
+                    print(f"      davon erklärt: Einsatz {t['delta_einsatz']:+.0f} · "
                           f"Ausgang {t['delta_ausgang']:+.0f} · "
                           f"Zu-Null {t['delta_zunull']:+.0f} · "
-                          f"Leistung {t['delta_leistung']:+.0f}{dl}")
+                          f"Leistung (unerklärt) {t['delta_leistung']:+.0f}{dl}")
                     if "delta_datenluecke" in t:
                         print(f"      ℹ️ Datenlücke = Aufstellungs-Momentaufnahme war nicht "
                               f"die finale (offizieller Wert {t['ist']:.0f} P übernommen, "

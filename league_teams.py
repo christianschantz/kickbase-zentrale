@@ -60,16 +60,36 @@ def _estimate_prob(p):
 
     Näherung: der Manager hat den Spieler bereits real in die Startelf
     gestellt (`lo` gesetzt) - das ist ein STÄRKERES Signal als Kickbases
-    eigene Prognose. Fit (st=0) + in der Startelf -> prob~2 (grün).
-    Verletzt/angeschlagen (st=2) -> prob~4 (rot), unabhängig vom Lineup-
-    Status (ein Manager stellt einen Verletzten manchmal trotzdem optimistisch
-    auf). Bankspieler/unklarer Status -> prob=3 (gelb, neutral) wie bisher.
+    eigene Prognose (die selbst nur eine Wahrscheinlichkeit ist, während `lo`
+    ein bereits abgegebenes, echtes Faktum ist). Fit (st=0) + in der
+    Startelf -> prob=1 (blau/"gesetzt" laut Kickbases eigener Farbdefinition,
+    s. CLAUDE.md). Verletzt/angeschlagen (st=2) -> prob~4 (rot), unabhängig
+    vom Lineup-Status (ein Manager stellt einen Verletzten manchmal trotzdem
+    optimistisch auf). Bankspieler/unklarer Status -> prob=3 (gelb, neutral)
+    wie bisher.
+
+    **Bugfix (2026-08-12, User-Feedback "es wirkt willkürlich, scheint so
+    als ob ich bevorzugt werde")**: bis hierhin gab diese Funktion für
+    JEDEN Mitspieler-Startelfspieler MAXIMAL prob=2 (grün, Einsatzfaktor
+    0,92) zurück - prob=1 (blau, Einsatzfaktor 1,00) war UNERREICHBAR, weil
+    kein Codepfad ihn je lieferte. Der EIGENE Kader nutzt dagegen den
+    echten, per get_player_details() abgerufenen `prob`-Wert und erreicht
+    für tatsächlich blaue Spieler ganz normal 1,00. Das war eine
+    STRUKTURELLE, systematische Benachteiligung JEDES anderen Managers
+    gegenüber dem eigenen Team - bei einer typischen 11er-Startelf ein
+    Effekt in der Größenordnung mehrerer Prozentpunkte Gesamtprognose,
+    unabhängig von der tatsächlichen Kaderqualität. Live als Ursache des
+    Bias-Verdachts identifiziert (SvenNumeroUno, MD1 stärkstes Team der
+    Liga nach echtem Ergebnis, aber Rang 8 in der MD2-Prognose). Ein
+    Spieler, den sein Manager bereits real in die Startelf gestellt hat UND
+    der fit ist, verdient dieselbe Sicherheit wie Kickbases eigenes "blau" -
+    das Aufstellen selbst IST das stärkste verfügbare Signal.
     """
     st = p.get("st", 0)
     if st == 2:
         return 4
     if p.get("lo") is not None and st == 0:
-        return 2
+        return 1
     return 3
 
 

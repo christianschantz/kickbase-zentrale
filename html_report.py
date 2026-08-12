@@ -403,6 +403,21 @@ def _retrospective_section(report):
     Retrospektive gehört ganz oben, vor Markt und Kader") - der Rückblick
     auf den letzten Spieltag ist die Vertrauensgrundlage für die aktuelle
     Prognose.
+
+    **Konsolidierungs-Fix (2026-08-12, User-Feedback "es ist immer noch
+    inkonsistent... unklar welcher der beiden Werte die finalen
+    Spieltagspunkte sind")**: bisher gab es ZWEI unabhängig berechnete
+    Prognose/Ist-Paare für denselben Manager (die alte, mittlerweile aus
+    `_model_health_banner()` entfernte Kurzzeile aus `deviation_report()`,
+    UND diese Sektion aus `report["retrospective"]`) - beide wichen minimal
+    voneinander ab (Rundung) und konnten unterschiedlich sortiert sein, was
+    wie Willkür wirkte. Jetzt EINE Quelle: `report["retrospective"]`, mit
+    `report["deviation_report"]` nur noch als Fallback, wenn die Wasserfall-
+    Zerlegung selbst fehlschlägt (gleiches Zahlenformat, klar als
+    "vereinfacht" gekennzeichnet). Labels jetzt explizit ausgeschrieben
+    ("Vorab-Prognose"/"tatsächlich erzielt") statt eines knappen
+    Pfeil-Symbols, das als Richtung missverstanden werden konnte. Sortierung
+    einheitlich nach größter ABSOLUTER Abweichung (User-Wunsch).
     """
     matchday = report.get("last_completed_matchday")
     dev = report.get("deviation_report")
@@ -411,32 +426,45 @@ def _retrospective_section(report):
         return ""
     header = f"<h3 class='section-h'>🔍 Rückblick: Spieltag {matchday}</h3>"
     printable = [t for t in (teams or []) if "differenz" in t]
+    simplified = False
     if not printable:
-        # Wasserfall-Zerlegung nicht verfügbar (z.B. Player-Fetch fehlgeschlagen) -
-        # zumindest die grobe Manager-Ebene-Abweichung zeigen statt nichts.
+        # Wasserfall-Zerlegung nicht verfügbar (z.B. Player-Fetch
+        # fehlgeschlagen) - EINHEITLICHES Fallback aus demselben
+        # `deviation_report()`, das main.py auch für die Konsole nutzt,
+        # nicht ein zweites, abweichend berechnetes System.
         if not dev:
             return ""
-        return (f"{header}<p class='note'>Ø Fehler {dev['mean_error_pct']}% · "
-               f"{dev['in_corridor']}/{dev['n']} Manager im Prognosekorridor "
-               f"(detaillierte Zerlegung heute nicht verfügbar)</p>")
+        simplified = True
+        printable = [{"name": r["name"], "prognose": r["predicted"], "ist": r["actual"],
+                     "differenz": r["diff"], "checksum_ok": True} for r in dev["rows"]]
     rows = []
     for t in sorted(printable, key=lambda x: -abs(x["differenz"])):
         checksum_warn = ("<span class='team-warn'>⚠️ Prüfsumme verletzt</span>"
                          if not t.get("checksum_ok") else "")
+        detail_html = "" if simplified else (
+            f"<div class='meta'>davon erklärt: 🩹 Einsatz {t['delta_einsatz']:+.0f} · "
+            f"⚔️ Ausgang {t['delta_ausgang']:+.0f} · 🧤 Zu-Null {t['delta_zunull']:+.0f} · "
+            f"🎲 Leistung {t['delta_leistung']:+.0f} (unerklärt){_datenluecke_html(t)}</div>")
         rows.append(f"""<div class="team-row">
   <span class="team-name">{_esc(t['name'])}</span>
-  <span class="team-stat">{t['prognose']:.0f} → {t['ist']:.0f} P <span class="team-sub">Prognose → Ist</span></span>
+  <span class="team-stat">{t['prognose']:.0f} P <span class="team-sub">Vorab-Prognose</span></span>
+  <span class="team-stat">{t['ist']:.0f} P <span class="team-sub">tatsächlich erzielt</span></span>
   <span class="team-stat">{t['differenz']:+.0f} P <span class="team-sub">Differenz</span></span>
   {checksum_warn}
-  <div class="meta">🩹 Einsatz {t['delta_einsatz']:+.0f} · ⚔️ Ausgang {t['delta_ausgang']:+.0f} · 🧤 Zu-Null {t['delta_zunull']:+.0f} · 🎲 Leistung {t['delta_leistung']:+.0f} (unerklärt){_datenluecke_html(t)}</div>
+  {detail_html}
 </div>""")
-    note = ("<p class='note'>'Ist' ist der OFFIZIELLE Spieltagspunktestand, kein aus "
-           "Einzelspielern zusammengerechneter Wert. Einsatz/Ausgang/Zu-Null sind "
-           "ALGORITHMISCH erklärte Anteile der Abweichung (echter Status/Ergebnis/"
-           "Zu-Null-Ausgang statt der Vorab-Schätzung), 'Leistung' die unerklärte "
-           "Restgröße. 'Datenlücke' (wenn angezeigt) bedeutet: die für die Prognose "
-           "gespeicherte Aufstellung war noch nicht die tatsächliche Deadline-Aufstellung "
-           "- kein Modellfehler, sondern eine veraltete Momentaufnahme.</p>")
+    if simplified:
+        note = ("<p class='note'>Vereinfachte Ansicht (detaillierte Einsatz/Ausgang/Zu-Null-"
+               "Zerlegung heute nicht verfügbar) - 'tatsächlich erzielt' ist der offizielle "
+               "Spieltagspunktestand.</p>")
+    else:
+        note = ("<p class='note'>'Tatsächlich erzielt' ist der OFFIZIELLE Spieltagspunktestand, "
+               "kein aus Einzelspielern zusammengerechneter Wert. Einsatz/Ausgang/Zu-Null sind "
+               "ALGORITHMISCH erklärte Anteile der Abweichung (echter Status/Ergebnis/"
+               "Zu-Null-Ausgang statt der Vorab-Schätzung), 'Leistung' die unerklärte "
+               "Restgröße. 'Datenlücke' (wenn angezeigt) bedeutet: die für die Prognose "
+               "gespeicherte Aufstellung war noch nicht die tatsächliche Deadline-Aufstellung "
+               "- kein Modellfehler, sondern eine veraltete Momentaufnahme.</p>")
     return f"{header}{note}<div class='team-table'>{''.join(rows)}</div>"
 
 

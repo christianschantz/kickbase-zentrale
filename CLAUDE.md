@@ -348,6 +348,71 @@ künftigen Spieltag automatisch, nicht nur für den bekannten MD1-Sonderfall -
 weicht eine gespeicherte Aufstellung aus irgendeinem Grund von der echten
 ab, wird das ab sofort sichtbar statt unkommentiert falsch angezeigt.
 
+## Struktureller Bias-Fix + Rückblick-Konsolidierung (2026-08-12)
+
+User-Feedback nach dem vorigen Fix, in einer Nachricht mit mehreren
+Punkten: (a) weiterhin "inkonsistent", unklar welcher von zwei ähnlichen
+Werten Prognose und welcher Ist ist, gefühlt "falsch rum"; (b) Reihenfolge
+wirkt willkürlich, Wunsch nach Sortierung "nach tatsächlichen Punkten oder
+nach höchster Abweichung"; (c) Wunsch nach Transparenz, ob/wie Erkenntnisse
+zu Parameter-/Gewichts-Anpassungen führen; (d) konkreter Verdacht auf einen
+Bias zugunsten des eigenen Teams, belegt am Beispiel SvenNumeroUno (nach
+echtem Spieltag-1-Ergebnis das offenbar stärkste Team der Liga, aber in der
+MD2-Prognosetabelle nur Rang 8) - "es wirkt willkürlich, scheint so als ob
+ich bevorzugt werde".
+
+**(d) war der wichtigste, ECHTE Befund - ein struktureller Bias, kein
+Wahrnehmungsfehler**: `league_teams._estimate_prob()` (Näherung des
+Einsatz-Status für MITSPIELER-Kader, weil `managers/{uid}/squad` kein
+`prob`-Feld liefert, s. bestehender Eintrag) konnte für JEDEN Mitspieler-
+Startelfspieler MAXIMAL `prob=2` (grün, `EINSATZ_FACTOR` 0,92) zurückgeben -
+`prob=1` (blau, Faktor 1,00) war durch keinen Codepfad erreichbar. Der
+EIGENE Kader nutzt dagegen den echten `prob`-Wert aus `get_player_details()`
+und erreicht für tatsächlich blaue Spieler ganz normal 1,00. Das ist eine
+STRUKTURELLE Benachteiligung JEDES anderen Managers gegenüber dem eigenen
+Team, unabhängig von der tatsächlichen Kaderqualität - bei 11
+Startelfspielern ein Effekt in der Größenordnung mehrerer Prozentpunkte
+Gesamtprognose. **Fix**: hat ein Manager einen fitten Spieler (`st=0`)
+bereits real in seine Startelf gestellt (`lo` gesetzt), ist das ein
+FAKTUM, kein Wahrscheinlichkeitswert - das rechtfertigt `prob=1` (blau/
+"gesetzt", exakt Kickbases eigene Definition dieser Farbe), nicht mehr nur
+`prob=2`. Live verifiziert (2. Bundesliga): SvenNumeroUno steigt von Rang 8
+auf Rang 6, das eigene Team (christianjens) fällt von Rang 1 auf Rang 3 -
+der Bias-Verdacht war berechtigt und die Korrektur hat sichtbar gegriffen.
+**Bekannte Grenze**: weiterhin eine Näherung ohne echten `prob`-Wert für
+Mitspieler - ein fit+aufgestellter Spieler ist jetzt nicht mehr strukturell
+gedeckelt, aber es ist nicht auszuschließen, dass einzelne Fälle laut
+Kickbases echter Einschätzung tatsächlich nur grün statt blau wären. Das ist
+der bestmögliche Kompromiss ohne den unverifizierten `prob`-Zugang für
+fremde Kader (s. Baustellen-Liste).
+
+**(a)+(b) Rückblick-Sektion konsolidiert**: es gab bisher ZWEI unabhängig
+berechnete Prognose/Ist-Paare für denselben Manager+Spieltag - die (jetzt
+entfernte) `ABWEICHUNGSZERLEGUNG`-Konsolenzeile aus `deviation_report()`
+UND die Wasserfall-Zerlegung aus `report["retrospective"]` - beide wichen
+minimal voneinander ab (Rundung, unabhängige Summation) und konnten
+unterschiedlich sortiert sein, was wie Willkür wirkte. Jetzt EINE Quelle
+(`report["retrospective"]`, `deviation_report()` nur noch als Fallback bei
+Fetch-Fehlern, klar als "vereinfacht" gekennzeichnet) in Konsole (main.py)
+UND HTML (`html_report._retrospective_section()`). Labels ausgeschrieben
+("Vorab-Prognose"/"tatsächlich erzielt" statt eines knappen, als Richtung
+missverständlichen Pfeils "X → Y"). Einheitliche Sortierung nach größter
+ABSOLUTER Abweichung in beiden Ausgaben (User-Wunsch "nach höchster
+Abweichung" - deckte sich bereits mit der bisherigen Sortierlogik, die
+gefühlte Willkür kam von der zweiten, abweichend sortierten Parallelliste,
+nicht von der Sortierung selbst).
+
+**(c) Transparenz über Parameter-Anpassungen**: eine automatische
+Regressions-Rekalibrierung (SPEC_lernzyklus.md Stufe 2) braucht laut jener
+Spec ≥600 Beobachtungen (aktuell: 1 Spieltag) - dafür ist es zu früh, ehrlich
+kommuniziert statt vorgetäuscht. Was diese Session aber zeigt: Retrospektive-
+Befunde führen SEHR WOHL zu echten, dokumentierten Parameteränderungen, wenn
+sie einen konkreten strukturellen Fehler aufdecken (wie hier `_estimate_prob`)
+- das ist der aktuelle, manuelle "Lernzyklus" (Befund -> Ursache -> gezielter
+Fix -> live verifiziert -> hier dokumentiert), keine Blackbox. Jede so
+motivierte Konstantenänderung wird in CLAUDE.md mit Vorher/Nachher-Beleg
+festgehalten (dieser Eintrag ist das Muster dafür).
+
 ## SPEC_spielertyp_matchkontext.md (2026-08-07, Prioritäten 1-3 umgesetzt)
 
 **Punktetyp-Index in k_eff (Priorität 1)**: `scoring.punktetyp_index(profile)`
