@@ -866,6 +866,7 @@ def run_league(kb, cfg, run_timestamp):
     last_completed_matchday = (current_matchday - 1) if current_matchday and current_matchday > 1 else None
     deviation = None
     retrospective_note = None
+    retrospective_caveat = None
     if last_completed_matchday:
         actuals_path = save_matchday_actuals(name, last_completed_matchday, ranking, run_timestamp)
         if actuals_path:
@@ -892,6 +893,33 @@ def run_league(kb, cfg, run_timestamp):
             try:
                 pred_kickoff = datetime.fromisoformat(raw_pred["kickoff_first"])
                 stale_prediction = pred_kickoff >= season_start_date
+            except ValueError:
+                pass
+
+        # Lineup-Aktualitäts-Hinweis (2026-08-12, User-Feedback "du hast
+        # doch die ganzen Reports und so" - nach dem obigen Korruptions-Fund
+        # wurde `1899_md1.json` aus dem git-Commit "Finaler Spieltagsprognose-
+        # Snapshot vor Anpfiff Spieltag 1" wiederhergestellt, s. CLAUDE.md.
+        # Diese Datei ist inhaltlich SAUBER (kein Bug), aber laut
+        # AUSWERTUNG_spieltag1.md änderten ALLE 11 Manager ihre Aufstellung
+        # noch NACH diesem letzten Lauf vor Anpfiff (13:11/hier 10:04 UTC vs.
+        # echter ~18:29-Uhr-Deadline) - die Team-Summen bleiben aussagekräftig,
+        # die Einsatz/Ausgang/Zu-Null-Zuordnung je EINZELNEM Spieler kann für
+        # zwischenzeitlich getauschte Spieler abweichen. Genereller Hinweis
+        # (nicht MD1-spezifisch hartkodiert) - greift künftig automatisch,
+        # falls ein Lauf mal deutlich vor der echten Deadline eingefroren wird.
+        retrospective_caveat = None
+        if raw_pred and not stale_prediction and raw_pred.get("generated_at") and raw_pred.get("kickoff_first"):
+            from datetime import datetime
+            try:
+                gap_h = (datetime.fromisoformat(raw_pred["kickoff_first"])
+                        - datetime.fromisoformat(raw_pred["generated_at"])).total_seconds() / 3600
+                if gap_h > 2:
+                    retrospective_caveat = (
+                        f"Basis: letzter gespeicherter Lauf {gap_h:.1f}h vor Anpfiff - "
+                        f"einzelne Manager können ihre Aufstellung danach noch geändert haben. "
+                        f"Team-Prognose/-Ist bleibt aussagekräftig, die Einsatz/Ausgang/Zu-Null-"
+                        f"Zuordnung je Spieler kann in Einzelfällen abweichen.")
             except ValueError:
                 pass
 
@@ -942,6 +970,8 @@ def run_league(kb, cfg, run_timestamp):
         if printable:
             print(f"\n📉 RÜCKBLICK · Spieltag {last_completed_matchday} - Vorab-Prognose vs. "
                   f"tatsächlicher (offizieller) Punktestand, Rang nach größter Abweichung:")
+            if retrospective_caveat:
+                print(f"   ℹ️ {retrospective_caveat}")
             for i, t in enumerate(printable[:5], 1):
                 flag = "" if t.get("checksum_ok") else " ⚠️ Prüfsumme verletzt"
                 print(f"   {i}. {t['name']}: Vorab-Prognose {t['prognose']:.0f} P → "
@@ -1011,6 +1041,7 @@ def run_league(kb, cfg, run_timestamp):
         "deviation_report": deviation,
         "retrospective": retrospective_teams,
         "retrospective_note": retrospective_note,
+        "retrospective_caveat": retrospective_caveat,
         "last_completed_matchday": last_completed_matchday,
         "prediction_diff": pred_diff,
         "fair_value_ok": fair_value_ok,

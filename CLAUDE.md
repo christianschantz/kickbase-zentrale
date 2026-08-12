@@ -492,6 +492,69 @@ Zielwert annähert, zeigt sich erst über mehrere echte Spieltage; keine
 automatische Rückkopplung von der Trefferquote auf `BANDWIDTH_Z` gebaut
 (bräuchte wie die Gewichts-Rekalibrierung genug Beobachtungen, s.o.).
 
+## Nachbesserung: echten Snapshot wiederhergestellt + LLM-Saisonstand-Bug (2026-08-12)
+
+User-Reaktion auf die "nicht verwertbar"-Warnung: "dass der Rückblick nicht
+da ist ist doch Müll, du hast doch die ganzen Reports und so" - berechtigt,
+das Gate hatte nur den SYMPTOMATISCHEN Bug behoben (keine Fantasiezahlen
+mehr zeigen), aber nicht geprüft, ob eine echte Alternative existiert.
+Zusätzlich: die KI-Einordnung schrieb "Vor dem ersten Spieltag..." Tage NACH
+Spieltag 1 - ein zweiter, unabhängiger Bug in derselben Nachricht gemeldet.
+
+**Echter Snapshot gefunden und wiederhergestellt**: `git log -- data/
+predictions/1899_md1.json` zeigt einen Commit `f0ab6db "Finaler
+Spieltagsprognose-Snapshot vor Anpfiff Spieltag 1 (18:30 UTC)"` -
+genau der in SPEC_punkteformel_final.md dokumentierte, bewusst vor dem
+echten Anpfiff gesicherte Lauf (10:04 UTC, kickoff_first korrekt
+2026-08-07T18:30 UTC, Werte plausibel 771-1049 P statt der späteren
+1500er-Ausreißer). Die frühere Einschätzung in AUSWERTUNG_spieltag1.md
+("nicht mehr rekonstruierbar... keine Rekonstruktion versucht") war
+VOREILIG - sie bezog sich auf den ARBEITSVERZEICHNIS-Stand, prüfte aber
+nie gezielt die Git-Historie nach dem explizit so benannten Commit. Fix:
+`git show f0ab6db:data/predictions/1899_md1.json` in den Arbeitsbaum
+zurückgeholt (überschreibt die korrumpierte Version), zugehöriger
+Player-Actuals-Cache (`data/actuals/1899_md1_players.json`, gegen die
+FALSCHE Aufstellung gefetcht) gelöscht und gegen die wiederhergestellte,
+korrekte Aufstellung neu geholt. Das Datenqualitäts-Gate von der letzten
+Nachbesserung bleibt als Verteidigungslinie bestehen (greift jetzt nicht
+mehr, da `kickoff_first` 2026-08-07 korrekt VOR dem aktuellen Saisonstand
+liegt) - kein Widerspruch zum vorigen Fix, sondern seine notwendige
+Ergänzung: Gate für den Fehlerfall, Wiederherstellung für den Datenfall.
+
+**Bekannte Einschränkung transparent gemacht statt versteckt**: laut
+AUSWERTUNG_spieltag1.md änderten ALLE 11 Manager ihre Aufstellung noch
+NACH diesem 10:04-Uhr-Lauf, vor der echten ~18:29-Uhr-Deadline - die
+Team-Summen (Prognose vs. offizielles Ist) bleiben aussagekräftig, aber
+die Einsatz/Ausgang/Zu-Null-Zuordnung EINZELNER Spieler kann für
+zwischenzeitlich getauschte Spieler abweichen. Neuer, GENERISCHER
+(nicht MD1-hartkodierter) Hinweis: `main.py` vergleicht `generated_at` vs.
+`kickoff_first` der geladenen Prognosedatei - liegt der Lauf >2h vor
+Anpfiff, erscheint automatisch ein Caveat-Text ("Basis: letzter
+gespeicherter Lauf Xh vor Anpfiff...") in Konsole und `report
+["retrospective_caveat"]`/HTML, oberhalb der Tabelle, ohne sie zu
+verstecken. Live verifiziert: 8,4h-Hinweis erscheint korrekt, tizi05s
+auffällige "Datenlücke +156" (Spieler-Summe 1043 vs. offiziell 1199 P)
+ist plausibel genau dieser Aufstellungsänderung zuzuordnen.
+
+**LLM-Saisonstand-Bug (`llm_insights.py`)**: `days_until_season_start_est`
+wurde unconditional aus `season_start_date` berechnet - seit
+`fixtures.get_season_info()` (letzte Nachbesserung) ist dieser Wert aber
+der Kickoff des NÄCHSTEN unbespielten Spieltags, nicht mehr zwingend "der
+Saisonstart". Nach Spieltag 1 maß das Feld faktisch "Tage bis Spieltag 2",
+hieß aber weiter irreführend "...season_start...", und das Modell
+interpretierte es wörtlich ("Vor dem ersten Spieltag..."). Fix: `report
+["kpis"]["season_started"]` (bereits vorhanden, `report_builder.
+compute_kpis()`, aus `ranking.us[].sp>0` - derselbe Indikator, der schon
+`season_phase()` fürs Dashboard nutzt) entscheidet jetzt das Feld-Label
+(`days_until_next_matchday_est` vs. `days_until_season_start_est`) UND
+einen neuen expliziten `season_already_started`-Boolean im Kontext;
+`TASK_INSTRUCTIONS` verbietet die Formulierung "vor dem ersten/allerersten
+Spieltag"/"vor Saisonstart" ausdrücklich, sobald `season_already_started`
+wahr ist. Live verifiziert (beide Ligen in einem Lauf, klarer Kontrast):
+2. Bundesliga (Saison lief bereits) - "Vor dem NÄCHSTEN Spieltag liegst
+du..."; La Liga (Saison tatsächlich noch nicht gestartet) weiterhin korrekt
+"Laut Prognose gehst du vor Saisonstart...".
+
 ## SPEC_spielertyp_matchkontext.md (2026-08-07, Prioritäten 1-3 umgesetzt)
 
 **Punktetyp-Index in k_eff (Priorität 1)**: `scoring.punktetyp_index(profile)`

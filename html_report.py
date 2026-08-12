@@ -436,6 +436,9 @@ def _retrospective_section(report):
         return f"{header}<p class='note warn'>⚠️ {_esc(stale_note)}</p>"
     header += ("<p class='note'>Rang 1 = größte Abweichung zwischen Vorab-Prognose und "
               "tatsächlich erzieltem Punktestand (nicht nach Punktzahl selbst).</p>")
+    caveat = report.get("retrospective_caveat")
+    if caveat:
+        header += f"<p class='note'>ℹ️ {_esc(caveat)}</p>"
     printable = [t for t in (teams or []) if "differenz" in t]
     simplified = False
     if not printable:

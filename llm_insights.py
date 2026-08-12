@@ -146,6 +146,19 @@ dem Input zu füllen:
    Erwartung/Prognose ("nach Prognose liegst du vor dem Spieltag auf
    Rang X").
 
+WICHTIG zum Saisonstand (live gefunden, 2026-08-12: das Modell schrieb
+"Vor dem ersten Spieltag..." tageweise NACH Spieltag 1 - Verwechslung, die
+denselben Fehler wie Punkt 6 spiegelt): `team_financials.
+season_already_started` sagt dir, ob mindestens ein Spieltag bereits
+gelaufen ist. Ist das `true`, befindest du dich NICHT mehr vor dem
+allerersten Spieltag der Saison - `days_until_next_matchday_est` misst dann
+nur den Abstand zum NÄCHSTEN (nicht dem ersten) Spieltag. Schreibe in
+diesem Fall NIE "vor dem ersten/allerersten Spieltag" oder "vor
+Saisonstart" - stattdessen z.B. "vor dem nächsten Spieltag" oder ganz ohne
+Zeitbezug. Nur wenn `season_already_started` `false` ist (und das Feld
+`days_until_season_start_est` heißt), ist die Formulierung "vor dem ersten
+Spieltag"/"vor Saisonstart" korrekt.
+
 Deine Aufgabe:
 1. Trage NUR bei, was du zusätzlich zum JSON-Kontext weißt oder ableiten
    kannst - keine Zusammenfassung des Inputs.
@@ -268,10 +281,27 @@ def build_context(report, strength_map, fixture_mode, matcher, generated_at, sea
     if budget < 0 and daily_squad_yield > 0:
         days_to_positive = round(abs(budget) / daily_squad_yield, 1)
 
+    # Bugfix (2026-08-12, User-Feedback "die KI sagt wir sind vor dem ersten
+    # Spieltag - der ist doch längst rum"): `season_start_date` (Parameter)
+    # ist seit fixtures.get_season_info() der Kickoff des NÄCHSTEN noch
+    # unbespielten Spieltags, nicht mehr zwingend "der Saisonstart" - sobald
+    # mindestens ein Spieltag gelaufen ist, misst die Differenz also den
+    # Abstand zum NÄCHSTEN Spieltag, nicht zum Saisonbeginn. Das Feld hieß
+    # aber weiter "days_until_season_start_est" und wurde vom Modell
+    # entsprechend wörtlich als "vor dem allerersten Spieltag" interpretiert
+    # (live falsch formuliert: "Vor dem ersten Spieltag..." Tage NACH
+    # Spieltag 1). `report["kpis"]["season_started"]` (report_builder.
+    # compute_kpis(), aus ranking.us[].sp>0 - derselbe Indikator, der schon
+    # season_phase()/das Dashboard nutzt) ist die AUTORITATIVE Quelle dafür,
+    # ob die Saison schon läuft - Feldname und TASK_INSTRUCTIONS-Text
+    # richten sich jetzt danach statt einer einzigen, zweideutigen Zahl.
+    season_started = bool(kpis.get("season_started"))
     if season_start_date is not None:
-        days_until_season = (season_start_date.date() - generated_at.date()).days
+        days_until_next = (season_start_date.date() - generated_at.date()).days
+    elif not season_started:
+        days_until_next = (SEASON_START_ESTIMATE - generated_at.date()).days
     else:
-        days_until_season = (SEASON_START_ESTIMATE - generated_at.date()).days
+        days_until_next = None
 
     team_financials = {
         "budget": budget,
@@ -280,7 +310,9 @@ def build_context(report, strength_map, fixture_mode, matcher, generated_at, sea
         "daily_squad_yield": daily_squad_yield,
         "trading_holds_daily_yield": trading_holds_yield,
         "days_to_positive_budget_est": days_to_positive,
-        "days_until_season_start_est": days_until_season,
+        "season_already_started": season_started,
+        **({"days_until_next_matchday_est": days_until_next} if season_started
+           else {"days_until_season_start_est": days_until_next}),
     }
 
     squad_ctx = []
