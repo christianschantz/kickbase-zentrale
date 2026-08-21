@@ -1001,16 +1001,26 @@ def run_league(kb, cfg, run_timestamp):
                   f"Platzierung, Prognoseabweichung als Zusatzinfo:")
             if retrospective_caveat:
                 print(f"   ℹ️ {retrospective_caveat}")
+            # User-Feedback (2026-08-21, wiederholt gemeldet): statt denselben
+            # generischen Warntext für jeden betroffenen Manager zu
+            # wiederholen (wirkte wie ein kaputtes Feature), EINE
+            # zusammenfassende Erklärung vorneweg - die Ursache ist für
+            # bereits abgeschlossene Spieltage nicht nachträglich reparierbar
+            # (git-Historie geprüft, kein späterer Snapshot mehr vorhanden),
+            # der zweite Cron-Lauf (18:15 UTC) verhindert es ab jetzt.
+            n_implausible = sum(1 for t in printable if t.get("implausible"))
+            if n_implausible:
+                print(f"   ⚠️ {n_implausible}/{len(printable)} Zerlegungen nicht verlässlich - "
+                      f"der einzige Prognose-Lauf an diesem Spieltag lag zu weit vor der echten "
+                      f"Deadline (kein späterer Snapshot rekonstruierbar). Ab dem nächsten "
+                      f"Spieltag behoben (zweiter Lauf kurz vor der Deadline, s. CLAUDE.md).")
             for i, t in enumerate(printable, 1):
                 flag = "" if t.get("checksum_ok", True) else " ⚠️ Prüfsumme verletzt"
                 print(f"   {i}. {t['name']}: {t['ist']:.0f} P "
                       f"(Vorab-Prognose {t['prognose']:.0f} P, Differenz {t['differenz']:+.0f}){flag}")
                 if t.get("implausible"):
-                    pct = abs(t["ist"] - t["ist_spielersumme"]) / max(abs(t["prognose"]), 1) * 100
-                    print(f"      ⚠️ Zerlegung nicht möglich: Spieler-Summe "
-                          f"({t['ist_spielersumme']:.0f} P) weicht um {pct:.0f}% der Prognose "
-                          f"vom offiziellen Wert ({t['ist']:.0f} P) ab - Datenproblem "
-                          f"(vermutlich abweichende Aufstellung), keine Modellabweichung.")
+                    print(f"      ⚠️ nicht verlässlich (Spieler-Summe "
+                          f"{t['ist_spielersumme']:.0f} P statt {t['ist']:.0f} P offiziell)")
                 elif "delta_einsatz" in t:
                     dl = f" · Datenlücke {t['delta_datenluecke']:+.0f}" if "delta_datenluecke" in t else ""
                     print(f"      davon erklärt: Einsatz {t['delta_einsatz']:+.0f} · "

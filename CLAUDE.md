@@ -756,6 +756,39 @@ Live-Modell-Liste zeigt `gemini-2.5-flash`/`gemini-2.5-flash-lite` als
 Gelegenheit aktualisiert werden, der Fallback kompensiert das aber bereits
 zuverlässig, kein akuter Handlungsbedarf.
 
+## Nachbesserung: Spieltag-2-Rückblick bleibt lückenhaft (Datenlage, nicht Code) + Darstellung konsolidiert (2026-08-21)
+
+User meldete dieselbe Spieltag-2-Ansicht (6/11 "Zerlegung nicht möglich")
+erneut mit "fixe das jetzt" - berechtigte Nachfrage, ob der vorige Cron-Fix
+tatsächlich gegriffen hat.
+
+**Exhaustiv geprüft, mit demselben Verfahren wie beim Spieltag-1-Fund**:
+`git log --all -- data/predictions/1899_md2.json` zeigt für den 15.08. NUR
+EINEN einzigen Commit (`ef5c77e`, 16:36 UTC) - anders als bei Spieltag 1
+existiert KEIN späterer, deadline-näherer Snapshot in der Historie. Der neue
+zweite Cron-Lauf (18:15 UTC) existierte an diesem Tag noch nicht (erst
+heute eingeführt) - er kann nur VERHINDERN, dass das ab Spieltag 3 wieder
+passiert, aber nichts nachträglich reparieren, was vorher nie aufgezeichnet
+wurde. **Spieltag 2 bleibt also dauerhaft bei 6/11 unzuverlässigen
+Zerlegungen - das ist keine offene Baustelle, sondern eine endgültig
+verlorene Datengrundlage**, exakt wie schon Spieltag 1s echter Vorkickoff-
+Snapshot in einem Fall unrekonstruierbar war.
+
+**Was stattdessen tatsächlich verbessert wurde**: die immer gleiche,
+lange Warnzeile pro betroffenem Manager wiederholte sich 6× und wirkte
+dadurch wie ein durchgängig kaputtes Feature statt eines einmaligen,
+erklärten Datenproblems. Jetzt EINE zusammenfassende Zeile im Kopf der
+Sektion ("6/11 Zerlegungen für Spieltag 2 nicht verlässlich... Ab dem
+nächsten Spieltag behoben") in Konsole UND HTML, jede betroffene Zeile
+selbst nur noch ein kurzer Verweis ("nicht verlässlich, Spieler-Summe X
+statt Y offiziell") statt der vollen Erklärung erneut. Ändert nichts an der
+zugrunde liegenden Datenlage, macht aber sichtbar, dass es sich um EIN
+bekanntes, bereits behobenes Problem handelt statt vieler Einzelfälle.
+
+**Lehre für den User**: der Beweis, dass der Cron-Fix greift, kommt erst
+mit Spieltag 3 (erster Spieltag mit dem neuen 18:15-UTC-Lauf) - vorher ist
+keine weitere Nachbesserung an Spieltag 2 selbst möglich oder sinnvoll.
+
 ## SPEC_spielertyp_matchkontext.md (2026-08-07, Prioritäten 1-3 umgesetzt)
 
 **Punktetyp-Index in k_eff (Priorität 1)**: `scoring.punktetyp_index(profile)`

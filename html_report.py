@@ -455,19 +455,30 @@ def _retrospective_section(report):
         simplified = True
         printable = [{"name": r["name"], "prognose": r["predicted"], "ist": r["actual"],
                      "differenz": r["diff"], "checksum_ok": True} for r in dev["rows"]]
+    # User-Feedback (2026-08-21, dasselbe Spieltag-2-Beispiel erneut
+    # gemeldet): die Ursache ("nicht möglich" bei vielen Managern) ist NICHT
+    # nachträglich reparierbar (git-Historie geprüft - anders als bei
+    # Spieltag 1 existiert für Spieltag 2 KEIN späterer, deadline-näherer
+    # Snapshot; der zweite Cron-Lauf, der das ab jetzt verhindert, existierte
+    # an dem Tag noch nicht). Statt denselben generischen Warntext pro
+    # betroffenem Manager zu wiederholen (wirkte wie ein wiederholt
+    # kaputtes Feature), EINE zusammenfassende Erklärung im Kopf + ein
+    # kurzer Hinweis je Zeile.
+    n_implausible = sum(1 for t in printable if t.get("implausible"))
+    if n_implausible:
+        header += (f"<p class='note warn'>⚠️ {n_implausible}/{len(printable)} Zerlegungen für "
+                  f"Spieltag {matchday} nicht verlässlich (der einzige Prognose-Lauf an diesem "
+                  f"Tag lag zu weit vor der echten Aufstellungs-Deadline - kein späterer Snapshot "
+                  f"mehr rekonstruierbar). Ab dem nächsten Spieltag behoben (zweiter Lauf kurz vor "
+                  f"der Deadline, s. CLAUDE.md).</p>")
     rows = []
     for i, t in enumerate(sorted(printable, key=lambda x: -x["ist"]), 1):
         checksum_warn = ("<span class='team-warn'>⚠️ Prüfsumme verletzt</span>"
                          if not t.get("checksum_ok", True) else "")
         if t.get("implausible"):
-            # AUSWERTUNG_spieltag2.md 1.4: eine Datenlücke, die die Prognose
-            # selbst um >15% übersteigt, absorbiert alle anderen Posten -
-            # keine erfundene Zahl zeigen, nur den Grund.
-            pct = abs(t["ist"] - t["ist_spielersumme"]) / max(abs(t["prognose"]), 1) * 100
-            detail_html = (f"<div class='meta warn'>⚠️ Zerlegung nicht möglich: Spieler-Summe "
-                           f"({t['ist_spielersumme']:.0f} P) weicht um {pct:.0f}% der Prognose vom "
-                           f"offiziellen Wert ab - Datenproblem (vermutlich abweichende "
-                           f"Aufstellung), keine Modellabweichung.</div>")
+            detail_html = (f"<div class='meta warn'>⚠️ Zerlegung nicht verlässlich "
+                           f"(Spieler-Summe {t['ist_spielersumme']:.0f} P statt "
+                           f"{t['ist']:.0f} P offiziell) - Grund oben.</div>")
         elif simplified:
             detail_html = ""
         else:
