@@ -458,26 +458,45 @@ EXCLUDE_MARKERS = ("preview", "-tts", "-image", "computer-use", "robotics",
                   "lyria", "nano-banana", "deep-research", "antigravity")
 
 
-def _pick_model(available):
+def _ranked_models(available):
     """
+    Liefert ALLE geeigneten Modelle in Präferenzreihenfolge (nicht nur das
+    erste) - Grundlage für den Modell-Fallback in `generate_insights()`
+    (2026-08-21, User-Feedback: "der KI-Report funktioniert nicht" bei
+    einem 503 "high demand" auf `gemini-flash-latest`, das trotz 3 Retries
+    mit wachsender Wartezeit nicht durchkam - alle Retries trafen dasselbe
+    überlastete Modell/Backend erneut. `PREFERRED` enthält bereits mehrere
+    unabhängige Modelle, wurde aber nur für die ERSTE Wahl genutzt, nie als
+    Fallback-Kette).
+
     SPEC_lernzyklus.md 6.2: der Verdacht war ein automatisch gewähltes
     Vorschaumodell (`gemini-3-flash-preview`) mit engerem Kontingent als die
     stabilen Produktivmodelle. Live gegengeprüft (2026-08-05, echte
     Modell-Liste mit 42 Einträgen inkl. gemini-3.x/3.5/3.6-Generationen):
-    `_pick_model()` wählt korrekt `gemini-flash-latest` (kein Preview-Name),
+    die Auswahl trifft korrekt `gemini-flash-latest` (kein Preview-Name),
     der Bug reproduzierte sich mit dem aktuellen Code NICHT - trotzdem
     zusätzliche Härtung, weil das Modellangebot sich sichtbar schnell
     weiterentwickelt (neue Generationen, neue Nicht-Chat-Varianten).
     """
     stable = [n for n in available if not any(x in n.lower() for x in EXCLUDE_MARKERS)]
+    ranked = []
     for want in PREFERRED:
         for name in stable:
-            if name.startswith(want):
-                return name
+            if name.startswith(want) and name not in ranked:
+                ranked.append(name)
     for name in stable:
-        if "flash" in name:
-            return name
-    return stable[0] if stable else None
+        if "flash" in name and name not in ranked:
+            ranked.append(name)
+    if not ranked:
+        ranked = stable[:1]
+    return ranked
+
+
+def _pick_model(available):
+    """Rückwärtskompatibel: nur das erste (bevorzugte) Modell - s.
+    `_ranked_models()` für die vollständige Fallback-Kette."""
+    ranked = _ranked_models(available)
+    return ranked[0] if ranked else None
 
 
 QUOTA_STATE_PATH = os.path.join("data", "llm_factors", "quota_state.json")
@@ -633,23 +652,41 @@ def generate_insights(report, strength_map, fixture_mode, matcher, generated_at,
                                 "kein neuer Versuch (Reset ca. 09:00 MESZ)"}
     try:
         models = _list_models(api_key)
-        model = _pick_model(models)
-        if not model:
+        candidates = _ranked_models(models)
+        if not candidates:
             return None, {"status": "no_model", "message": "kein passendes Gemini-Modell gefunden"}
         context = build_context(report, strength_map, fixture_mode, matcher, generated_at,
                                 season_start_date=season_start_date)
         prompt = build_prompt(context)
-        print(f"   (Prompt: {len(prompt):,} Zeichen, Modell {model})")
-        diag = _call_gemini(prompt, api_key, model)
-        print(f"   (Modell {diag.get('model')} · Tokens {diag.get('tokens_in')}→"
-              f"{diag.get('tokens_out')} · finishReason {diag.get('finish_reason')})")
-        if not diag.get("ok"):
+        print(f"   (Prompt: {len(prompt):,} Zeichen, Kandidaten {', '.join(candidates)})")
+
+        diag, tried = None, []
+        for model in candidates:
+            diag = _call_gemini(prompt, api_key, model)
+            tried.append(model)
+            print(f"   (Modell {diag.get('model')} · Tokens {diag.get('tokens_in')}→"
+                  f"{diag.get('tokens_out')} · finishReason {diag.get('finish_reason')})")
+            if diag.get("ok"):
+                break
             print(f"   ⚠️ Gemini {diag.get('status_code')}: {(diag.get('error_text') or '')[:300]}")
-            return None, {"status": "error", **diag}
+            # RPD ist projektweit, nicht modellspezifisch - ein anderes
+            # Modell würde nur weiteres Kontingent verbrauchen, ohne zu
+            # helfen (dieselbe Logik wie der bestehende RPD-Retry-Verzicht
+            # in _call_gemini()). Bei allem anderen (503 "high demand",
+            # 500/502/504, 429 RPM/TPM, 400) lohnt sich der Modellwechsel -
+            # live gefunden: ein überlastetes Modell blieb auch nach 3
+            # Retries überlastet, ein anderes PREFERRED-Modell ist ein
+            # unabhängiges Backend/Kontingent.
+            if diag.get("quota_kind") == "rpd":
+                break
+        if not diag.get("ok"):
+            if len(tried) > 1:
+                print(f"   ⚠️ Alle {len(tried)} Modell-Kandidaten fehlgeschlagen ({', '.join(tried)})")
+            return None, {"status": "error", "models_tried": tried, **diag}
         result = diag.get("data")
         if not result or "report" not in result or "player_flags" not in result:
-            return None, {"status": "bad_response", **diag}
-        return result, {"status": "ok", **diag}
+            return None, {"status": "bad_response", "models_tried": tried, **diag}
+        return result, {"status": "ok", "models_tried": tried, **diag}
     except (requests.RequestException, KeyError, IndexError, ValueError) as e:
         print(f"   ⚠️ KI-Schicht übersprungen ({type(e).__name__}: {e})")
         return None, {"status": "exception", "message": f"{type(e).__name__}: {e}"}

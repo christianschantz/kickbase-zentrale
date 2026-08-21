@@ -702,6 +702,60 @@ Vorsicht, nicht empirisch hergeleitet - falls sich über mehrere Spieltage
 zeigt, dass sie zu träge oder zu nervös reagiert, ist das ein guter
 Kandidat für eine spätere Nachjustierung MIT echter Mehr-Spieltage-Evidenz.
 
+## Nachbesserung: zu viele "Zerlegung nicht möglich" + Gemini-Ausfall (2026-08-21)
+
+User-Feedback direkt nach dem Live-Blick auf den neu sortierten Rückblick:
+"das geht ja gar nicht" - präzisiert auf Nachfrage als zwei konkrete
+Punkte: (a) 6 von 11 Managern zeigten nur die "Zerlegung nicht möglich"-
+Warnung statt einer echten Aufschlüsselung - der Rückblick lieferte für
+über die Hälfte der Liga keine Erkenntnis mehr, und (b) die KI-Einordnung
+war komplett ausgefallen (HTTP 503 "high demand" auf `gemini-flash-latest`).
+
+**(a) Root Cause: der einzige tägliche Lauf lag strukturell zu weit vor
+der echten Deadline.** `data/predictions/1899_md2.json` wurde um 16:31 UTC
+gespeichert (16:00-UTC-Cron), Kickoff war 18:30 UTC, die echte
+Aufstellungs-Deadline "20:29 Uhr" ist CEST-Lokalzeit (UTC+2 im Sommer) =
+**18:29 UTC** - fast identisch mit dem Kickoff, aber satte ~2h NACH dem
+gespeicherten Snapshot. Das deckt sich mit der schon in
+AUSWERTUNG_spieltag1.md dokumentierten, aber nie umgesetzten Lehre "main.py
+mehrfach bis kurz vor die reale Deadline laufen lassen, nicht nur einmal
+Stunden vorher" - der GitHub-Actions-Workflow lief bis hierhin trotzdem nur
+EINMAL täglich. Fix (`.github/workflows/briefing.yml`): zweiter Cron-Trigger
+`15 18 * * *` (18:15 UTC, ~14 Minuten vor dem typischen Freitagabend-
+Kickoff) - läuft dieselbe Pipeline ein zweites Mal, der Freeze-Gate in
+`save_matchday_prediction()` sorgt automatisch dafür, dass der spätere,
+aktuellere Snapshot gewinnt. Reduziert die Zeitlücke für die meisten
+Spieltage strukturell von ~4-8h auf <1h, behebt die Ursache nicht
+vollständig (Kickoff-Zeiten variieren über ein Wochenende, ein exaktes
+Timing je Partie bräuchte dynamisches Scheduling - hier bewusst nicht
+gebaut), sollte den Anteil der "nicht möglich"-Fälle aber deutlich senken.
+Die Plausibilitätsprüfung selbst (15%-Schwelle, AUSWERTUNG_spieltag2.md
+1.4) bleibt unverändert richtig - sie deckt jetzt einfach seltener echte
+Datenlücken auf, weil es weniger davon gibt.
+
+**(b) Gemini-Ausfall: fehlender Modell-Fallback, nicht nur fehlender
+Retry.** `_call_gemini()` wiederholte bei 503/429(non-RPD) bereits bis zu
+3× DASSELBE Modell mit wachsender Wartezeit - reichte nicht, wenn genau
+DAS Modell (`gemini-flash-latest`) längere Zeit überlastet ist. Die
+`PREFERRED`-Liste enthielt bereits mehrere unabhängige Modelle, wurde aber
+nur für die ERSTE Wahl genutzt, nie als Fallback-Kette. Fix:
+`_ranked_models()` (ersetzt `_pick_model()`s Einzelauswahl, bleibt als
+Wrapper bestehen) liefert ALLE geeigneten Kandidaten in Präferenz-
+reihenfolge; `generate_insights()` iteriert bei einem nicht-RPD-Fehlschlag
+zum nächsten Kandidaten (RPD bleibt ein sofortiger Abbruch - projektweites
+Tageskontingent, ein Modellwechsel hilft nicht, verbraucht nur weiteres
+Kontingent). Live verifiziert (echter 429 auf `gemini-flash-latest`,
+gefolgt von zwei 404 auf mittlerweile nicht mehr verfügbaren `gemini-2.5-
+flash`/`gemini-2.5-flash-lite`-Namen): `gemini-flash-lite-latest` (viertes
+Kandidat) lieferte erfolgreich einen Report, für BEIDE Ligen. `diag
+["models_tried"]` wird jetzt mitgeführt und bei >1 Versuch in
+`html_report._llm_block()` angezeigt ("N Modelle versucht (...)") -
+Transparenz, wenn der Fallback greifen musste. Nebenfund: die aktuelle
+Live-Modell-Liste zeigt `gemini-2.5-flash`/`gemini-2.5-flash-lite` als
+404 (nicht mehr unter diesem Namen erreichbar) - `PREFERRED` könnte bei
+Gelegenheit aktualisiert werden, der Fallback kompensiert das aber bereits
+zuverlässig, kein akuter Handlungsbedarf.
+
 ## SPEC_spielertyp_matchkontext.md (2026-08-07, Prioritäten 1-3 umgesetzt)
 
 **Punktetyp-Index in k_eff (Priorität 1)**: `scoring.punktetyp_index(profile)`

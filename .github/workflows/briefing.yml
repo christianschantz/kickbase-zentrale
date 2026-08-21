@@ -2,10 +2,23 @@ name: Kickbase Briefing
 
 on:
   schedule:
-    # 16:00 UTC = 18:00 CEST / 17:00 CET - vor dem 22-Uhr-MW-Update.
-    # Cron ist UTC-fix, driftet also um 1h wenn Deutschland zwischen
-    # Sommer-/Winterzeit wechselt - bei Bedarf anpassen.
+    # 16:00 UTC = 18:00 CEST / 17:00 CET - Haupt-Lauf, vor dem 22-Uhr-MW-
+    # Update UND früh genug, dass Christian den Report vor der Aufstellungs-
+    # Deadline lesen und noch reagieren kann. Cron ist UTC-fix, driftet
+    # also um 1h wenn Deutschland zwischen Sommer-/Winterzeit wechselt.
     - cron: "0 16 * * *"
+    # 18:15 UTC - zweiter Lauf NUR für einen möglichst aktuellen Prognose-
+    # Snapshot kurz vor der echten Aufstellungs-Deadline (~18:29 UTC bei
+    # Freitagabend-Kickoff 18:30 UTC, "20:29 Uhr" CEST lokal). Bugfix
+    # 2026-08-21 (AUSWERTUNG_spieltag2.md-Folgeauftrag): der einzige
+    # 16:00-UTC-Lauf lag bis zu 4h vor der echten Deadline - Manager
+    # änderten ihre Aufstellung in der Zwischenzeit oft noch, wodurch die
+    # Rückblick-Zerlegung für einen Großteil der Liga als "nicht möglich"
+    # unterdrückt werden musste (Datenlücke >15% der Prognose). Committet/
+    # published dieselbe Pipeline ein zweites Mal am Tag (idempotent, s.
+    # prediction_log.save_matchday_prediction()s Freeze-Gate - der später
+    # gespeicherte, aktuellere Snapshot gewinnt automatisch).
+    - cron: "15 18 * * *"
   workflow_dispatch: {}
 
 permissions:

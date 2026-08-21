@@ -576,6 +576,9 @@ def _llm_block(insights, status="ok", diag=None):
             lines.append(f"Ursache: {_esc(diag.get('message', 'unbekannt'))}")
         if diag.get("model"):
             lines.append(f"Modell: {_esc(diag['model'])}")
+        tried = diag.get("models_tried") or []
+        if len(tried) > 1:
+            lines.append(f"{len(tried)} Modelle versucht ({_esc(', '.join(tried))})")
         note = " · ".join(lines)
         return (f"<div class='llm-block llm-warn'><div class='llm-label'>🤖 KI-Einordnung</div>"
                 f"<p class='note warn'>{note} - morgen wieder versucht.</p></div>")
