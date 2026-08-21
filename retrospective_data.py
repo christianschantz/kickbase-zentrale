@@ -94,6 +94,11 @@ def build_ist(player_actual, pos, punktetyp_idx, liga_avg_win_prob_now):
         ist["gegnerfaktor"] = g_ist
     if z_ist is not None:
         ist["zu_null_bonus"] = z_ist
+    # Für weights_calibration.py (OPPONENT_K-Nachjustierung): der ROHE
+    # realisierte Ausgang, unabhängig vom aktuell geltenden K (g_ist ist
+    # bereits mit K multipliziert, dafür ungeeignet als Regressions-Input).
+    if win_prob_ist is not None:
+        ist["win_prob_ist"] = win_prob_ist
     return ist
 
 
@@ -148,6 +153,10 @@ def build_waterfall_report(kb, league_id, league_name, matchday, liga_avg_win_pr
         official = (official_actuals or {}).get(str(m["uid"]))
         team = retrospective.waterfall_manager(m, ist_by_player, official_actual=official)
         team["uid"], team["name"] = m["uid"], m["name"]
+        # weights_calibration.py braucht die rohen Ist-Werte je Spieler
+        # (win_prob_ist etc.) für die OPPONENT_K-Regression - hier schon
+        # einmal berechnet, kein Grund, sie in main.py erneut zu bauen.
+        team["ist_by_player"] = ist_by_player
         teams.append(team)
     return teams
 

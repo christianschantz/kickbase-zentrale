@@ -44,6 +44,7 @@ from league_teams import build_league_teams
 from prediction_log import (save_matchday_prediction, save_daily_bids, save_matchday_actuals,
                             deviation_report, load_matchday_prediction, diff_predictions)
 from retrospective_data import build_waterfall_report
+from weights_calibration import update_from_matchday, calibration_summary
 
 LEAGUE_BOARD_TOP_N = 10  # Top N je Position in der Liga-Bestenliste (B5)
 
@@ -141,6 +142,12 @@ def run_league(kb, cfg, run_timestamp):
     print("\n" + "=" * 62)
     print(f"🏆 LIGA: {name}")
     print("=" * 62)
+
+    # Lädt eine ggf. seit dem letzten Modulimport aktualisierte OPPONENT_K-
+    # Kalibrierung (weights_calibration.py) - stellt sicher, dass eine
+    # Rekalibrierung aus Liga 1 (weiter unten, nach deren Rückblick) auch
+    # für Liga 2 im selben Lauf gilt, nicht erst beim nächsten Prozessstart.
+    coach.refresh_opponent_k()
 
     league_id = kb.get_league_id(name)
     if not league_id:
@@ -964,6 +971,24 @@ def run_league(kb, cfg, run_timestamp):
                 printable = sorted(
                     (t for t in retrospective_teams if "differenz" in t),
                     key=lambda x: (-x["ist"], x["uid"]))
+                # Dynamische OPPONENT_K-Rekalibrierung (User-Wunsch,
+                # AUSWERTUNG_spieltag2.md-Nachfolgeauftrag): akkumuliert
+                # Beobachtungen aus diesem Spieltag NUR aus plausiblen
+                # Managern (implausible=True fließt nicht ein, s.
+                # weights_calibration.py). Idempotent - ein Spieltag zählt
+                # nur beim ersten Lauf, in dem er verarbeitet wird.
+                try:
+                    calib_state, n_neu = update_from_matchday(
+                        name, last_completed_matchday, raw_pred,
+                        retrospective_teams, liga_avg_win_prob)
+                    if n_neu:
+                        coach.refresh_opponent_k()
+                        print(f"\n🎯 OPPONENT_K nachjustiert (+{n_neu} neue Beobachtungen "
+                              f"aus Spieltag {last_completed_matchday}):")
+                        for line in calibration_summary(calib_state):
+                            print(f"   {line}")
+                except Exception as e:
+                    print(f"⚠️ OPPONENT_K-Rekalibrierung fehlgeschlagen: {e}")
             elif deviation:
                 # Wasserfall-Zerlegung nicht verfügbar (z.B. Player-Fetch
                 # fehlgeschlagen) - wenigstens den offiziellen Wert zeigen,

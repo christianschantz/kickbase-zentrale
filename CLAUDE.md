@@ -636,6 +636,72 @@ sollte NICHT versuchen, Losglück vorherzusagen. Empfehlung: Spreizung
 nach Spieltag 4+ (wenn `form_factor` aktiv wird) erneut prüfen, vorher
 keine belastbare Aussage möglich.
 
+## Nachbesserung: dynamische OPPONENT_K-Rekalibrierung (2026-08-21)
+
+User-Nachfrage zur "keine Gewichtsänderung"-Entscheidung oben: "wieso keine
+Gewichtsänderung? wenn das sinnvoll wäre gerne machen." Antwort mit Beleg:
+Kappungsgrenzen selbst sind live NACHWEISLICH nicht die Bremse (Gegnerfaktor
+real nur 0,84-1,15 bei Grenzen 0,80-1,25, 0/117 Werte an der Grenze;
+Formfaktor exakt 1,0 für 100% der Spieler; Einsatzfaktor nur zwei Werte
+überhaupt vorhanden) - eine Anhebung der Kappung hätte nichts verändert.
+Der einzige echte Hebel wäre `OPPONENT_K` (die Sensitivität) selbst gewesen
+- das aber wäre eine echte Gewichtsänderung, kalibriert gegen nur 2
+Spieltage. User-Antwort: "ja anpassen und so einstellen, dass die Anpassung
+nach jedem Spieltag dynamisch fortgeführt wird" - explizit ein
+AUTOMATISCHES, fortlaufendes System gewünscht, kein einmaliger Handwert.
+
+**Neues Modul `weights_calibration.py`**: schätzt `OPPONENT_K` je Position
+per OLS-Steigung durch den Ursprung (`k = Σ(x·y)/Σ(x²)`, x = realisierte
+Sieg-WK minus Liga-Ø, y = punkte_ist bereinigt um Einsatz/Form/Zu-Null
+relativ zur Basis) aus ECHTEN Spieltagsergebnissen, geblendet mit dem
+bisherigen Prior über dieselbe Vertrauensgewichtung `n/(n+n0)`, die
+`coach.PUNKTEBASIS_N0` schon nutzt. Nur Beobachtungen aus Managern, die
+`retrospective.py`s neuer Plausibilitätsprüfung (s.o.) standhalten -
+implausible Aufstellungen würden die Regression verfälschen. Zustand
+(kumulierte Σ(x·y)/Σ(x²)/n je Position, additiv über Spieltage) in
+`data/weights/opponent_k_state.json`, idempotent (`matchdays_processed`
+verhindert Doppelzählung bei mehrfachem Tageslauf). `coach.py` lädt den
+Blend beim Modulimport (`refresh_opponent_k()`), `main.py` ruft das
+zusätzlich zu Beginn jeder Liga erneut auf, damit eine Rekalibrierung aus
+Liga 1 im selben Lauf auch für Liga 2 gilt.
+
+**Sofortiger Live-Befund: der erste echte Kalibrierungslauf bewies, warum
+Vorsicht nötig war.** Mit dem ursprünglichen `n0=40` lieferte Spieltag 2
+(n=5-20 Beobachtungen/Position, EIN einziger Spieltag) für ABW/MF/ANG eine
+NEGATIVE rohe Steigung (-0,2 bis -0,5) - hätte man das ungeprüft geblendet,
+wäre `OPPONENT_K` um 34-44% in eine domänen-widersprüchliche Richtung
+gerutscht (eine höhere Sieg-WK würde dann laut Modell die Punkteerwartung
+SENKEN statt heben - widerspricht der Grundprämisse). **Zwei Schutzmaßnahmen
+nachgezogen, noch im selben Zug wie der Erstbau**: (1) `n0` auf 150 erhöht
+(derselbe Spieltag bewegt den Blend jetzt <15% statt 34-44%) - ein
+struktureller Fehler braucht jetzt mehrere Spieltage, um durchzuschlagen,
+ein einzelner Ausreißer-Spieltag kann es nicht mehr. (2) Vorzeichen-Constraint
+in `_position_blend()`: eine NEGATIVE empirische Schätzung wird NIE geblendet
+(Prior bleibt exakt erhalten, nur zur Transparenz geloggt) - bei so kleinen
+Stichproben praktisch immer Rauschen (einzelne Ausreißer-Leistungen auf der
+Verliererseite), kein Signal, und würde sonst systematisch gegen die eigene
+Modellprämisse laufen. Live verifiziert nach dem Fix: TW (einziger Wert mit
+positiver empirischer Schätzung, n=5) bekommt einen minimalen, plausiblen
+Nudge (0,90→0,909, 3% Gewicht), ABW/MF/ANG behalten exakt ihren Prior mit
+sichtbarer Begründung ("empirisch NEGATIV - Domänen-Constraint verletzt,
+Prior beibehalten") statt eines falsch gerichteten Sprungs.
+
+**Transparenz**: `main.py` druckt nach jedem neu verarbeiteten Spieltag
+einen "🎯 OPPONENT_K nachjustiert"-Block mit Prior/Blend/empirischem
+Wert/Vertrauensgewicht je Position (`weights_calibration.calibration_
+summary()`) - direkte Antwort auf die wiederholte User-Frage, OB und WIE
+sich Rückblick-Erkenntnisse auf die Prognose auswirken. Kein Konsolen-
+Output, wenn ein Spieltag schon verarbeitet wurde (idempotent, kein
+Rauschen bei täglichen Wiederholungsläufen).
+
+**Bewusste Grenzen**: nur `OPPONENT_K` wird dynamisch rekalibriert (4
+Freiheitsgrade) - eine volle Regression über alle Faktoren
+(SPEC_lernzyklus.md Stufe 2) bleibt bei der dort begründeten ≥600-
+Beobachtungen-Schwelle. `n0=150` ist selbst eine Erstkalibrierung der
+Vorsicht, nicht empirisch hergeleitet - falls sich über mehrere Spieltage
+zeigt, dass sie zu träge oder zu nervös reagiert, ist das ein guter
+Kandidat für eine spätere Nachjustierung MIT echter Mehr-Spieltage-Evidenz.
+
 ## SPEC_spielertyp_matchkontext.md (2026-08-07, Prioritäten 1-3 umgesetzt)
 
 **Punktetyp-Index in k_eff (Priorität 1)**: `scoring.punktetyp_index(profile)`

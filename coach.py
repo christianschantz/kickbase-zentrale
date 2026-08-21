@@ -112,9 +112,33 @@ def einsatzfaktor(st, prob):
 # k positionsabhängig (SPEC 2.2): TW/ABW reagieren am stärksten (Zu-Null-
 # Prämie hängt am Sieg), MF am schwächsten (profitiert eher von
 # Spielkontrolle als vom Ergebnis), ANG mittel-hoch (Torwahrscheinlichkeit
-# steigt gegen schwache Gegner). Erstkalibrierung, noch nicht gegen echte
-# Spieltage geprüft.
-OPPONENT_K = {"TW": 0.90, "ABW": 1.00, "MF": 0.50, "ANG": 0.75}
+# steigt gegen schwache Gegner). Erstkalibrierung, ab jetzt dynamisch
+# nachjustiert (s.u.).
+#
+# **Dynamische Rekalibrierung (2026-08-21, User-Wunsch im Anschluss an
+# AUSWERTUNG_spieltag2.md)**: `weights_calibration.py` schätzt je Position
+# eine empirische Steigung aus echten Spieltagsergebnissen (vertrauens-
+# gewichteter Blend mit diesem Prior, dasselbe n/(n+n0)-Prinzip wie
+# PUNKTEBASIS_N0) und persistiert den Zustand in
+# `data/weights/opponent_k_state.json`. `OPPONENT_K` wird beim Modulimport
+# EINMAL geladen (fällt ohne Zustandsdatei/Modul automatisch auf den
+# Prior zurück) - `refresh_opponent_k()` lädt neu, main.py ruft das zu
+# Beginn jeder Liga auf, damit eine Rekalibrierung aus Liga 1 auch für
+# Liga 2 im selben Lauf gilt.
+OPPONENT_K_PRIOR = {"TW": 0.90, "ABW": 1.00, "MF": 0.50, "ANG": 0.75}
+
+
+def refresh_opponent_k():
+    global OPPONENT_K
+    try:
+        import weights_calibration
+        OPPONENT_K = weights_calibration.blended_opponent_k()
+    except Exception:
+        OPPONENT_K = dict(OPPONENT_K_PRIOR)
+    return OPPONENT_K
+
+
+OPPONENT_K = refresh_opponent_k()
 OPPONENT_FACTOR_BOUNDS = (0.80, 1.25)
 
 
