@@ -134,19 +134,35 @@ def load_matchday_prediction(league_name, matchday):
 def save_matchday_actuals(league_name, matchday, ranking, generated_at):
     """
     Datei B, s. Modul-Docstring für den Scope (Manager-Ebene, aus
-    `ranking.us[].mdp`). Schreibt nur, wenn der Spieltag laut `mdp>0` für
-    mindestens einen Manager begonnen hat, und nur EINMAL (schreibt nicht
-    erneut, wenn die Datei schon existiert - Ist-Werte sind endgültig).
+    `ranking.us[].mdp`). Schreibt, wenn der Spieltag laut `mdp>0` für
+    mindestens einen Manager begonnen hat.
+
+    **Bugfix (2026-08-21, User-Vorschlag)**: schrieb bisher NUR EINMAL
+    (Datei existiert -> nie wieder angefasst) - ein Wert kurz nach
+    Spieltagsende ist aber noch nicht zwingend final (Kickbase korrigiert
+    Statistiken gelegentlich nachträglich, "montags kommt meist die final
+    verifizierte Ranking"). Jetzt bleibt der Wert aktualisierbar, SOLANGE
+    dieser Spieltag noch der zuletzt abgeschlossene ist - `main.py` ruft
+    diese Funktion nur für `last_completed_matchday` (= current_matchday-1)
+    auf, sobald der NÄCHSTE Spieltag ebenfalls abschließt, wird dieser
+    Aufruf für den alten Spieltag nie wieder getätigt und der Wert friert
+    dadurch implizit von selbst ein - kein eigener Cutoff-Zeitpunkt (z.B.
+    "Montag 18 Uhr") nötig, der ohnehin nur geraten wäre. Schreibt nur bei
+    TATSÄCHLICHER Wertänderung neu (kein Rauschen in täglichen git-Diffs,
+    wenn sich nichts geändert hat).
     """
     us = ranking.get("us") or []
     if not any((u.get("mdp") or 0) > 0 for u in us):
         return None
     os.makedirs(ACTUALS_DIR, exist_ok=True)
     path = os.path.join(ACTUALS_DIR, f"{_slug(league_name)}_md{matchday}.json")
-    if os.path.exists(path):
-        return path
     managers = [{"uid": str(u.get("i")), "name": (u.get("n") or "").strip(),
                 "actual": u.get("mdp"), "rank": u.get("mdpl")} for u in us]
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            existing = json.load(f)
+        if existing.get("managers") == managers:
+            return path  # unverändert - kein Neuschreiben nötig
     data = {"league": league_name, "matchday": matchday,
            "generated_at": generated_at.isoformat(), "managers": managers}
     with open(path, "w", encoding="utf-8") as f:

@@ -789,6 +789,47 @@ bekanntes, bereits behobenes Problem handelt statt vieler Einzelfälle.
 mit Spieltag 3 (erster Spieltag mit dem neuen 18:15-UTC-Lauf) - vorher ist
 keine weitere Nachbesserung an Spieltag 2 selbst möglich oder sinnvoll.
 
+## Korrektur: kein Per-Spiel-Lock, sondern EIN Lock je Spieltag (2026-08-21)
+
+User-Rückfrage auf den Vorschlag "4 zusätzliche Cron-Läufe für 4
+Kickoff-Slots": "nach Beginn des ersten Spiels des Spieltags... können
+keine Anpassungen mehr vorgenommen werden. Ein Lauf reicht doch." **Der
+User hatte recht, ich hatte mich verrannt** - ich war fälschlich von einem
+Per-Spiel-Lock ausgegangen (üblich bei anderen Fantasy-Football-Plattformen),
+dabei dokumentiert CLAUDE.md das Gegenteil bereits seit der ursprünglichen
+Recherche (Zeile 18, "vom User bestätigt"): EINE einzige "Aufstellungs-
+Deadline 20:29 Uhr" für den GANZEN Spieltag, nicht pro Einzelspiel. Hätte
+ich diesen bereits etablierten Fakt zuerst geprüft statt von generischem
+Fantasy-Football-Wissen auszugehen, wäre der Fehlvorschlag vermeidbar
+gewesen.
+
+**Konsequenz**: die schon gepushten zwei Cron-Läufe (16:00 + 18:15 UTC)
+sind bei korrektem Verständnis bereits ausreichend - der erste Kickoff
+eines Spieltags variiert beobachtet zwischen 16:30 UTC (Spieltag 3) und
+18:30 UTC (Spieltag 1/2), und je nachdem, welcher Wochenwert zutrifft,
+liegt einer der beiden Läufe automatisch nah davor (16:00 UTC: 30min
+Puffer bei 16:30-Kickoff; 18:15 UTC: 15min Puffer bei 18:30-Kickoff). Der
+zunächst vorgeschlagene, deutlich aufwendigere 4-Läufe-Plan (mehr GitHub-
+Actions-Minuten, mehr Gemini-Kontingent-Verbrauch) ist damit hinfällig -
+KEINE weitere Cron-Änderung vorgenommen.
+
+**Zweiter Teil des User-Vorschlags umgesetzt, aber robuster als geplant**:
+"und dann halt am Ende vom Spieltag (montags 18 Uhr kommt meistens die
+finale überprüfte Ranking)" - statt eines hartkodierten, ohnehin nur
+geratenen Cutoff-Zeitpunkts ("Montag 18 Uhr") wurde `prediction_log.
+save_matchday_actuals()`s Schreibsperre entfernt: die Datei schrieb bisher
+NUR EINMAL (Existenz-Check → nie wieder angefasst), ein früher, eventuell
+noch nicht final korrigierter `mdp`-Wert wäre dadurch dauerhaft eingefroren
+gewesen. Jetzt bleibt der Wert aktualisierbar (nur bei tatsächlicher
+Änderung neu geschrieben, kein Rauschen in täglichen Diffs), SOLANGE dieser
+Spieltag noch der zuletzt abgeschlossene ist - `main.py` ruft die Funktion
+nur für `last_completed_matchday` auf, sobald der NÄCHSTE Spieltag
+ebenfalls abschließt, wird der alte Aufruf nie wieder getätigt und der Wert
+friert dadurch implizit von selbst ein. Kein eigener Cutoff-Zeitpunkt
+nötig, der ohnehin nur eine Vermutung gewesen wäre - das Verhalten passt
+sich automatisch an, wie lange Kickbase tatsächlich braucht, bis ein Wert
+stabil bleibt.
+
 ## SPEC_spielertyp_matchkontext.md (2026-08-07, Prioritäten 1-3 umgesetzt)
 
 **Punktetyp-Index in k_eff (Priorität 1)**: `scoring.punktetyp_index(profile)`
