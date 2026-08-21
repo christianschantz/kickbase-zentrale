@@ -434,8 +434,12 @@ def _retrospective_section(report):
     # irrelevante Sortier-Erklärung für eine Tabelle, die es nicht gibt.
     if stale_note:
         return f"{header}<p class='note warn'>⚠️ {_esc(stale_note)}</p>"
-    header += ("<p class='note'>Rang 1 = größte Abweichung zwischen Vorab-Prognose und "
-              "tatsächlich erzieltem Punktestand (nicht nach Punktzahl selbst).</p>")
+    # AUSWERTUNG_spieltag2.md 3.2/5 (User-Feedback: "beantwortet nicht die
+    # Frage, die man zuerst hat: Wie stehe ich?"): Sortierung jetzt nach dem
+    # ECHTEN Punktestand (Platzierung), Prognoseabweichung bleibt als
+    # Zusatzinfo je Zeile, bestimmt aber nicht mehr die Reihenfolge.
+    header += ("<p class='note'>Sortiert nach tatsächlich erzieltem Punktestand "
+              "(Platzierung) - Prognoseabweichung als Zusatzinfo je Manager.</p>")
     caveat = report.get("retrospective_caveat")
     if caveat:
         header += f"<p class='note'>ℹ️ {_esc(caveat)}</p>"
@@ -452,18 +456,30 @@ def _retrospective_section(report):
         printable = [{"name": r["name"], "prognose": r["predicted"], "ist": r["actual"],
                      "differenz": r["diff"], "checksum_ok": True} for r in dev["rows"]]
     rows = []
-    for i, t in enumerate(sorted(printable, key=lambda x: -abs(x["differenz"])), 1):
+    for i, t in enumerate(sorted(printable, key=lambda x: -x["ist"]), 1):
         checksum_warn = ("<span class='team-warn'>⚠️ Prüfsumme verletzt</span>"
-                         if not t.get("checksum_ok") else "")
-        detail_html = "" if simplified else (
-            f"<div class='meta'>davon erklärt: 🩹 Einsatz {t['delta_einsatz']:+.0f} · "
-            f"⚔️ Ausgang {t['delta_ausgang']:+.0f} · 🧤 Zu-Null {t['delta_zunull']:+.0f} · "
-            f"🎲 Leistung {t['delta_leistung']:+.0f} (unerklärt){_datenluecke_html(t)}</div>")
+                         if not t.get("checksum_ok", True) else "")
+        if t.get("implausible"):
+            # AUSWERTUNG_spieltag2.md 1.4: eine Datenlücke, die die Prognose
+            # selbst um >15% übersteigt, absorbiert alle anderen Posten -
+            # keine erfundene Zahl zeigen, nur den Grund.
+            pct = abs(t["ist"] - t["ist_spielersumme"]) / max(abs(t["prognose"]), 1) * 100
+            detail_html = (f"<div class='meta warn'>⚠️ Zerlegung nicht möglich: Spieler-Summe "
+                           f"({t['ist_spielersumme']:.0f} P) weicht um {pct:.0f}% der Prognose vom "
+                           f"offiziellen Wert ab - Datenproblem (vermutlich abweichende "
+                           f"Aufstellung), keine Modellabweichung.</div>")
+        elif simplified:
+            detail_html = ""
+        else:
+            detail_html = (
+                f"<div class='meta'>davon erklärt: 🩹 Einsatz {t['delta_einsatz']:+.0f} · "
+                f"⚔️ Ausgang {t['delta_ausgang']:+.0f} · 🧤 Zu-Null {t['delta_zunull']:+.0f} · "
+                f"🎲 Leistung {t['delta_leistung']:+.0f} (unerklärt){_datenluecke_html(t)}</div>")
         rows.append(f"""<div class="team-row">
   <span class="team-rank">{i}</span>
   <span class="team-name">{_esc(t['name'])}</span>
-  <span class="team-stat">{t['prognose']:.0f} P <span class="team-sub">Vorab-Prognose</span></span>
   <span class="team-stat">{t['ist']:.0f} P <span class="team-sub">tatsächlich erzielt</span></span>
+  <span class="team-stat">{t['prognose']:.0f} P <span class="team-sub">Vorab-Prognose</span></span>
   <span class="team-stat">{t['differenz']:+.0f} P <span class="team-sub">Differenz</span></span>
   {checksum_warn}
   {detail_html}

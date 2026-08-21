@@ -555,6 +555,87 @@ wahr ist. Live verifiziert (beide Ligen in einem Lauf, klarer Kontrast):
 du..."; La Liga (Saison tatsächlich noch nicht gestartet) weiterhin korrekt
 "Laut Prognose gehst du vor Saisonstart...".
 
+## AUSWERTUNG_spieltag2.md (2026-08-21) — Datenlücke war ein Bug, nicht Rauschen
+
+**Auftrag**: User meldete die Wasserfall-Zerlegung als für Spieltag 2
+"nicht auswertbar" - die "Datenlücke" war bei mehreren Managern SO groß
+(bis 2,27× die offizielle Punktzahl), dass sie alle anderen Posten
+überdeckte, teils sogar mit entgegengesetztem Vorzeichen zur
+Gesamtdifferenz ("Leistung" +530 bei einer Gesamtdifferenz von -389 bei
+PaulBowa) - ein Rechenartefakt, kein Erkenntnisgewinn.
+
+**Diagnose exakt nach der vorgeschlagenen Methode (Abschnitt 1.3)**: für
+PaulBowas komplette gespeicherte Startelf live gegen `get_player_details()`
+geprüft - `ph[1]["p"]` (Index für Spieltag 2, per Tages-Offset-Formel
+korrekt berechnet) lieferte u.a. Zoma 345 P, Cigerci 281 P. **Hypothese A
+(kumulierte statt Spieltagspunkte) ist WIDERLEGT**: `ap` (Punkteschnitt)
+stimmt exakt mit dem Mittel der `ph`-Einträge überein (z.B. Zoma:
+(81+345)/2=213=ap) - `ph` enthält also tatsächlich einzelne
+Spieltagspunkte, keine Kumulation, und der Code liest korrekt `ph`, nicht
+das separate (hier ohnehin leere) `p`-Saisonfeld. Die Extraktionslogik
+selbst ist damit als korrekt bestätigt.
+
+**Tatsächliche Ursache**: die gespeicherte gefrorene Aufstellung
+(`data/predictions/1899_md2.json`, generiert ~2h vor Anpfiff) weicht in
+mehreren Fällen so stark von der ECHTEN Spieltags-11 ab, dass die
+Spieler-Summe nicht mehr näherungsweise, sondern grundlegend falsch ist -
+plausibel dadurch, dass die 20:29-Uhr-Deadline nach dem Kickoff der
+ersten Partie liegt und Manager bis dahin noch tauschen können (dieselbe
+strukturelle Einschränkung wie bei Spieltag 1, hier nur besonders stark
+ausgeprägt bei einzelnen Managern). Eine autoritative "was war die ECHTE
+Spieltag-N-Aufstellung"-Quelle existiert nicht (kein verifizierter
+historischer Lineup-Endpoint) - das bleibt eine strukturelle Grenze, keine
+mit vertretbarem Aufwand behebbare Lücke.
+
+**Fix (`retrospective.py`)**: `PLAUSIBILITY_THRESHOLD = 0.15` - übersteigt
+die Datenlücke 15% der Prognose, wird die GRANULARE Einsatz/Ausgang/
+Zu-Null/Leistung-Aufschlüsselung unterdrückt (`team["implausible"] =
+True`) und stattdessen eine Klartext-Warnung gezeigt ("Zerlegung nicht
+möglich: Spieler-Summe X P weicht um Y% der Prognose vom offiziellen Wert
+ab - Datenproblem, keine Modellabweichung"). Der TOP-LEVEL-Vergleich
+(offizielles Ist vs. Prognose, Differenz) bleibt davon unberührt sichtbar
+- der stammt vom offiziellen Wert, nicht von der Spieler-Summe, und ist
+in JEDEM Fall vertrauenswürdig. Live verifiziert: exakt die Manager mit
+großer Ratio in der Spec-Tabelle (PaulBowa 82%, nico 66%,
+christianjens 44%, malte.srn 34%, Moosi 32%, Adrian 30%) zeigen jetzt die
+Warnung statt einer erfundenen Aufschlüsselung; die mit kleiner Ratio
+(SvenNumeroUno, Luke, david, tizi05, Robin04) zeigen weiterhin die volle,
+vertrauenswürdige Zerlegung.
+
+**Sortierung umgestellt (Abschnitt 3.2/5)**: Konsole und
+`html_report._retrospective_section()` sortieren jetzt nach dem ECHTEN
+erzielten Punktestand (beantwortet zuerst "Wie stehe ich?"), nicht mehr
+nach Abweichung - die Prognoseabweichung bleibt als Zusatzinfo je Zeile
+sichtbar. Zeigt jetzt ALLE Manager (Tabellen-/Standings-Charakter statt
+Top-5-Ausschnitt).
+
+**Spreizung untersucht (Abschnitt 2), bewusst OHNE Gewichtsänderung**
+(explizite Spec-Vorgabe "ausdrücklich nicht jetzt: Faktorgewichte einzeln
+nachjustieren"): Per-Manager-Auswertung der gespeicherten Faktoren
+(`1899_md2.json`) zeigt, WARUM die Prognose-Spanne (953-1178, Faktor 1,2)
+enger ist als die Ist-Spanne (593-1289, Faktor 2,2) - **kein Hinweis auf
+zu enge Kappungsgrenzen**, sondern drei getrennte, jeweils erklärbare
+Effekte: (1) `Einsatz_avg` liegt bei ~1,00 für praktisch JEDEN Manager
+(0,985-1,000) - rationale Kaderwahl saturiert diesen Faktor strukturell
+(kein Manager stellt freiwillig einen roten/grauen Spieler, wenn eine
+fitte Alternative existiert), der theoretisch riesige Einsatz-Wertebereich
+(0,10-1,00) trägt dadurch praktisch NICHTS zur Differenzierung ZWISCHEN
+Managern bei. (2) `Form_avg` ist exakt 1,000 für ALLE Manager - kein Bug,
+sondern `coach.form_factor()`s eigene Gate-Bedingung (`len(recent) < 3`
+-> neutral): nach erst 2 gespielten Spieltagen kann noch KEIN Spieler 3+
+gespielte Spieltage in `ph` haben, der Faktor ist bis Spieltag 4 rein
+rechnerisch für jeden inaktiv - löst sich automatisch, keine Anpassung
+nötig. (3) `Gegner_avg` streut real, aber moderat (1,005-1,065) - die
+eigentliche Differenzierung zwischen Managern kommt überwiegend aus der
+`Basis` (938-1154, ~23% Spanne, spiegelt echte Kaderqualität). **Ehrliche
+Einordnung**: die verbleibende Differenz zur Ist-Spanne (2,2×) ist zu
+großen Teilen echte Spieltags-Varianz (Elfmeter, Platzverweise,
+Ausreißer-Einzelleistungen) - das ist strukturell Aufgabe der
+Bandbreite (±80%-Intervall), nicht des Punktschätzers, ein Punktschätzer
+sollte NICHT versuchen, Losglück vorherzusagen. Empfehlung: Spreizung
+nach Spieltag 4+ (wenn `form_factor` aktiv wird) erneut prüfen, vorher
+keine belastbare Aussage möglich.
+
 ## SPEC_spielertyp_matchkontext.md (2026-08-07, Prioritäten 1-3 umgesetzt)
 
 **Punktetyp-Index in k_eff (Priorität 1)**: `scoring.punktetyp_index(profile)`

@@ -954,29 +954,39 @@ def run_league(kb, cfg, run_timestamp):
                 print(f"⚠️ Wasserfall-Zerlegung fehlgeschlagen: {e}")
                 retrospective_teams = None
             if retrospective_teams:
-                # Sortiert nach höchster ABSOLUTER Abweichung (User-Wunsch) -
-                # die einzige Sortierung im ganzen Rückblick, keine zweite,
-                # abweichend sortierte Liste mehr daneben.
+                # AUSWERTUNG_spieltag2.md 3.2/5 (User-Feedback: "beantwortet
+                # nicht die Frage, die man zuerst hat: Wie stehe ich?"):
+                # sortiert jetzt nach dem ECHTEN erzielten Punktestand
+                # (Platzierung) statt nach Abweichung - die Abweichung bleibt
+                # als Zusatzinfo je Zeile erhalten, bestimmt aber nicht mehr
+                # die Reihenfolge. Zeigt ALLE Manager (Tabellen-Charakter),
+                # nicht nur die Top 5.
                 printable = sorted(
                     (t for t in retrospective_teams if "differenz" in t),
-                    key=lambda x: (-abs(x["differenz"]), x["uid"]))
+                    key=lambda x: (-x["ist"], x["uid"]))
             elif deviation:
                 # Wasserfall-Zerlegung nicht verfügbar (z.B. Player-Fetch
                 # fehlgeschlagen) - wenigstens den offiziellen Wert zeigen,
                 # explizit als Fallback gekennzeichnet, kein zweites System.
                 printable = [{"uid": r["uid"], "name": r["name"], "prognose": r["predicted"],
                              "ist": r["actual"], "differenz": r["diff"], "checksum_ok": True}
-                            for r in sorted(deviation["rows"], key=lambda x: (-abs(x["diff"]), x["uid"]))]
+                            for r in sorted(deviation["rows"], key=lambda x: (-x["actual"], x["uid"]))]
         if printable:
-            print(f"\n📉 RÜCKBLICK · Spieltag {last_completed_matchday} - Vorab-Prognose vs. "
-                  f"tatsächlicher (offizieller) Punktestand, Rang nach größter Abweichung:")
+            print(f"\n📉 RÜCKBLICK · Spieltag {last_completed_matchday} - offizielle "
+                  f"Platzierung, Prognoseabweichung als Zusatzinfo:")
             if retrospective_caveat:
                 print(f"   ℹ️ {retrospective_caveat}")
-            for i, t in enumerate(printable[:5], 1):
-                flag = "" if t.get("checksum_ok") else " ⚠️ Prüfsumme verletzt"
-                print(f"   {i}. {t['name']}: Vorab-Prognose {t['prognose']:.0f} P → "
-                      f"tatsächlich erzielt {t['ist']:.0f} P (Differenz {t['differenz']:+.0f}){flag}")
-                if "delta_einsatz" in t:
+            for i, t in enumerate(printable, 1):
+                flag = "" if t.get("checksum_ok", True) else " ⚠️ Prüfsumme verletzt"
+                print(f"   {i}. {t['name']}: {t['ist']:.0f} P "
+                      f"(Vorab-Prognose {t['prognose']:.0f} P, Differenz {t['differenz']:+.0f}){flag}")
+                if t.get("implausible"):
+                    pct = abs(t["ist"] - t["ist_spielersumme"]) / max(abs(t["prognose"]), 1) * 100
+                    print(f"      ⚠️ Zerlegung nicht möglich: Spieler-Summe "
+                          f"({t['ist_spielersumme']:.0f} P) weicht um {pct:.0f}% der Prognose "
+                          f"vom offiziellen Wert ({t['ist']:.0f} P) ab - Datenproblem "
+                          f"(vermutlich abweichende Aufstellung), keine Modellabweichung.")
+                elif "delta_einsatz" in t:
                     dl = f" · Datenlücke {t['delta_datenluecke']:+.0f}" if "delta_datenluecke" in t else ""
                     print(f"      davon erklärt: Einsatz {t['delta_einsatz']:+.0f} · "
                           f"Ausgang {t['delta_ausgang']:+.0f} · "

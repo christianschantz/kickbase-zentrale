@@ -79,6 +79,12 @@ def waterfall_player(factors, ist):
     return result
 
 
+# AUSWERTUNG_spieltag2.md 1.4: "übersteigt die nicht zuordenbare Größe einen
+# Schwellenwert (etwa 15% der Prognose), wird die Zerlegung unterdrückt,
+# statt eine Zahl zu erfinden, die absorbierten Datenfehler zeigt".
+PLAUSIBILITY_THRESHOLD = 0.15
+
+
 def waterfall_manager(prediction_entry, ist_by_player, official_actual=None):
     """
     prediction_entry: ein `managers[]`-Eintrag aus einer gespeicherten
@@ -137,19 +143,47 @@ def waterfall_manager(prediction_entry, ist_by_player, official_actual=None):
         # ist bereits auf 2 Nachkommastellen gerundet).
         tol = 0.02 * max(1, len(rows))
 
+        implausible = False
         if official_actual is not None and abs(official_actual - ist_total) > tol:
             datenluecke = round(official_actual - ist_total, 2)
-            team["delta_datenluecke"] = datenluecke
+            # AUSWERTUNG_spieltag2.md 1.4: übersteigt die Datenlücke einen
+            # Schwellenwert relativ zur Prognose, absorbiert sie faktisch
+            # ALLE anderen Posten (live belegt: PaulBowa Spieltag 2, Datenlücke
+            # -902 bei einer Prognose von 1092 - "Leistung" zeigte dabei sogar
+            # das ENTGEGENGESETZTE Vorzeichen der Gesamtdifferenz, ein
+            # Rechenartefakt, kein Erkenntnisgewinn). Root Cause geprüft
+            # (2026-08-21, live gegen die echte API): die ph[matchday]-
+            # Extraktion selbst ist korrekt (ap == Mittel der ph-Einträge,
+            # exakt nachgerechnet) - keine Verwechslung mit kumulierten
+            # Saisonpunkten. Die Diskrepanz kommt von der gespeicherten
+            # Aufstellung, die von der tatsächlichen Spieltags-11 abweicht
+            # (bekannte Einschränkung, s. retrospective_caveat) - bei so
+            # großen Lücken ist die Zuordnung aber nicht mehr NÄHERUNGSWEISE
+            # richtig, sondern schlicht falsch. Team-Summe (ist/differenz)
+            # bleibt korrekt (kommt vom offiziellen Wert, nicht der Zerlegung)
+            # - nur die granulare Einsatz/Ausgang/Zu-Null/Leistung-Aufteilung
+            # wird unterdrückt (`implausible=True`), s. waterfall_player()-
+            # Kaskade bleibt technisch unverändert korrekt, ist hier nur
+            # inhaltlich nicht mehr aussagekräftig.
+            if abs(datenluecke) > PLAUSIBILITY_THRESHOLD * max(abs(prognose), 1.0):
+                implausible = True
+            else:
+                team["delta_datenluecke"] = datenluecke
             team["ist_spielersumme"] = ist_total  # Debug/Nachvollziehbarkeit
             ist_total = round(official_actual, 2)
-            checksum = round(checksum + datenluecke, 2)
+            if not implausible:
+                checksum = round(checksum + datenluecke, 2)
 
         differenz = round(ist_total - prognose, 2)
         team.update({
             "prognose": prognose, "ist": ist_total, "differenz": differenz,
-            "delta_leistung": delta_leistung,
-            "checksum_ok": abs(checksum - differenz) < tol,
+            "implausible": implausible,
         })
+        if not implausible:
+            team.update({
+                "delta_leistung": delta_leistung,
+                "checksum_ok": abs(checksum - differenz) < tol,
+            })
     return team
 
 
